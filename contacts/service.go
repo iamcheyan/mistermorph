@@ -304,12 +304,12 @@ func (s *Service) resolveSendContact(ctx context.Context, contactID string) (Con
 
 func contactNotFoundError(contactID string) error {
 	contactID = strings.TrimSpace(contactID)
-	if protocol, _, ok := refid.Parse(contactID); ok {
+	if protocol, id, ok := refid.Parse(contactID); ok {
 		switch protocol {
 		case "tg", "slack":
 			return fmt.Errorf("contact not found: %s", contactID)
 		default:
-			return fmt.Errorf("hint: protocol '%q' is not mapped. Try to find other ways to send to '%s' in protocol/tool '%s'.", protocol, contactID, protocol)
+			return fmt.Errorf("hint: protocol '%q' is not mapped. Try to find other ways to send to '%s' in protocol/tool '%s'.", protocol, id, protocol)
 		}
 	}
 	return fmt.Errorf("contact not found: %s", contactID)

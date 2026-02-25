@@ -170,8 +170,8 @@ func TestSendDecisionUnknownProtocolNotFoundSuggestsProtocolChannel(t *testing.T
 	if !strings.Contains(msg, "hint: protocol") {
 		t.Fatalf("missing protocol hint prefix, got %q", msg)
 	}
-	if !strings.Contains(msg, "aqua:abc123") {
-		t.Fatalf("missing contact id in hint, got %q", msg)
+	if !strings.Contains(msg, "'abc123'") {
+		t.Fatalf("missing contact peer id in hint, got %q", msg)
 	}
 	if !strings.Contains(msg, "protocol/tool 'aqua'") {
 		t.Fatalf("missing protocol delivery hint, got %q", msg)
