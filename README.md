@@ -461,3 +461,9 @@ Key meanings (see `assets/config/config.example.yaml` for the canonical list):
 - Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout.
 - Skills: `skills.enabled` controls whether skills are used; `file_state_dir` + `skills.dir_name` define the default skills root; `skills.load=[]` loads all discovered skills, otherwise it loads only listed skills (unknown names are ignored).
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
+
+## Star History
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=quailyquaily/mistermorph&type=date&legend=top-left)](https://www.star-history.com/#quailyquaily/mistermorph&type=date&legend=top-left)
