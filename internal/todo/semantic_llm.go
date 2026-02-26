@@ -29,9 +29,6 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 }
 
 func (r *LLMSemanticResolver) MatchCompleteIndex(ctx context.Context, query string, entries []Entry) (int, error) {
-	if err := r.validateReady(); err != nil {
-		return -1, err
-	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return -1, fmt.Errorf("content is required")
@@ -111,14 +108,4 @@ func (r *LLMSemanticResolver) MatchCompleteIndex(ctx context.Context, query stri
 	default:
 		return -1, fmt.Errorf("invalid semantic match status: %s", strings.TrimSpace(out.Status))
 	}
-}
-
-func (r *LLMSemanticResolver) validateReady() error {
-	if r == nil || r.Client == nil {
-		return fmt.Errorf("todo semantic resolver missing llm client")
-	}
-	if strings.TrimSpace(r.Model) == "" {
-		return fmt.Errorf("todo semantic resolver missing llm model")
-	}
-	return nil
 }

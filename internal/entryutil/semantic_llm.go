@@ -23,9 +23,6 @@ func NewLLMSemanticResolver(client llm.Client, model string) *LLMSemanticResolve
 }
 
 func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items []SemanticItem) ([]int, error) {
-	if err := r.validateReady(); err != nil {
-		return nil, err
-	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no entries to dedupe")
 	}
@@ -46,7 +43,7 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 		"Entries are listed newest-first (index 0 is newest).",
 		"When items are semantically duplicates, keep only one representative.",
 		"Prefer the entry with clearer action detail and explicit reference ids in parentheses.",
-		"Token limitation: the max_tokens is 2048."
+		"Token limitation: the max_tokens is 2048.",
 		"`keep_indices` must contain unique integer indices that exist in input.",
 		"`keep_indices` must not be empty.",
 	}, " ")
@@ -74,14 +71,4 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 		return nil, fmt.Errorf("invalid semantic_dedup response: %w, text=%s", err, res.Text)
 	}
 	return append([]int(nil), out.KeepIndices...), nil
-}
-
-func (r *LLMSemanticResolver) validateReady() error {
-	if r == nil || r.Client == nil {
-		return fmt.Errorf("semantic resolver missing llm client")
-	}
-	if strings.TrimSpace(r.Model) == "" {
-		return fmt.Errorf("semantic resolver missing llm model")
-	}
-	return nil
 }

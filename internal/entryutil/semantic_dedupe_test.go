@@ -68,3 +68,19 @@ func TestResolveKeepIndicesFallsBackToNewestWhenAllInvalid(t *testing.T) {
 		t.Fatalf("keep indices = %#v, want %#v", got, want)
 	}
 }
+
+func TestResolveKeepIndicesFallsBackToNewestWhenResolverMissing(t *testing.T) {
+	items := []SemanticItem{
+		{CreatedAt: "2026-02-09 10:02", Content: "newest"},
+		{CreatedAt: "2026-02-09 10:01", Content: "a"},
+	}
+
+	got, err := ResolveKeepIndices(context.Background(), items, nil)
+	if err != nil {
+		t.Fatalf("ResolveKeepIndices() error = %v", err)
+	}
+	want := []int{0}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("keep indices = %#v, want %#v", got, want)
+	}
+}

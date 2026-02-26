@@ -2,7 +2,7 @@ package entryutil
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -36,7 +36,8 @@ func ResolveKeepIndices(ctx context.Context, items []SemanticItem, resolver Sema
 		return []int{0}, nil
 	}
 	if resolver == nil {
-		return nil, fmt.Errorf("semantic resolver is required")
+		slog.Error("failed to use resolver, it's nil")
+		return []int{0}, nil
 	}
 
 	keepIndices, err := resolver.SelectDedupKeepIndices(ctx, items)
