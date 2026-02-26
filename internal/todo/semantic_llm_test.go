@@ -42,7 +42,7 @@ func TestLLMSemanticResolverSelectDedupKeepIndices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SelectDedupKeepIndices() error = %v", err)
 	}
-	if len(indices) != 2 || indices[0] != 0 || indices[1] != 2 {
+	if len(indices) != 3 || indices[0] != 0 || indices[1] != 2 || indices[2] != 2 {
 		t.Fatalf("unexpected keep indices: %#v", indices)
 	}
 	if len(client.calls) != 1 || !client.calls[0].ForceJSON {

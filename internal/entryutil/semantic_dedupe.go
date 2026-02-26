@@ -43,15 +43,12 @@ func ResolveKeepIndices(ctx context.Context, items []SemanticItem, resolver Sema
 	if err != nil {
 		return nil, err
 	}
-	if len(keepIndices) == 0 {
-		return nil, fmt.Errorf("semantic dedupe returned empty keep_indices")
-	}
 
 	seen := make(map[int]bool, len(keepIndices))
 	out := make([]int, 0, len(keepIndices))
 	for _, idx := range keepIndices {
 		if idx < 0 || idx >= len(items) {
-			return nil, fmt.Errorf("semantic dedupe index out of range: %d", idx)
+			continue
 		}
 		if seen[idx] {
 			continue
@@ -59,12 +56,9 @@ func ResolveKeepIndices(ctx context.Context, items []SemanticItem, resolver Sema
 		seen[idx] = true
 		out = append(out, idx)
 	}
+	if !seen[0] {
+		out = append(out, 0)
+	}
 	sort.Ints(out)
-	if len(out) == 0 {
-		return nil, fmt.Errorf("semantic dedupe returned empty keep_indices")
-	}
-	if out[0] != 0 {
-		return nil, fmt.Errorf("semantic dedupe must keep the newest item")
-	}
 	return out, nil
 }

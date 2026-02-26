@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
@@ -47,8 +46,9 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 		"Entries are listed newest-first (index 0 is newest).",
 		"When items are semantically duplicates, keep only one representative.",
 		"Prefer the entry with clearer action detail and explicit reference ids in parentheses.",
-		"keep_indices must contain unique integer indices that exist in input.",
-		"keep_indices must not be empty.",
+		"Token limitation: the max_tokens is 2048."
+		"`keep_indices` must contain unique integer indices that exist in input.",
+		"`keep_indices` must not be empty.",
 	}, " ")
 
 	res, err := r.Client.Chat(ctx, llm.Request{
@@ -60,7 +60,7 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 		},
 		Parameters: map[string]any{
 			"temperature": 0,
-			"max_tokens":  600,
+			"max_tokens":  2048,
 		},
 	})
 	if err != nil {
@@ -71,26 +71,9 @@ func (r *LLMSemanticResolver) SelectDedupKeepIndices(ctx context.Context, items 
 		KeepIndices []int `json:"keep_indices"`
 	}
 	if err := jsonutil.DecodeWithFallback(res.Text, &out); err != nil {
-		return nil, fmt.Errorf("invalid semantic_dedup response: %w", err)
+		return nil, fmt.Errorf("invalid semantic_dedup response: %w, text=%s", err, res.Text)
 	}
-	if len(out.KeepIndices) == 0 {
-		return nil, fmt.Errorf("semantic dedupe returned empty keep_indices")
-	}
-
-	seen := make(map[int]bool, len(out.KeepIndices))
-	indices := make([]int, 0, len(out.KeepIndices))
-	for _, idx := range out.KeepIndices {
-		if idx < 0 || idx >= len(items) {
-			return nil, fmt.Errorf("semantic dedupe index out of range: %d", idx)
-		}
-		if seen[idx] {
-			continue
-		}
-		seen[idx] = true
-		indices = append(indices, idx)
-	}
-	sort.Ints(indices)
-	return indices, nil
+	return append([]int(nil), out.KeepIndices...), nil
 }
 
 func (r *LLMSemanticResolver) validateReady() error {
