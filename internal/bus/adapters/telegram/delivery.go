@@ -12,7 +12,8 @@ import (
 type SendTextFunc func(ctx context.Context, target any, text string, opts SendTextOptions) error
 
 type SendTextOptions struct {
-	ReplyTo string
+	ReplyTo       string
+	CorrelationID string
 }
 
 type DeliveryAdapterOptions struct {
@@ -57,7 +58,8 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 		replyTo = strings.TrimSpace(env.ReplyTo)
 	}
 	if err := a.sendText(ctx, target, text, SendTextOptions{
-		ReplyTo: replyTo,
+		ReplyTo:       replyTo,
+		CorrelationID: strings.TrimSpace(msg.CorrelationID),
 	}); err != nil {
 		return false, false, err
 	}

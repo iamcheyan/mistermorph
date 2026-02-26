@@ -53,6 +53,11 @@ type telegramChatWorker struct {
 	Version uint64
 }
 
+type telegramPlanProgressEditState struct {
+	CorrelationID string
+	MessageID     int64
+}
+
 func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
 	if !initRequired {
 		return false
@@ -263,6 +268,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	api := newTelegramAPI(httpClient, baseURL, token)
+	var (
+		planProgressEditMu    sync.Mutex
+		planProgressStateByID = make(map[int64]telegramPlanProgressEditState)
+	)
 	telegramDeliveryAdapter, err = telegrambus.NewDeliveryAdapter(telegrambus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
 			chatID, ok := target.(int64)
@@ -277,6 +286,33 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					return fmt.Errorf("telegram reply_to is invalid")
 				}
 				replyToMessageID = parsed
+			}
+			correlationID := strings.TrimSpace(opts.CorrelationID)
+			if telegramOutboundKind(correlationID) == "plan_progress" {
+				var state telegramPlanProgressEditState
+				planProgressEditMu.Lock()
+				state = planProgressStateByID[chatID]
+				planProgressEditMu.Unlock()
+				if state.MessageID > 0 && strings.EqualFold(state.CorrelationID, correlationID) {
+					if err := api.editMessageHTML(ctx, chatID, state.MessageID, text, true); err == nil || isTelegramMessageNotModified(err) {
+						return nil
+					} else {
+						logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", state.MessageID, "correlation_id", correlationID, "error", err.Error())
+					}
+				}
+				messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, text, replyToMessageID)
+				if err != nil {
+					return err
+				}
+				if messageID > 0 && correlationID != "" {
+					planProgressEditMu.Lock()
+					planProgressStateByID[chatID] = telegramPlanProgressEditState{
+						CorrelationID: correlationID,
+						MessageID:     messageID,
+					}
+					planProgressEditMu.Unlock()
+				}
+				return nil
 			}
 			return api.sendMessageChunkedReply(ctx, chatID, text, replyToMessageID)
 		},
@@ -1161,6 +1197,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					w.Version++
 				}
 				mu.Unlock()
+				planProgressEditMu.Lock()
+				delete(planProgressStateByID, chatID)
+				planProgressEditMu.Unlock()
 				_ = api.sendMessageHTML(context.Background(), chatID, "ok (reset)", true)
 				continue
 			case "/echo":

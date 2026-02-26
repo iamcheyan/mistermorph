@@ -253,6 +253,14 @@ type telegramSendMessageRequest struct {
 	ReplyToMessageID      int64  `json:"reply_to_message_id,omitempty"`
 }
 
+type telegramEditMessageTextRequest struct {
+	ChatID                int64  `json:"chat_id"`
+	MessageID             int64  `json:"message_id"`
+	Text                  string `json:"text"`
+	ParseMode             string `json:"parse_mode,omitempty"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
+}
+
 type telegramSendChatActionRequest struct {
 	ChatID int64  `json:"chat_id"`
 	Action string `json:"action"`
@@ -272,9 +280,10 @@ type telegramSetMessageReactionRequest struct {
 }
 
 type telegramOKResponse struct {
-	OK          bool   `json:"ok"`
-	ErrorCode   int    `json:"error_code,omitempty"`
-	Description string `json:"description,omitempty"`
+	OK          bool            `json:"ok"`
+	ErrorCode   int             `json:"error_code,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
 }
 
 type telegramFile struct {
@@ -398,6 +407,11 @@ func (api *telegramAPI) sendMessageMarkdownV1Reply(ctx context.Context, chatID i
 }
 
 func (api *telegramAPI) sendMessageHTMLReply(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) error {
+	_, err := api.sendMessageHTMLReplyWithMessageID(ctx, chatID, text, disablePreview, replyToMessageID)
+	return err
+}
+
+func (api *telegramAPI) sendMessageHTMLReplyWithMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) (int64, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = "(empty)"
@@ -405,17 +419,39 @@ func (api *telegramAPI) sendMessageHTMLReply(ctx context.Context, chatID int64, 
 	converted, convErr := renderTelegramHTMLFromMarkdown(text)
 	if convErr != nil {
 		slog.Warn("failed to render telegram html", "text", text, "error", convErr)
-		return api.sendMessageWithParseModeReply(ctx, chatID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, "", replyToMessageID)
 	}
 
-	err := api.sendMessageWithParseModeReply(ctx, chatID, converted, disablePreview, "HTML", replyToMessageID)
+	messageID, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, converted, disablePreview, "HTML", replyToMessageID)
 	if err != nil {
 		if !isTelegramEntityParseError(err) {
 			slog.Warn("failed to send telegram html message", "text", text, "error", err)
-			return err
+			return 0, err
 		}
 		slog.Warn("failed to parse telegram html entities; send plain-text fallback", "text", text, "error", err)
-		return api.sendMessageWithParseModeReply(ctx, chatID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, "", replyToMessageID)
+	}
+	return messageID, nil
+}
+
+func (api *telegramAPI) editMessageHTML(ctx context.Context, chatID int64, messageID int64, text string, disablePreview bool) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = "(empty)"
+	}
+	converted, convErr := renderTelegramHTMLFromMarkdown(text)
+	if convErr != nil {
+		slog.Warn("failed to render telegram html", "text", text, "error", convErr)
+		return api.editMessageWithParseMode(ctx, chatID, messageID, text, disablePreview, "")
+	}
+	err := api.editMessageWithParseMode(ctx, chatID, messageID, converted, disablePreview, "HTML")
+	if err != nil {
+		if !isTelegramEntityParseError(err) {
+			slog.Warn("failed to edit telegram html message", "text", text, "error", err)
+			return err
+		}
+		slog.Warn("failed to parse telegram html entities while editing; use plain-text fallback", "text", text, "error", err)
+		return api.editMessageWithParseMode(ctx, chatID, messageID, text, disablePreview, "")
 	}
 	return nil
 }
@@ -466,16 +502,37 @@ func isTelegramEntityParseError(err error) bool {
 	return strings.Contains(msg, "can't parse entities") || strings.Contains(msg, "can't parse entity")
 }
 
+func isTelegramMessageNotModified(err error) bool {
+	if err == nil {
+		return false
+	}
+	var reqErr *telegramRequestError
+	if errors.As(err, &reqErr) {
+		desc := strings.ToLower(strings.TrimSpace(reqErr.Description))
+		if strings.Contains(desc, "message is not modified") {
+			return true
+		}
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "message is not modified")
+}
+
 func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, text string) error {
 	return api.sendMessageChunkedReply(ctx, chatID, text, 0)
 }
 
 func (api *telegramAPI) sendMessageChunkedReply(ctx context.Context, chatID int64, text string, replyToMessageID int64) error {
+	_, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, text, replyToMessageID)
+	return err
+}
+
+func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Context, chatID int64, text string, replyToMessageID int64) (int64, error) {
 	const max = 3500
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return api.sendMessageHTMLReply(ctx, chatID, "(empty)", true, replyToMessageID)
+		return api.sendMessageHTMLReplyWithMessageID(ctx, chatID, "(empty)", true, replyToMessageID)
 	}
+	firstMessageID := int64(0)
 	isFirstChunk := true
 	for len(text) > 0 {
 		chunk := text
@@ -486,16 +543,25 @@ func (api *telegramAPI) sendMessageChunkedReply(ctx context.Context, chatID int6
 		if isFirstChunk {
 			chunkReplyTo = replyToMessageID
 		}
-		if err := api.sendMessageHTMLReply(ctx, chatID, chunk, true, chunkReplyTo); err != nil {
-			return err
+		messageID, err := api.sendMessageHTMLReplyWithMessageID(ctx, chatID, chunk, true, chunkReplyTo)
+		if err != nil {
+			return 0, err
+		}
+		if isFirstChunk {
+			firstMessageID = messageID
 		}
 		text = strings.TrimSpace(text[len(chunk):])
 		isFirstChunk = false
 	}
-	return nil
+	return firstMessageID, nil
 }
 
 func (api *telegramAPI) sendMessageWithParseModeReply(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) error {
+	_, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, parseMode, replyToMessageID)
+	return err
+}
+
+func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {
 	reqBody := telegramSendMessageRequest{
 		ChatID:                chatID,
 		Text:                  text,
@@ -505,6 +571,57 @@ func (api *telegramAPI) sendMessageWithParseModeReply(ctx context.Context, chatI
 	}
 	b, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/bot%s/sendMessage", api.baseURL, api.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var out telegramOKResponse
+	_ = json.Unmarshal(raw, &out)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, &telegramRequestError{
+			StatusCode:  resp.StatusCode,
+			ErrorCode:   out.ErrorCode,
+			Description: out.Description,
+			Body:        strings.TrimSpace(string(raw)),
+		}
+	}
+	if !out.OK {
+		return 0, &telegramRequestError{
+			StatusCode:  resp.StatusCode,
+			ErrorCode:   out.ErrorCode,
+			Description: out.Description,
+			Body:        strings.TrimSpace(string(raw)),
+		}
+	}
+	if len(out.Result) == 0 {
+		return 0, nil
+	}
+	var result struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := json.Unmarshal(out.Result, &result); err != nil {
+		return 0, nil
+	}
+	return result.MessageID, nil
+}
+
+func (api *telegramAPI) editMessageWithParseMode(ctx context.Context, chatID int64, messageID int64, text string, disablePreview bool, parseMode string) error {
+	reqBody := telegramEditMessageTextRequest{
+		ChatID:                chatID,
+		MessageID:             messageID,
+		Text:                  text,
+		ParseMode:             strings.TrimSpace(parseMode),
+		DisableWebPagePreview: disablePreview,
+	}
+	b, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/bot%s/editMessageText", api.baseURL, api.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
 		return err

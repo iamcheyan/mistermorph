@@ -15,6 +15,7 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	var gotChatID int64
 	var gotText string
 	var gotReplyTo string
+	var gotCorrelationID string
 	calls := 0
 	adapter, err := NewDeliveryAdapter(DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts SendTextOptions) error {
@@ -25,6 +26,7 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 			gotChatID = id
 			gotText = text
 			gotReplyTo = opts.ReplyTo
+			gotCorrelationID = opts.CorrelationID
 			calls++
 			return nil
 		},
@@ -78,6 +80,9 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	}
 	if gotReplyTo != "98765" {
 		t.Fatalf("reply_to mismatch: got %q want %q", gotReplyTo, "98765")
+	}
+	if gotCorrelationID != "corr_3" {
+		t.Fatalf("correlation_id mismatch: got %q want %q", gotCorrelationID, "corr_3")
 	}
 }
 
