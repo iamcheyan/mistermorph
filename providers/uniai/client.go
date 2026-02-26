@@ -148,11 +148,11 @@ func isGeminiModel(model string) bool {
 	if model == "" {
 		return false
 	}
-	return strings.Contains(model, "gemini")
+	return strings.HasPrefix(model, "gemini-") || strings.Contains(model, "/gemini-")
 }
 
-func shouldEnsureGeminiThoughtSignature(provider, model string) bool {
-	return strings.EqualFold(strings.TrimSpace(provider), "gemini") || isGeminiModel(model)
+func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
 func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, debugFn func(label, payload string)) []uniaiapi.ChatOption {

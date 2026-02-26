@@ -187,6 +187,16 @@ func TestIsGeminiModel(t *testing.T) {
 			model: "",
 			want:  false,
 		},
+		{
+			name:  "bare gemini without hyphen",
+			model: "gemini",
+			want:  false,
+		},
+		{
+			name:  "contains gemini but not valid marker",
+			model: "mygemini-3-pro",
+			want:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,10 +222,22 @@ func TestShouldEnsureGeminiThoughtSignature(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "non gemini provider with gemini model",
+			name:     "openai provider with gemini model",
 			provider: "openai",
 			model:    "carrot/gemini-3-pro",
-			want:     true,
+			want:     false,
+		},
+		{
+			name:     "empty provider with gemini model",
+			provider: "",
+			model:    "carrot/gemini-3-pro",
+			want:     false,
+		},
+		{
+			name:     "other provider with gemini model",
+			provider: "anthropic",
+			model:    "carrot/gemini-3-pro",
+			want:     false,
 		},
 		{
 			name:     "non gemini provider and model",
