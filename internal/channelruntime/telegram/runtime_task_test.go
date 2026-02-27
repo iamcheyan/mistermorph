@@ -1,8 +1,10 @@
 package telegram
 
 import (
+	"context"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
@@ -74,5 +76,63 @@ func TestShouldSkipTaskMessage(t *testing.T) {
 	}
 	if got := shouldSkipTaskMessage(telegramJob{IsHeartbeat: false}); !got {
 		t.Fatalf("non-heartbeat should skip task message")
+	}
+}
+
+func TestGenerateTelegramPlanProgressMessageProgrammaticFormat(t *testing.T) {
+	plan := &agent.Plan{
+		Steps: []agent.PlanStep{
+			{Step: "scan repo", Status: agent.PlanStatusCompleted},
+			{Step: "patch bug", Status: agent.PlanStatusInProgress},
+		},
+	}
+	msg, err := generateTelegramPlanProgressMessage(
+		context.Background(),
+		nil,
+		"",
+		"fix this flow",
+		plan,
+		agent.PlanStepUpdate{
+			CompletedIndex: 0,
+			CompletedStep:  "scan repo",
+			StartedIndex:   1,
+			StartedStep:    "patch bug",
+		},
+		0,
+	)
+	if err != nil {
+		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
+	}
+	if msg != "patch bug" {
+		t.Fatalf("message = %q, want %q", msg, "patch bug")
+	}
+}
+
+func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing.T) {
+	plan := &agent.Plan{
+		Steps: []agent.PlanStep{
+			{Step: "检查日志", Status: agent.PlanStatusCompleted},
+			{Step: "修复问题", Status: agent.PlanStatusPending},
+		},
+	}
+	msg, err := generateTelegramPlanProgressMessage(
+		context.Background(),
+		nil,
+		"",
+		"请处理这个问题",
+		plan,
+		agent.PlanStepUpdate{
+			CompletedIndex: 0,
+			CompletedStep:  "",
+			StartedIndex:   1,
+			StartedStep:    "",
+		},
+		0,
+	)
+	if err != nil {
+		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
+	}
+	if msg != "修复问题" {
+		t.Fatalf("message = %q, want %q", msg, "修复问题")
 	}
 }

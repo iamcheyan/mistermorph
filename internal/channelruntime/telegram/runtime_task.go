@@ -13,7 +13,6 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/retryutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -258,62 +257,40 @@ func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Regi
 }
 
 func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client, model string, task string, plan *agent.Plan, update agent.PlanStepUpdate, requestTimeout time.Duration) (string, error) {
-	if client == nil || plan == nil || update.CompletedIndex < 0 {
-		return "", nil
-	}
-	total := len(plan.Steps)
-	if total == 0 {
-		return "", nil
-	}
+	_ = ctx
+	_ = client
+	_ = model
+	_ = task
+	_ = requestTimeout
 
-	completed := 0
-	for i := range plan.Steps {
-		if plan.Steps[i].Status == agent.PlanStatusCompleted {
-			completed++
+	if plan == nil || update.CompletedIndex < 0 {
+		return "", nil
+	}
+	stepText := firstNonEmpty(
+		strings.TrimSpace(update.StartedStep),
+		stepByIndex(plan, update.StartedIndex),
+		strings.TrimSpace(update.CompletedStep),
+		stepByIndex(plan, update.CompletedIndex),
+	)
+	if stepText == "" {
+		return "", nil
+	}
+	return stepText, nil
+}
+
+func stepByIndex(plan *agent.Plan, index int) string {
+	if plan == nil || index < 0 || index >= len(plan.Steps) {
+		return ""
+	}
+	return strings.TrimSpace(plan.Steps[index].Step)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			return v
 		}
 	}
-
-	payload := map[string]any{
-		"task":             strings.TrimSpace(task),
-		"plan_summary":     strings.TrimSpace(plan.Summary),
-		"completed_index":  update.CompletedIndex,
-		"completed_step":   strings.TrimSpace(update.CompletedStep),
-		"next_index":       update.StartedIndex,
-		"next_step":        strings.TrimSpace(update.StartedStep),
-		"steps_completed":  completed,
-		"steps_total":      total,
-		"progress_percent": int(float64(completed) / float64(total) * 100),
-	}
-	systemPrompt, userPrompt, err := renderTelegramPlanProgressPrompts(payload)
-	if err != nil {
-		return "", err
-	}
-
-	req := llm.Request{
-		Model:     model,
-		ForceJSON: false,
-		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		Parameters: map[string]any{
-			"max_tokens": 4096,
-		},
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	planCtx := ctx
-	cancel := func() {}
-	if requestTimeout > 0 {
-		planCtx, cancel = context.WithTimeout(ctx, requestTimeout)
-	}
-	defer cancel()
-
-	result, err := client.Chat(llminspect.WithModelScene(planCtx, "telegram.plan_progress"), req)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(result.Text), nil
+	return ""
 }

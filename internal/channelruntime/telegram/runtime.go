@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	htmlstd "html"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -56,6 +57,7 @@ type telegramChatWorker struct {
 type telegramPlanProgressEditState struct {
 	CorrelationID string
 	MessageID     int64
+	Lines         []string
 }
 
 func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
@@ -293,23 +295,32 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				planProgressEditMu.Lock()
 				state = planProgressStateByID[chatID]
 				planProgressEditMu.Unlock()
-				if state.MessageID > 0 && strings.EqualFold(state.CorrelationID, correlationID) {
-					if err := api.editMessageHTML(ctx, chatID, state.MessageID, text, true); err == nil || isTelegramMessageNotModified(err) {
+				line := strings.TrimSpace(text)
+				if line == "" {
+					return nil
+				}
+				nextState, rendered := nextTelegramPlanProgressState(state, correlationID, line)
+				if rendered == "" {
+					return nil
+				}
+				if nextState.MessageID > 0 && strings.EqualFold(nextState.CorrelationID, correlationID) {
+					if err := api.editMessageHTML(ctx, chatID, nextState.MessageID, rendered, true); err == nil || isTelegramMessageNotModified(err) {
+						planProgressEditMu.Lock()
+						planProgressStateByID[chatID] = nextState
+						planProgressEditMu.Unlock()
 						return nil
 					} else {
-						logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", state.MessageID, "correlation_id", correlationID, "error", err.Error())
+						logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", nextState.MessageID, "correlation_id", correlationID, "error", err.Error())
 					}
 				}
-				messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, text, replyToMessageID)
+				messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, rendered, replyToMessageID)
 				if err != nil {
 					return err
 				}
 				if messageID > 0 && correlationID != "" {
+					nextState.MessageID = messageID
 					planProgressEditMu.Lock()
-					planProgressStateByID[chatID] = telegramPlanProgressEditState{
-						CorrelationID: correlationID,
-						MessageID:     messageID,
-					}
+					planProgressStateByID[chatID] = nextState
 					planProgressEditMu.Unlock()
 				}
 				return nil
@@ -1436,6 +1447,40 @@ func telegramOutboundKind(correlationID string) string {
 	default:
 		return "message"
 	}
+}
+
+func nextTelegramPlanProgressState(state telegramPlanProgressEditState, correlationID string, line string) (telegramPlanProgressEditState, string) {
+	correlationID = strings.TrimSpace(correlationID)
+	line = strings.TrimSpace(line)
+	next := telegramPlanProgressEditState{
+		CorrelationID: correlationID,
+	}
+	if line == "" {
+		return next, ""
+	}
+
+	if state.MessageID > 0 && strings.EqualFold(strings.TrimSpace(state.CorrelationID), correlationID) {
+		next.MessageID = state.MessageID
+		next.Lines = append(next.Lines, state.Lines...)
+	}
+
+	next.Lines = append(next.Lines, line)
+	return next, renderTelegramPlanProgressExpandable(next.Lines)
+}
+
+func renderTelegramPlanProgressExpandable(lines []string) string {
+	reversed := make([]string, 0, len(lines))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		reversed = append(reversed, fmt.Sprintf("🤔 %d. %s", i+1, htmlstd.EscapeString(line)))
+	}
+	if len(reversed) == 0 {
+		return ""
+	}
+	return "<blockquote expandable>" + strings.Join(reversed, "<br>") + "</blockquote>"
 }
 
 func telegramTaskID(chatID int64, messageID int64) string {
