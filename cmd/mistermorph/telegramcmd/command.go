@@ -8,6 +8,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +49,9 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return telegramruntime.Run(cmd.Context(), telegramruntime.Dependencies(d), runOpts)
+			deps := telegramruntime.Dependencies(d)
+			deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			return telegramruntime.Run(cmd.Context(), deps, runOpts)
 		},
 	}
 

@@ -50,13 +50,12 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
 	if baseReg == nil {
 		baseReg = registryFromDeps(d)
-		toolsutil.BindTodoUpdateToolLLM(baseReg, client, model)
+		toolsutil.RegisterRuntimeTools(baseReg, d.RuntimeToolsConfig, client, model)
 	}
 
 	// Per-run registry.
 	reg := buildTelegramRegistry(baseReg, job.ChatType)
-	registerPlanTool(d, reg, client, model)
-	toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
 		Channel:          "telegram",
 		ChatType:         job.ChatType,

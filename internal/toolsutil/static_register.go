@@ -14,6 +14,7 @@ const (
 	BuiltinBash         = "bash"
 	BuiltinURLFetch     = "url_fetch"
 	BuiltinWebSearch    = "web_search"
+	BuiltinPlanCreate   = "plan_create"
 	BuiltinTodoUpdate   = "todo_update"
 	BuiltinContactsSend = "contacts_send"
 )
@@ -24,6 +25,7 @@ var builtinToolNameSet = map[string]struct{}{
 	BuiltinBash:         {},
 	BuiltinURLFetch:     {},
 	BuiltinWebSearch:    {},
+	BuiltinPlanCreate:   {},
 	BuiltinTodoUpdate:   {},
 	BuiltinContactsSend: {},
 }
@@ -35,7 +37,6 @@ type StaticRegistryConfig struct {
 	Bash         StaticBashConfig
 	URLFetch     StaticURLFetchConfig
 	WebSearch    StaticWebSearchConfig
-	TodoUpdate   StaticTodoUpdateConfig
 	ContactsSend StaticContactsSendConfig
 }
 
@@ -76,13 +77,6 @@ type StaticWebSearchConfig struct {
 	Timeout    time.Duration
 	MaxResults int
 	BaseURL    string
-}
-
-type StaticTodoUpdateConfig struct {
-	Enabled      bool
-	TODOPathWIP  string
-	TODOPathDone string
-	ContactsDir  string
 }
 
 type StaticContactsSendConfig struct {
@@ -165,15 +159,6 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			cfg.WebSearch.Timeout,
 			cfg.WebSearch.MaxResults,
 			strings.TrimSpace(cfg.Common.UserAgent),
-		))
-	}
-
-	if isSelected(BuiltinTodoUpdate) && cfg.TodoUpdate.Enabled {
-		reg.Register(builtin.NewTodoUpdateTool(
-			true,
-			cfg.TodoUpdate.TODOPathWIP,
-			cfg.TodoUpdate.TODOPathDone,
-			cfg.TodoUpdate.ContactsDir,
 		))
 	}
 

@@ -140,10 +140,17 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		reg = rt.buildRegistry(snap.Registry, logger)
 	}
 
-	if rt.features.PlanTool {
-		toolsutil.RegisterPlanTool(reg, client, snap.LLMModel)
-	}
-	toolsutil.BindTodoUpdateToolLLM(reg, client, snap.LLMModel)
+	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
+	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
+	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{
+		PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
+		TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
+			Enabled:      todoEnabled,
+			TODOPathWIP:  snap.Registry.TODOPathWIP,
+			TODOPathDone: snap.Registry.TODOPathDone,
+			ContactsDir:  snap.Registry.ContactsDir,
+		},
+	}, client, snap.LLMModel)
 
 	skillAuthProfiles := []string{}
 	promptSpec := agent.DefaultPromptSpec()
@@ -158,9 +165,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
-	if rt.features.PlanTool {
-		promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	}
+	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 
 	opts := []agent.Option{
 		agent.WithLogger(logger),
@@ -212,6 +217,22 @@ func cloneRegistry(base *tools.Registry) *tools.Registry {
 		out.Register(t)
 	}
 	return out
+}
+
+func (rt *Runtime) isBuiltinToolSelected(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" || rt == nil {
+		return false
+	}
+	if len(rt.builtinToolNames) == 0 {
+		return true
+	}
+	for _, item := range rt.builtinToolNames {
+		if item == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (rt *Runtime) wrapClientWithInspect(client llm.Client, task string, inspect InspectOptions) (llm.Client, func() error, error) {

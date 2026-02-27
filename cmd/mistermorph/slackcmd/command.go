@@ -7,6 +7,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,9 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
-			return slackruntime.Run(cmd.Context(), slackruntime.Dependencies(d), runOpts)
+			deps := slackruntime.Dependencies(d)
+			deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			return slackruntime.Run(cmd.Context(), deps, runOpts)
 		},
 	}
 

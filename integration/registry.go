@@ -108,12 +108,6 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			MaxResults: cfg.ToolsWebSearchMaxResults,
 			BaseURL:    cfg.ToolsWebSearchBaseURL,
 		},
-		TodoUpdate: toolsutil.StaticTodoUpdateConfig{
-			Enabled:      cfg.ToolsTodoUpdateEnabled,
-			TODOPathWIP:  cfg.TODOPathWIP,
-			TODOPathDone: cfg.TODOPathDone,
-			ContactsDir:  cfg.ContactsDir,
-		},
 		ContactsSend: toolsutil.StaticContactsSendConfig{
 			Enabled:          cfg.ToolsContactsSendEnabled,
 			ContactsDir:      cfg.ContactsDir,

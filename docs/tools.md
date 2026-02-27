@@ -1,6 +1,6 @@
 # Tools Reference
 
-This document describes the built-in and runtime-injected tool parameters currently implemented in the codebase (based on `tools/builtin/*.go`, `tools/telegram/*.go`, `cmd/mistermorph/registry.go`, `internal/toolsutil/*.go`, `internal/channelruntime/{telegram,slack}/*.go`, and `integration/*.go`).
+This document describes the built-in and runtime-injected tool parameters currently implemented in the codebase (based on the current tool constructors/registrars and runtime wiring functions).
 
 ## Registration and Availability
 
@@ -9,65 +9,67 @@ This document describes the built-in and runtime-injected tool parameters curren
 - `static` tools (fully constructable from config only):
   - `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send`.
 - `runtime-dependent` tools:
-  - `todo_update`: registered statically, but not executable until LLM client/model is bound at runtime.
+  - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
   - `telegram_send_voice`, `telegram_send_file`, `telegram_react`: runtime-injected, depend on active Telegram API context/chat metadata.
 
 ### 2) Current registration flow (as implemented)
 
 - Phase A: base static registry build
-  - CLI path: `cmd/mistermorph/registry.go` -> `buildRegistryFromConfig`.
-  - Embedding path: `integration/registry.go` -> `Runtime.buildRegistry`.
-  - Shared static registration entry: `internal/toolsutil.RegisterStaticTools`.
+  - CLI path: `buildRegistryFromConfig`.
+  - Embedding path: `Runtime.buildRegistry`.
+  - Shared static registration entry: `RegisterStaticTools`.
   - `tools.NewRegistry()` starts empty; `Registry.Register` stores by `tool.Name()` (same name means overwrite).
   - Registers base built-ins:
     - always: `read_file`
-    - gated by `tools.<name>.enabled`: `write_file`, `bash`, `url_fetch`, `web_search`, `todo_update`, `contacts_send`
+    - gated by `tools.<name>.enabled`: `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send`
   - Integration-only filter: `integration.Config.BuiltinToolNames` can narrow built-ins.
 
 - Phase B: runtime dependency binding/injection
-  - `internal/toolsutil.BindTodoUpdateToolLLM`:
-    - finds `todo_update`
-    - clones it
-    - binds active `llm.Client` + model
-    - re-registers clone by same name (overwrites old instance)
-  - `internal/toolsutil.RegisterPlanTool`:
-    - injects `plan_create` when `tools.plan_create.enabled=true` (default true)
-    - default `max_steps` from `tools.plan_create.max_steps` (default 6)
+  - unified runtime config:
+    - `RuntimeToolsRegisterConfig` contains:
+      - `PlanCreateRegisterConfig` (`enabled`, `max_steps`)
+      - `TodoUpdateRegisterConfig` (`enabled`, TODO/contacts paths)
+  - unified runtime registration entry:
+    - `RegisterRuntimeTools(reg, cfg, client, model)`
+    - internally calls `RegisterPlanTool(...)` and `RegisterTodoUpdateTool(...)` with the same injection style (config + runtime deps).
+  - CLI loads runtime config from Viper via `LoadRuntimeToolsRegisterConfigFromViper`.
+  - integration runtime builds runtime config from snapshot fields (`tools.plan_create.*`, `tools.todo_update.*`, path settings).
 
 - Phase C: per-runtime / per-task shaping
-  - `mistermorph run`: base registry -> `RegisterPlanTool` -> `BindTodoUpdateToolLLM`.
-  - `mistermorph serve`: same order as `run`.
+  - `mistermorph run`: base registry -> `RegisterRuntimeTools`.
+  - `mistermorph serve`: same as `run`.
   - `mistermorph telegram`:
-    - startup: base registry + `BindTodoUpdateToolLLM`
-    - per task: clone/copy to task registry; remove `contacts_send` in `group/supergroup`; `RegisterPlanTool`; `BindTodoUpdateToolLLM`; `SetTodoUpdateToolAddContext`; inject Telegram runtime tools.
+    - startup: base registry + `RegisterRuntimeTools`
+    - per task: clone/copy to task registry; remove `contacts_send` in `group/supergroup`; `RegisterRuntimeTools`; `SetTodoUpdateToolAddContext`; inject Telegram runtime tools.
   - `mistermorph slack`:
-    - startup: base registry + `RegisterPlanTool` + `BindTodoUpdateToolLLM`
-    - per task: clone/copy to task registry; remove `contacts_send` in group chats (`channel`/`private_channel`/`mpim`); `RegisterPlanTool`; `BindTodoUpdateToolLLM`; `SetTodoUpdateToolAddContext`.
+    - startup: base registry + `RegisterRuntimeTools`
+    - per task: clone/copy to task registry; remove `contacts_send` in group chats (`channel`/`private_channel`/`mpim`); `RegisterRuntimeTools`; `SetTodoUpdateToolAddContext`.
   - `integration.Runtime`:
     - `Runtime.buildRegistry` does static phase
-    - `Runtime.NewRunEngine*` optionally injects `plan_create` when `Features.PlanTool=true`
-    - always runs `BindTodoUpdateToolLLM` before execution.
+    - `Runtime.NewRunEngine*` injects runtime tools via `RegisterRuntimeTools` before execution.
+    - `plan_create` is enabled only when all conditions hold: `Features.PlanTool=true`, `tools.plan_create.enabled=true`, and (if `BuiltinToolNames` is set) it includes `plan_create`.
+    - `todo_update` is enabled by `tools.todo_update.enabled` and `BuiltinToolNames` selection (when configured).
   - Channel-specific runtime tools:
     - Telegram: has extra runtime tools (`telegram_send_voice`, `telegram_send_file`, `telegram_react`).
     - Slack: currently no extra Slack-specific tool registration.
 
 ### 3) From registry to execution
 
-- `agent/tools_adapter.go:buildLLMTools` converts registry entries to `[]llm.Tool` using each tool's `Name()`, `Description()`, `ParameterSchema()`.
+- `buildLLMTools` converts registry entries to `[]llm.Tool` using each tool's `Name()`, `Description()`, `ParameterSchema()`.
 - Engine sends this set on each LLM call.
 - On tool call, engine resolves by `registry.Get(name)` and runs `tool.Execute(ctx, params)`.
 
 ### 4) Current maintainability note
 
-- The static/runtime split exists conceptually, but runtime-dependent registration is currently distributed across multiple command/runtime entry points (`run`, `serve`, `telegram`, `slack`, `integration`) instead of one orchestration function.
-- This is why behavior consistency currently relies on duplicated call order (`RegisterPlanTool`, `BindTodoUpdateToolLLM`, per-channel context binding).
+- Runtime-dependent registration is now centralized by one shared entry (`RegisterRuntimeTools`), so `plan_create` and `todo_update` are injected with the same pattern across CLI, channel runtimes, and integration runtime.
+- Per-task shaping still exists by design (chat-type filtering, `todo_update` context binding, Telegram-only tool injection), but no longer re-implements plan/todo registration logic differently per entry point.
 
 ### 5) `mistermorph tools` command view
 
-- `cmd/mistermorph/tools.go` prints:
+- `tools` command prints:
   - `Core tools`: from base registry.
-  - `Extra tools`: preview of `plan_create` by temporary injection.
+  - `Extra tools`: preview of runtime-dependent tools (currently `plan_create` and `todo_update`) by temporary `RegisterRuntimeTools` injection.
   - `Telegram tools`: static preview rows for Telegram runtime tools.
 
 ## `read_file`
@@ -320,5 +322,5 @@ Constraints:
 
 ## Notes
 
-- Runtime parameter validation is defined by code: `tools/builtin/*.go`, `tools/telegram/*.go`, and `internal/channelruntime/{telegram,slack}/*.go`.
+- Runtime parameter validation follows each tool's `ParameterSchema()` and execution-time checks inside the corresponding tool/runtime handlers.
 - If a tool is disabled by configuration, it returns a `... tool is disabled` error.

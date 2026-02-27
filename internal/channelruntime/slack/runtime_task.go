@@ -56,11 +56,10 @@ func runSlackTask(
 
 	if baseReg == nil {
 		baseReg = registryFromDeps(d)
-		toolsutil.BindTodoUpdateToolLLM(baseReg, client, model)
+		toolsutil.RegisterRuntimeTools(baseReg, d.RuntimeToolsConfig, client, model)
 	}
 	reg := buildSlackRegistry(baseReg, job.ChatType)
-	registerPlanTool(d, reg, client, model)
-	toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecForSlack(d, ctx, logger, logOpts, task, client, model, stickySkills)

@@ -7,24 +7,42 @@ import (
 	"github.com/spf13/viper"
 )
 
-func RegisterPlanTool(reg *tools.Registry, client llm.Client, defaultModel string) {
-	if reg == nil {
-		return
+type PlanCreateRegisterConfig struct {
+	Enabled  bool
+	MaxSteps int
+}
+
+func BuildPlanCreateRegisterConfig(enabled bool, maxSteps int) PlanCreateRegisterConfig {
+	if maxSteps <= 0 {
+		maxSteps = 6
 	}
+	return PlanCreateRegisterConfig{
+		Enabled:  enabled,
+		MaxSteps: maxSteps,
+	}
+}
+
+func LoadPlanCreateRegisterConfigFromViper() PlanCreateRegisterConfig {
 	enabled := true
 	if viper.IsSet("tools.plan_create.enabled") {
 		enabled = viper.GetBool("tools.plan_create.enabled")
 	}
-	if !enabled {
+	return BuildPlanCreateRegisterConfig(
+		enabled,
+		viper.GetInt("tools.plan_create.max_steps"),
+	)
+}
+
+func RegisterPlanTool(reg *tools.Registry, cfg PlanCreateRegisterConfig, client llm.Client, defaultModel string) {
+	if reg == nil {
+		return
+	}
+	if !cfg.Enabled {
 		return
 	}
 	names := toolNames(reg)
 	names = append(names, "plan_create")
-	defaultMaxSteps := viper.GetInt("tools.plan_create.max_steps")
-	if defaultMaxSteps <= 0 {
-		defaultMaxSteps = 6
-	}
-	reg.Register(builtin.NewPlanCreateTool(client, defaultModel, names, defaultMaxSteps))
+	reg.Register(builtin.NewPlanCreateTool(client, defaultModel, names, cfg.MaxSteps))
 }
 
 func toolNames(reg *tools.Registry) []string {

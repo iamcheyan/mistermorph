@@ -194,8 +194,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if reg == nil {
 		reg = tools.NewRegistry()
 	}
-	registerPlanTool(d, reg, client, model)
-	toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 
 	cfg := opts.AgentLimits.ToConfig()
 	taskRuntimeOpts := runtimeTaskOptions{

@@ -79,8 +79,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
-			toolsutil.RegisterPlanTool(reg, client, model)
-			toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), client, model)
 
 			logOpts := logutil.LogOptionsFromViper()
 			skillsCfg := skillsutil.SkillsConfigFromViper()

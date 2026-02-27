@@ -24,7 +24,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
-	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -96,7 +95,6 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
 		RegistryFromViper: registryResolver.Registry,
 		GuardFromViper:    guardResolver.Guard,
-		RegisterPlanTool:  toolsutil.RegisterPlanTool,
 	}))
 	cmd.AddCommand(daemoncmd.NewServeCmd(daemoncmd.ServeDependencies{
 		RegistryFromViper: registryResolver.Registry,
@@ -121,9 +119,8 @@ func newRootCmd() *cobra.Command {
 		LLMModelForProvider: func(provider string) string {
 			return telegramLLM.ModelForProvider(provider)
 		},
-		Registry:         registryResolver.Registry,
-		RegisterPlanTool: toolsutil.RegisterPlanTool,
-		Guard:            guardResolver.Guard,
+		Registry: registryResolver.Registry,
+		Guard:    guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := telegramSkills.Config()
 			if len(stickySkills) > 0 {
@@ -158,9 +155,8 @@ func newRootCmd() *cobra.Command {
 		LLMModelForProvider: func(provider string) string {
 			return slackLLM.ModelForProvider(provider)
 		},
-		Registry:         registryResolver.Registry,
-		RegisterPlanTool: toolsutil.RegisterPlanTool,
-		Guard:            guardResolver.Guard,
+		Registry: registryResolver.Registry,
+		Guard:    guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := slackSkills.Config()
 			if len(stickySkills) > 0 {

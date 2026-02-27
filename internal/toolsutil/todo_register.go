@@ -1,30 +1,57 @@
 package toolsutil
 
 import (
+	"strings"
+
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
+	"github.com/spf13/viper"
 )
 
-func BindTodoUpdateToolLLM(reg *tools.Registry, client llm.Client, model string) {
+type TodoUpdateRegisterConfig struct {
+	Enabled      bool
+	TODOPathWIP  string
+	TODOPathDone string
+	ContactsDir  string
+}
+
+func BuildTodoUpdateRegisterConfig(enabled bool, fileStateDir, contactsDirName string) TodoUpdateRegisterConfig {
+	fileStateDir = strings.TrimSpace(fileStateDir)
+	return TodoUpdateRegisterConfig{
+		Enabled:      enabled,
+		TODOPathWIP:  pathutil.ResolveStateFile(fileStateDir, statepaths.TODOWIPFilename),
+		TODOPathDone: pathutil.ResolveStateFile(fileStateDir, statepaths.TODODONEFilename),
+		ContactsDir:  pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(contactsDirName), "contacts"),
+	}
+}
+
+func LoadTodoUpdateRegisterConfigFromViper() TodoUpdateRegisterConfig {
+	return BuildTodoUpdateRegisterConfig(
+		viper.GetBool("tools.todo_update.enabled"),
+		viper.GetString("file_state_dir"),
+		viper.GetString("contacts.dir_name"),
+	)
+}
+
+func RegisterTodoUpdateTool(reg *tools.Registry, cfg TodoUpdateRegisterConfig, client llm.Client, model string) {
 	if reg == nil {
 		return
 	}
-	raw, ok := reg.Get("todo_update")
-	if !ok {
+	if !cfg.Enabled {
 		return
 	}
-	tool, ok := raw.(*builtin.TodoUpdateTool)
-	if !ok {
-		return
-	}
-	cloned := tool.Clone()
-	if cloned == nil {
-		return
-	}
-	cloned.BindLLM(client, model)
-	reg.Register(cloned)
+	reg.Register(builtin.NewTodoUpdateToolWithLLM(
+		true,
+		cfg.TODOPathWIP,
+		cfg.TODOPathDone,
+		cfg.ContactsDir,
+		client,
+		model,
+	))
 }
 
 func SetTodoUpdateToolAddContext(reg *tools.Registry, ctx todo.AddResolveContext) {

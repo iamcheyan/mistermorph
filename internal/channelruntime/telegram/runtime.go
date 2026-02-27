@@ -222,7 +222,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	model := llmModelFromDeps(d)
 	reg := registryFromDeps(d)
-	toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	logOpts := logOptionsFromDeps(d)
 
 	cfg := opts.AgentLimits.ToConfig()

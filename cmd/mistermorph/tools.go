@@ -45,13 +45,15 @@ func runToolsCmd(cmd *cobra.Command, _ []string, registryFactory func() *tools.R
 	}
 
 	extraPreviews := map[string]toolPreview{}
-	// plan_create is injected in run/serve/telegram runtimes.
-	toolsutil.RegisterPlanTool(r, nil, "")
-	if t, ok := r.Get("plan_create"); ok {
-		addToolPreview(extraPreviews, toolPreview{
-			Name:        t.Name(),
-			Description: t.Description(),
-		})
+	// Runtime tools are injected in run/serve/telegram/slack.
+	toolsutil.RegisterRuntimeTools(r, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), nil, "")
+	for _, name := range []string{toolsutil.BuiltinPlanCreate, toolsutil.BuiltinTodoUpdate} {
+		if t, ok := r.Get(name); ok {
+			addToolPreview(extraPreviews, toolPreview{
+				Name:        t.Name(),
+				Description: t.Description(),
+			})
+		}
 	}
 
 	telegramPreviews := map[string]toolPreview{}

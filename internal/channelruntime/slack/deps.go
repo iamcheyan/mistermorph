@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -24,7 +25,7 @@ type Dependencies struct {
 	LLMAPIKeyForProvider   func(provider string) string
 	LLMModelForProvider    func(provider string) string
 	Registry               func() *tools.Registry
-	RegisterPlanTool       func(reg *tools.Registry, client llm.Client, model string)
+	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
 	Guard                  func(logger *slog.Logger) *guard.Guard
 	PromptSpec             func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
 }
@@ -95,13 +96,6 @@ func registryFromDeps(d Dependencies) *tools.Registry {
 		return nil
 	}
 	return d.Registry()
-}
-
-func registerPlanTool(d Dependencies, reg *tools.Registry, client llm.Client, model string) {
-	if d.RegisterPlanTool == nil {
-		return
-	}
-	d.RegisterPlanTool(reg, client, model)
 }
 
 func guardFromDeps(d Dependencies, log *slog.Logger) *guard.Guard {

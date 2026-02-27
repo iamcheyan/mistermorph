@@ -34,7 +34,6 @@ import (
 type Dependencies struct {
 	RegistryFromViper func() *tools.Registry
 	GuardFromViper    func(*slog.Logger) *guard.Guard
-	RegisterPlanTool  func(*tools.Registry, llm.Client, string)
 }
 
 func New(deps Dependencies) *cobra.Command {
@@ -146,10 +145,7 @@ func New(deps Dependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
-			if deps.RegisterPlanTool != nil {
-				deps.RegisterPlanTool(reg, client, model)
-			}
-			toolsutil.BindTodoUpdateToolLLM(reg, client, model)
+			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), client, model)
 
 			promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsutil.SkillsConfigFromRunCmd(cmd))
 			if err != nil {

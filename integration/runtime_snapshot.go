@@ -57,6 +57,8 @@ type registrySnapshot struct {
 	ToolsWebSearchMaxResults      int
 	ToolsWebSearchBaseURL         string
 	ToolsContactsSendEnabled      bool
+	ToolsPlanCreateEnabled        bool
+	ToolsPlanCreateMaxSteps       int
 	ToolsTodoUpdateEnabled        bool
 	TODOPathWIP                   string
 	TODOPathDone                  string

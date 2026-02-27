@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -45,9 +44,6 @@ type registryConfig struct {
 	ToolsWebSearchMaxResults      int
 	ToolsWebSearchBaseURL         string
 	ToolsContactsSendEnabled      bool
-	ToolsTodoUpdateEnabled        bool
-	TODOPathWIP                   string
-	TODOPathDone                  string
 	ContactsDir                   string
 	TelegramBotToken              string
 	TelegramBaseURL               string
@@ -121,9 +117,6 @@ func loadRegistryConfigFromViper() registryConfig {
 		ToolsWebSearchMaxResults:      viper.GetInt("tools.web_search.max_results"),
 		ToolsWebSearchBaseURL:         strings.TrimSpace(viper.GetString("tools.web_search.base_url")),
 		ToolsContactsSendEnabled:      viper.GetBool("tools.contacts_send.enabled"),
-		ToolsTodoUpdateEnabled:        viper.GetBool("tools.todo_update.enabled"),
-		TODOPathWIP:                   pathutil.ResolveStateFile(fileStateDir, statepaths.TODOWIPFilename),
-		TODOPathDone:                  pathutil.ResolveStateFile(fileStateDir, statepaths.TODODONEFilename),
 		ContactsDir:                   pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(viper.GetString("contacts.dir_name")), "contacts"),
 		TelegramBotToken:              strings.TrimSpace(viper.GetString("telegram.bot_token")),
 		TelegramBaseURL:               "https://api.telegram.org",
@@ -218,12 +211,6 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			Timeout:    cfg.ToolsWebSearchTimeout,
 			MaxResults: cfg.ToolsWebSearchMaxResults,
 			BaseURL:    cfg.ToolsWebSearchBaseURL,
-		},
-		TodoUpdate: toolsutil.StaticTodoUpdateConfig{
-			Enabled:      cfg.ToolsTodoUpdateEnabled,
-			TODOPathWIP:  cfg.TODOPathWIP,
-			TODOPathDone: cfg.TODOPathDone,
-			ContactsDir:  cfg.ContactsDir,
 		},
 		ContactsSend: toolsutil.StaticContactsSendConfig{
 			Enabled:          cfg.ToolsContactsSendEnabled,

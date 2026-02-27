@@ -259,12 +259,14 @@ type runtimeSharedDependencies struct {
 	LLMAPIKeyForProvider   func(provider string) string
 	LLMModelForProvider    func(provider string) string
 	Registry               func() *tools.Registry
-	RegisterPlanTool       func(reg *tools.Registry, client llm.Client, model string)
+	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
 	Guard                  func(logger *slog.Logger) *guard.Guard
 	PromptSpec             func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
 }
 
 func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDependencies {
+	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
+	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
 	return runtimeSharedDependencies{
 		Logger: func() (*slog.Logger, error) {
 			if snap.Logger != nil {
@@ -287,8 +289,16 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 		LLMAPIKeyForProvider:   func(_ string) string { return snap.LLMAPIKey },
 		LLMModelForProvider:    func(_ string) string { return snap.LLMModel },
 		Registry:               func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
-		RegisterPlanTool:       rt.maybeRegisterPlanTool,
-		Guard:                  func(logger *slog.Logger) *guard.Guard { return rt.buildGuard(snap.Guard, logger) },
+		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
+			PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
+			TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
+				Enabled:      todoEnabled,
+				TODOPathWIP:  snap.Registry.TODOPathWIP,
+				TODOPathDone: snap.Registry.TODOPathDone,
+				ContactsDir:  snap.Registry.ContactsDir,
+			},
+		},
+		Guard: func(logger *slog.Logger) *guard.Guard { return rt.buildGuard(snap.Guard, logger) },
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			return rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, stickySkills)
 		},
@@ -306,7 +316,7 @@ func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.De
 		LLMAPIKeyForProvider:   base.LLMAPIKeyForProvider,
 		LLMModelForProvider:    base.LLMModelForProvider,
 		Registry:               base.Registry,
-		RegisterPlanTool:       base.RegisterPlanTool,
+		RuntimeToolsConfig:     base.RuntimeToolsConfig,
 		Guard:                  base.Guard,
 		PromptSpec:             base.PromptSpec,
 		BuildHeartbeatTask:     heartbeatutil.BuildHeartbeatTask,
@@ -327,17 +337,10 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 		LLMAPIKeyForProvider:   base.LLMAPIKeyForProvider,
 		LLMModelForProvider:    base.LLMModelForProvider,
 		Registry:               base.Registry,
-		RegisterPlanTool:       base.RegisterPlanTool,
+		RuntimeToolsConfig:     base.RuntimeToolsConfig,
 		Guard:                  base.Guard,
 		PromptSpec:             base.PromptSpec,
 	}
-}
-
-func (rt *Runtime) maybeRegisterPlanTool(reg *tools.Registry, client llm.Client, model string) {
-	if rt == nil || !rt.features.PlanTool {
-		return
-	}
-	toolsutil.RegisterPlanTool(reg, client, model)
 }
 
 func (rt *Runtime) promptSpecWithSkillsFromConfig(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, base skillsutil.SkillsConfig, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
