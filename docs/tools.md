@@ -40,10 +40,10 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `mistermorph run`: base registry -> `RegisterRuntimeTools`.
   - `mistermorph serve`: same as `run`.
   - `mistermorph telegram`:
-    - startup: base registry + `RegisterRuntimeTools`
+    - startup: get base registry
     - per task: clone/copy to task registry; remove `contacts_send` in `group/supergroup`; `RegisterRuntimeTools`; `SetTodoUpdateToolAddContext`; inject Telegram runtime tools.
   - `mistermorph slack`:
-    - startup: base registry + `RegisterRuntimeTools`
+    - startup: get base registry
     - per task: clone/copy to task registry; remove `contacts_send` in group chats (`channel`/`private_channel`/`mpim`); `RegisterRuntimeTools`; `SetTodoUpdateToolAddContext`.
   - `integration.Runtime`:
     - `Runtime.buildRegistry` does static phase
@@ -53,6 +53,61 @@ This document describes the built-in and runtime-injected tool parameters curren
   - Channel-specific runtime tools:
     - Telegram: has extra runtime tools (`telegram_send_voice`, `telegram_send_file`, `telegram_react`).
     - Slack: currently no extra Slack-specific tool registration.
+
+- Phase C status (after refactor)
+  - resolved:
+    - The earlier divergence between `plan_create` and `todo_update` registration paths is gone; both now use `RegisterRuntimeTools`.
+    - `run`, `serve`, `telegram`, `slack`, and integration runtime all share the same runtime registration entry.
+  - still by design:
+    - Runtime/task shaping remains: group-chat filtering for `contacts_send`, `SetTodoUpdateToolAddContext`, and Telegram-only runtime tools.
+  - remaining optimization opportunity:
+    - In task-runtime helper fallback paths (`baseReg == nil`), runtime tools can still be registered more than once (base + task registry); normal runtime wiring passes a non-nil base registry.
+
+#### ASCII architecture
+
+```text
+Config Source A (CLI/Channels)                    Config Source B (integration)
+--------------------------------                  --------------------------------
+LoadRuntimeToolsRegisterConfigFromViper()         runtimeSnapshot + feature flags
+                 |                                                 |
+                 v                                                 v
+          RuntimeToolsRegisterConfig <---------------------- build runtime cfg
+        { PlanCreateRegisterConfig, TodoUpdateRegisterConfig }
+                                   |
+                                   v
+tools.NewRegistry()
+   |
+   v
+RegisterStaticTools(...)
+   |
+   v
+Execution path split:
+
+  A) run / serve / integration run-engine
+     RegisterRuntimeTools(reg, runtimeCfg, llmClient, model)
+       |-- RegisterPlanTool(...)
+       `-- RegisterTodoUpdateTool(...)
+            |
+            v
+         buildLLMTools(...) -> Engine exposes tool schemas to LLM
+
+  B) telegram / slack task runtimes
+     clone/copy base registry (chat-aware filtering)
+       |-- remove `contacts_send` in group contexts
+       `-- RegisterRuntimeTools(taskReg, runtimeCfg, llmClient, model)
+              |-- RegisterPlanTool(...)
+              `-- RegisterTodoUpdateTool(...)
+                    |
+                    v
+               SetTodoUpdateToolAddContext(...)
+               + Telegram-only runtime tools (telegram_*)
+                    |
+                    v
+               buildLLMTools(...) -> Engine exposes tool schemas to LLM
+   |
+   v
+LLM tool call -> registry.Get(name) -> tool.Execute(...)
+```
 
 ### 3) From registry to execution
 

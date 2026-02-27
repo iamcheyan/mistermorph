@@ -21,7 +21,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
-	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -194,7 +193,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if reg == nil {
 		reg = tools.NewRegistry()
 	}
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 
 	cfg := opts.AgentLimits.ToConfig()
 	taskRuntimeOpts := runtimeTaskOptions{
