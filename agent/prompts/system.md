@@ -97,7 +97,6 @@ When not calling tools, you MUST respond with JSON in one of two formats:
   "type": "plan",
   "plan": {
     "thought": "brief reasoning (optional)",
-    "summary": "1-2 sentence overview",
     "steps": [
       {"step": "step 1", "status": "in_progress"},
       {"step": "step 2", "status": "pending"},

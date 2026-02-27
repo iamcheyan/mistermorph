@@ -692,8 +692,8 @@ func TestFallbackFinal_UsedOnParseError(t *testing.T) {
 func TestFallbackFinal_UsedOnInvalidType(t *testing.T) {
 	// forceConclusion gets valid JSON but with non-final type → fallback used
 	client := newMockClient(
-		llm.Result{Text: "not json"},                                          // main loop parse fail
-		llm.Result{Text: `{"type":"plan","plan":{"summary":"x","steps":[]}}`}, // forceConclusion: valid but wrong type
+		llm.Result{Text: "not json"},                            // main loop parse fail
+		llm.Result{Text: `{"type":"plan","plan":{"steps":[]}}`}, // forceConclusion: valid but wrong type
 	)
 	e := New(client, baseRegistry(), Config{MaxSteps: 5, ParseRetries: 0}, DefaultPromptSpec(),
 		WithFallbackFinal(func() *Final {

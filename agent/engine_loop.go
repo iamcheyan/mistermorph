@@ -155,7 +155,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		case TypePlan:
 			p := resp.PlanPayload()
 			st.agentCtx.Plan = p
-			log.Info("plan", "step", step, "summary_len", len(strings.TrimSpace(p.Summary)), "steps", len(p.Steps))
+			log.Info("plan", "step", step, "steps", len(p.Steps))
 			if e.logOpts.IncludeThoughts {
 				thought := truncateString(p.Thought, e.logOpts.MaxThoughtChars)
 				log.Info("plan_thought", "step", step, "thought", thought)
@@ -329,7 +329,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				if toolErr == nil && tc.Name == "plan_create" && st.agentCtx.Plan == nil {
 					if plan := parsePlanCreateObservation(observation); plan != nil {
 						st.agentCtx.Plan = plan
-						log.Info("plan", "step", step, "summary_len", len(strings.TrimSpace(plan.Summary)), "steps", len(plan.Steps))
+						log.Info("plan", "step", step, "steps", len(plan.Steps))
 					} else {
 						log.Warn("plan_create_parse_failed", "step", step)
 					}
@@ -600,7 +600,7 @@ func parsePlanCreateObservation(observation string) *Plan {
 	if err := jsonutil.DecodeWithFallback(observation, &payload); err != nil {
 		return nil
 	}
-	if strings.TrimSpace(payload.Plan.Summary) == "" && len(payload.Plan.Steps) == 0 {
+	if len(payload.Plan.Steps) == 0 {
 		return nil
 	}
 	return &payload.Plan

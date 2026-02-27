@@ -28,7 +28,7 @@ func (s *stubPlanCreateLLMClient) Chat(_ context.Context, req llm.Request) (llm.
 
 func TestPlanCreateExecuteRejectsEmptyStepsAfterNormalization(t *testing.T) {
 	client := &stubPlanCreateLLMClient{
-		reply: `{"plan":{"summary":"x","steps":[{"step":"   "},{"step":""}]}}`,
+		reply: `{"plan":{"steps":[{"step":"   "},{"step":""}]}}`,
 	}
 	tool := NewPlanCreateTool(client, "gpt-5.2", []string{"bash"}, 6)
 	_, err := tool.Execute(context.Background(), map[string]any{"task": "t"})
@@ -42,7 +42,7 @@ func TestPlanCreateExecuteRejectsEmptyStepsAfterNormalization(t *testing.T) {
 
 func TestPlanCreateExecuteNormalizesAndDropsEmptySteps(t *testing.T) {
 	client := &stubPlanCreateLLMClient{
-		reply: `{"plan":{"summary":"x","steps":[{"step":"   ","status":"pending"},{"step":" collect data ","status":""},{"step":"summarize","status":"unknown"}]}}`,
+		reply: `{"plan":{"steps":[{"step":"   ","status":"pending"},{"step":" collect data ","status":""},{"step":"summarize","status":"unknown"}]}}`,
 	}
 	tool := NewPlanCreateTool(client, "gpt-5.2", []string{"bash"}, 6)
 	out, err := tool.Execute(context.Background(), map[string]any{"task": "t"})
@@ -87,7 +87,7 @@ func TestPlanCreateExecuteInjectsPersonaIdentity(t *testing.T) {
 	viper.Set("file_state_dir", stateDir)
 
 	client := &stubPlanCreateLLMClient{
-		reply: `{"plan":{"summary":"x","steps":[{"step":"collect data"}]}}`,
+		reply: `{"plan":{"steps":[{"step":"collect data"}]}}`,
 	}
 	tool := NewPlanCreateTool(client, "gpt-5.2", []string{"bash"}, 6)
 	if _, err := tool.Execute(context.Background(), map[string]any{"task": "t"}); err != nil {

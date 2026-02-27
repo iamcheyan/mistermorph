@@ -31,7 +31,7 @@ func NewPlanCreateTool(client llm.Client, defaultModel string, toolNames []strin
 func (t *planCreateTool) Name() string { return "plan_create" }
 
 func (t *planCreateTool) Description() string {
-	return "Generate a concise execution plan for a task as JSON (plan object with thought/summary/steps). Use when you want a plan before execution."
+	return "Generate a concise execution plan for a task as JSON (plan object with thought/steps). Use when you want a plan before execution."
 }
 
 func (t *planCreateTool) ParameterSchema() string {
@@ -68,7 +68,6 @@ func (t *planCreateTool) ParameterSchema() string {
 
 type planCreatePlan struct {
 	Thought string          `json:"thought"`
-	Summary string          `json:"summary"`
 	Steps   agent.PlanSteps `json:"steps"`
 }
 
@@ -88,18 +87,16 @@ You generate a concise execution plan.
 Return ONLY JSON:
 {
   "plan": {
-    "thought": "brief reasoning (optional)",
-    "summary": "1-2 sentence overview",
-    "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}]
+    "thought": "brief reasoning",
+    "steps": [{"step":"brief reasoning step 1","status":"in_progress"},{"step":"brief reasoning step 2","status":"pending"}]
   }
 }
 Rules:
 - Steps should be actionable and ordered.
 - Keep within max_steps.
-- Use the same language in 'summary' as the 'task'.
-- Keep 'summary' conversational and concise, in plain-text.
+- Follow the your IDENTITY and SOUL for generate the 'thought' and 'step'.
+- Always use the same language in 'thought' and 'step' as the 'task', and keep them conversational and concise, in plain-text.
 - tools name should be wrapped with backtick quotes.
--
 `)
 	identity := planCreateIdentity()
 	if identity == "" {
@@ -148,7 +145,7 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 		model = t.defaultModel
 	}
 	if model == "" {
-		model = "gpt-5.2"
+		return "", fmt.Errorf("the model is empty, can't use the llm for plan_create tool.")
 	}
 
 	payload := map[string]any{
@@ -187,7 +184,6 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 	}
 
 	out.Plan.Thought = strings.TrimSpace(out.Plan.Thought)
-	out.Plan.Summary = strings.TrimSpace(out.Plan.Summary)
 	normalized := &agent.Plan{Steps: out.Plan.Steps}
 	agent.NormalizePlanSteps(normalized)
 	out.Plan.Steps = normalized.Steps
