@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -44,6 +45,18 @@ func (m *mockClient) allCalls() []llm.Request {
 	return out
 }
 
+func requestContains(calls []llm.Request, callIndex int, needle string) bool {
+	if callIndex < 0 || callIndex >= len(calls) {
+		return false
+	}
+	for _, msg := range calls[callIndex].Messages {
+		if strings.Contains(msg.Content, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // --- mock tool ---
 
 type mockTool struct {
@@ -57,6 +70,40 @@ func (t *mockTool) Description() string     { return "mock tool" }
 func (t *mockTool) ParameterSchema() string { return "{}" }
 func (t *mockTool) Execute(_ context.Context, _ map[string]any) (string, error) {
 	return t.result, t.err
+}
+
+type countingTool struct {
+	name   string
+	result string
+	count  *int
+}
+
+func (t *countingTool) Name() string            { return t.name }
+func (t *countingTool) Description() string     { return "counting tool" }
+func (t *countingTool) ParameterSchema() string { return "{}" }
+func (t *countingTool) Execute(_ context.Context, _ map[string]any) (string, error) {
+	if t.count != nil {
+		*t.count = *t.count + 1
+	}
+	return t.result, nil
+}
+
+type scriptedTool struct {
+	name     string
+	outcomes []error
+	count    int
+}
+
+func (t *scriptedTool) Name() string            { return t.name }
+func (t *scriptedTool) Description() string     { return "scripted tool" }
+func (t *scriptedTool) ParameterSchema() string { return "{}" }
+func (t *scriptedTool) Execute(_ context.Context, _ map[string]any) (string, error) {
+	t.count++
+	i := t.count - 1
+	if i >= 0 && i < len(t.outcomes) && t.outcomes[i] != nil {
+		return "", t.outcomes[i]
+	}
+	return "ok", nil
 }
 
 // --- helpers ---
@@ -173,9 +220,21 @@ func TestEngineConfig_DefaultToolRepeatLimit(t *testing.T) {
 
 func TestToolRepeatLimit_Configurable(t *testing.T) {
 	reg := baseRegistry()
-	reg.Register(&mockTool{name: "search", result: "ok"})
+	searchCount := 0
+	reg.Register(&countingTool{name: "search", result: "ok", count: &searchCount})
 	client := newMockClient(
-		toolCallResponse("search"),
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "first"},
+			}},
+		},
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "second"},
+			}},
+		},
 		finalResponse("forced"),
 	)
 	e := New(client, reg, Config{MaxSteps: 5, ToolRepeatLimit: 1}, DefaultPromptSpec())
@@ -187,8 +246,151 @@ func TestToolRepeatLimit_Configurable(t *testing.T) {
 	if f == nil || f.Output != "forced" {
 		t.Fatalf("unexpected final output: %#v", f)
 	}
-	if calls := client.allCalls(); len(calls) != 2 {
-		t.Fatalf("chat calls = %d, want 2", len(calls))
+	if searchCount != 1 {
+		t.Fatalf("search execute count = %d, want 1", searchCount)
+	}
+	calls := client.allCalls()
+	if len(calls) != 3 {
+		t.Fatalf("chat calls = %d, want 3", len(calls))
+	}
+	if !requestContains(calls, 2, "ERR_TOOL_REPEAT_LIMIT") {
+		t.Fatal("expected ERR_TOOL_REPEAT_LIMIT in follow-up model request")
+	}
+}
+
+func TestToolCallDedup_BlocksNonConsecutiveDuplicateToolCalls(t *testing.T) {
+	reg := baseRegistry()
+	searchCount := 0
+	otherCount := 0
+	reg.Register(&countingTool{name: "search", result: "search_ok", count: &searchCount})
+	reg.Register(&countingTool{name: "other", result: "other_ok", count: &otherCount})
+
+	client := newMockClient(
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "block layoffs"},
+			}},
+		},
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "other",
+				Arguments: map[string]any{"id": 1},
+			}},
+		},
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "block layoffs"},
+			}},
+		},
+		finalResponse("forced"),
+	)
+	e := New(client, reg, Config{MaxSteps: 8, ToolRepeatLimit: 10}, DefaultPromptSpec())
+
+	f, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f == nil || f.Output != "forced" {
+		t.Fatalf("unexpected final output: %#v", f)
+	}
+	if searchCount != 1 {
+		t.Fatalf("search execute count = %d, want 1", searchCount)
+	}
+	if otherCount != 1 {
+		t.Fatalf("other execute count = %d, want 1", otherCount)
+	}
+	calls := client.allCalls()
+	if len(calls) != 4 {
+		t.Fatalf("chat calls = %d, want 4", len(calls))
+	}
+	if !requestContains(calls, 3, "ERR_DUPLICATE_TOOL_CALL") {
+		t.Fatal("expected ERR_DUPLICATE_TOOL_CALL in follow-up model request")
+	}
+}
+
+func TestToolTracking_RebuildOnlyCountsSuccessfulSteps(t *testing.T) {
+	steps := []Step{
+		{
+			Action:      "search",
+			ActionInput: map[string]any{"q": "ok"},
+		},
+		{
+			Action:      "search",
+			ActionInput: map[string]any{"q": "fail"},
+			Error:       fmt.Errorf("blocked"),
+		},
+		{
+			Action:      "other",
+			ActionInput: map[string]any{"id": 1},
+		},
+	}
+
+	counts, seen := rebuildToolTrackingFromSteps(steps)
+	if counts["search"] != 1 {
+		t.Fatalf("search count = %d, want 1", counts["search"])
+	}
+	if counts["other"] != 1 {
+		t.Fatalf("other count = %d, want 1", counts["other"])
+	}
+	if len(counts) != 2 {
+		t.Fatalf("counts size = %d, want 2", len(counts))
+	}
+
+	okSig := toolCallSignature(ToolCall{Name: "search", Params: map[string]any{"q": "ok"}})
+	failSig := toolCallSignature(ToolCall{Name: "search", Params: map[string]any{"q": "fail"}})
+	if !seen[okSig] {
+		t.Fatal("expected successful signature to be tracked")
+	}
+	if seen[failSig] {
+		t.Fatal("failed signature must not be tracked")
+	}
+}
+
+func TestToolTracking_FailedCallDoesNotConsumeLimitOrDedup(t *testing.T) {
+	reg := baseRegistry()
+	st := &scriptedTool{
+		name:     "search",
+		outcomes: []error{fmt.Errorf("temporary failure"), nil},
+	}
+	reg.Register(st)
+	client := newMockClient(
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "same"},
+			}},
+		},
+		llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				Name:      "search",
+				Arguments: map[string]any{"q": "same"},
+			}},
+		},
+		finalResponse("done"),
+	)
+	e := New(client, reg, Config{MaxSteps: 6, ToolRepeatLimit: 1}, DefaultPromptSpec())
+
+	f, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f == nil || f.Output != "done" {
+		t.Fatalf("unexpected final output: %#v", f)
+	}
+	if st.count != 2 {
+		t.Fatalf("execute count = %d, want 2", st.count)
+	}
+	calls := client.allCalls()
+	if len(calls) != 3 {
+		t.Fatalf("chat calls = %d, want 3", len(calls))
+	}
+	if requestContains(calls, 2, "ERR_TOOL_REPEAT_LIMIT") {
+		t.Fatal("failed first call should not trigger repeat-limit block on second call")
+	}
+	if requestContains(calls, 2, "ERR_DUPLICATE_TOOL_CALL") {
+		t.Fatal("failed first call should not trigger dedupe block on second call")
 	}
 }
 
