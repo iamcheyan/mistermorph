@@ -55,8 +55,7 @@ func runSlackTask(
 	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
 
 	if baseReg == nil {
-		baseReg = registryFromDeps(d)
-		toolsutil.RegisterRuntimeTools(baseReg, d.RuntimeToolsConfig, client, model)
+		return nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 	reg := buildSlackRegistry(baseReg, job.ChatType)
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)

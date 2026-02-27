@@ -58,10 +58,15 @@ This document describes the built-in and runtime-injected tool parameters curren
   - resolved:
     - The earlier divergence between `plan_create` and `todo_update` registration paths is gone; both now use `RegisterRuntimeTools`.
     - `run`, `serve`, `telegram`, `slack`, and integration runtime all share the same runtime registration entry.
+    - Channel startup no longer injects runtime tools; channel runtimes inject runtime tools at task-registry shaping time.
+    - Task-runtime fallback registration (`baseReg == nil`) is removed; base registry is now a required runtime precondition.
   - still by design:
     - Runtime/task shaping remains: group-chat filtering for `contacts_send`, `SetTodoUpdateToolAddContext`, and Telegram-only runtime tools.
-  - remaining optimization opportunity:
-    - In task-runtime helper fallback paths (`baseReg == nil`), runtime tools can still be registered more than once (base + task registry); normal runtime wiring passes a non-nil base registry.
+  - first-principles invariants:
+    - correctness: task toolset must match chat context and channel capability.
+    - isolation: stateful runtime context (`todo_update`) must be task-scoped.
+    - determinism: no hidden fallback registration path mutating behavior.
+    - minimality: Phase C only shapes per-task registries, not runtime dependency wiring strategy.
 
 #### ASCII architecture
 
@@ -92,7 +97,7 @@ Execution path split:
          buildLLMTools(...) -> Engine exposes tool schemas to LLM
 
   B) telegram / slack task runtimes
-     clone/copy base registry (chat-aware filtering)
+     clone/copy base registry (chat-aware filtering; base registry required non-nil)
        |-- remove `contacts_send` in group contexts
        `-- RegisterRuntimeTools(taskReg, runtimeCfg, llmClient, model)
               |-- RegisterPlanTool(...)
@@ -379,3 +384,7 @@ Constraints:
 
 - Runtime parameter validation follows each tool's `ParameterSchema()` and execution-time checks inside the corresponding tool/runtime handlers.
 - If a tool is disabled by configuration, it returns a `... tool is disabled` error.
+
+## TODO
+
+- Refactor duplicated Phase C task-registry shaping logic between Telegram and Slack (group-context `contacts_send` filtering + runtime tool re-registration) into a shared helper.

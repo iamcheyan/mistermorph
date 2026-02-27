@@ -49,8 +49,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
 	if baseReg == nil {
-		baseReg = registryFromDeps(d)
-		toolsutil.RegisterRuntimeTools(baseReg, d.RuntimeToolsConfig, client, model)
+		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 
 	// Per-run registry.

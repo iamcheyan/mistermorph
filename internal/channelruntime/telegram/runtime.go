@@ -27,6 +27,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/memory"
+	"github.com/quailyquaily/mistermorph/tools"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
 
@@ -221,6 +222,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	model := llmModelFromDeps(d)
 	reg := registryFromDeps(d)
+	if reg == nil {
+		reg = tools.NewRegistry()
+	}
 	logOpts := logOptionsFromDeps(d)
 
 	cfg := opts.AgentLimits.ToConfig()
