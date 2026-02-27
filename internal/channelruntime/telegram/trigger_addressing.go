@@ -22,6 +22,7 @@ type telegramAddressingLLMOutput struct {
 	Interject      float64                        `json:"interject"`
 	Impulse        float64                        `json:"impulse"`
 	IsLightweight  bool                           `json:"is_lightweight"`
+	Reaction       string                         `json:"reaction"`
 	Reason         string                         `json:"reason"`
 }
 
@@ -119,6 +120,7 @@ func addressingDecisionViaLLM(
 	}
 
 	const maxToolRounds = 3
+	reactionCalled := false
 	var out telegramAddressingLLMOutput
 	for round := 0; ; round++ {
 		res, err := client.Chat(llminspect.WithModelScene(ctx, "telegram.addressing_decision"), llm.Request{
@@ -141,7 +143,10 @@ func addressingDecisionViaLLM(
 				ToolCalls: res.ToolCalls,
 			})
 			for _, tc := range res.ToolCalls {
-				observation := executeAddressingToolCall(ctx, addressingTool, tc)
+				observation, executedOK := executeAddressingToolCall(ctx, addressingTool, tc)
+				if executedOK {
+					reactionCalled = true
+				}
 				if strings.TrimSpace(tc.ID) != "" {
 					messages = append(messages, llm.Message{
 						Role:       "tool",
@@ -164,6 +169,15 @@ func addressingDecisionViaLLM(
 		}
 		if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
 			return grouptrigger.Addressing{}, false, fmt.Errorf("invalid addressing_llm json")
+		}
+		if out.IsLightweight && strings.TrimSpace(out.Reaction) != "" && !reactionCalled {
+			observation, executedOK := executeAddressingToolCall(ctx, addressingTool, llm.ToolCall{
+				Name:      addressingTool.Name(),
+				Arguments: map[string]any{"emoji": strings.TrimSpace(out.Reaction)},
+			})
+			if !executedOK {
+				return grouptrigger.Addressing{}, false, fmt.Errorf("lightweight response requires telegram_react tool: %s", strings.TrimSpace(observation))
+			}
 		}
 		break
 	}
@@ -195,13 +209,13 @@ func llmToolFromTool(t tools.Tool) *llm.Tool {
 	}
 }
 
-func executeAddressingToolCall(ctx context.Context, t tools.Tool, call llm.ToolCall) string {
+func executeAddressingToolCall(ctx context.Context, t tools.Tool, call llm.ToolCall) (string, bool) {
 	name := strings.TrimSpace(call.Name)
-	if t == nil || !strings.EqualFold(strings.TrimSpace(t.Name()), name) {
+	if !matchesAddressingToolName(t, name) {
 		if name == "" {
 			name = "<empty>"
 		}
-		return fmt.Sprintf("error: tool '%s' not found", name)
+		return fmt.Sprintf("error: tool '%s' not found", name), false
 	}
 	observation, err := t.Execute(ctx, call.Arguments)
 	if err != nil {
@@ -210,11 +224,16 @@ func executeAddressingToolCall(ctx context.Context, t tools.Tool, call llm.ToolC
 		} else {
 			observation = fmt.Sprintf("%s\n\nerror: %s", observation, err.Error())
 		}
+		return observation, false
 	}
 	if strings.TrimSpace(observation) == "" {
-		return "ok"
+		return "ok", true
 	}
-	return observation
+	return observation, true
+}
+
+func matchesAddressingToolName(t tools.Tool, callName string) bool {
+	return strings.EqualFold(strings.TrimSpace(t.Name()), strings.TrimSpace(callName))
 }
 
 func clampAddressing01(v float64) float64 {

@@ -99,7 +99,25 @@ Important:
 - Trigger decision still continues.
 - If trigger is accepted, main run still starts.
 
-### 3.4 Trigger output metadata
+### 3.4 Pre-run Lightweight Fallback Rule (Current Implementation)
+
+Addressing pre-run tracks whether `telegram_react` has been executed successfully in the tool-call loop.
+
+After parsing addressing JSON, runtime applies this fallback:
+
+- only when `is_lightweight == true`
+- and `reaction` is non-empty
+- and no successful pre-run `telegram_react` call happened yet
+
+then runtime executes one extra `telegram_react` with that `reaction` emoji.
+
+Important edge case:
+
+- if model returns `is_lightweight == true` but omits `reaction` (or returns empty string), pre-run does **not** execute `telegram_react` fallback.
+- with `tool_choice=auto`, model may also choose not to emit a tool call.
+- so "lightweight=true but no pre-run reaction" is possible in current behavior.
+
+### 3.5 Trigger output metadata
 
 `Decision.Addressing` contains fields like:
 
@@ -166,3 +184,4 @@ Useful logs for debugging:
 - pre-run reacted, main-run reacted, `final.is_lightweight=false`: possibly two reactions + text
 - pre-run reacted, main-run no reaction, `final.is_lightweight=true`: reaction only
 - pre-run no reaction, main-run reacted, `final.is_lightweight=true`: reaction only
+- pre-run no reaction, main-run no reaction, `addressing.is_lightweight=true`: possible when addressing JSON has empty/missing `reaction` and no pre-run tool call

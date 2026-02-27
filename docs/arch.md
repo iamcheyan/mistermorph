@@ -46,21 +46,76 @@
 Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, file_state_dir, HEARTBEAT.md
 ```
 
-## 2. Main Execution Flow
+## 2. Execution Flows
+
+### 2.1 Main Agent Run Flow (Registry Path)
 
 ```text
 task/event
   -> build prompt/messages/meta
+  -> build tool registry + llm tools
   -> agent.Engine.Run
      -> step loop
-        -> LLM call
+        -> LLM call (with tools)
         -> parse (plan | tool_call | final)
-        -> optional tool execute
+        -> tool execute (when tool_call)
         -> update plan/history/metrics
+     -> if limits reached: force finalization request
      -> final output (guard redact if needed)
 ```
 
-This flow is implemented by `agent/engine.go` and `agent/engine_loop.go` and is shared across all entrypoints.
+This is the primary execution path shared across entrypoints; independent non-registry requests are listed in 2.2.
+
+Tools in this flow:
+
+- Main step-loop LLM requests use runtime registry tools (`buildLLMTools(registry)`), including static and runtime-injected tools available in that runtime.
+- The force-finalization fallback request uses no tools.
+
+### 2.2 Independent LLM Requests (Non-Registry Path)
+
+These requests are executed outside the normal agent step loop tool-registration path.
+
+Agent / Plan tools:
+
+- Forced finalization request when step/token limits are reached.
+  tools: `none`
+  files: `agent/engine_helpers.go`
+- Plan generation request inside the `plan_create` tool implementation.
+  tools: `none`
+  files: `builtin/plan_create.go`
+
+Telegram:
+
+- Group-addressing decision request (this path injects local `telegram_react` for the addressing loop when context allows, and does not expose runtime registry tools).
+  tools: `telegram_react` only when context allows; otherwise `none`
+  files: `telegram/runtime.go`, `telegram/trigger.go`, `telegram/trigger_addressing.go`
+- Init flow requests (question generation, profile fill, post-init greeting, SOUL polish, `/humanize`).
+  tools: `none`
+  files: `telegram/init_flow.go`, `telegram/runtime.go`
+- Memory flow requests (session draft and semantic dedupe/merge support).
+  tools: `none`
+  files: `telegram/memory_flow.go`, `entryutil/semantic_llm.go`
+
+Slack:
+
+- Group-addressing decision request.
+  tools: `none`
+  files: `slack/trigger.go`
+
+TODO semantics / references:
+
+- Reference-id rewrite, complete-target semantic match, and WIP dedupe keep-index selection.
+  tools: `none`
+  files: `builtin/todo_update.go`, `todo/reference_llm.go`, `todo/semantic_llm.go`, `todo/ops.go`
+
+Skills / installer:
+
+- Remote skill installation safety-review request (extract download files and risks from untrusted SKILL content).
+  tools: `none`
+  files: `skillscmd/skills_install_builtin.go`
+- Skill selection router request (catalog-based load selection; currently present as standalone utility).
+  tools: `none`
+  files: `skills/select.go`
 
 ## 3. Two Runtime Families
 
