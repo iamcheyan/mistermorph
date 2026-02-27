@@ -103,8 +103,8 @@ func TestGenerateTelegramPlanProgressMessageProgrammaticFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
 	}
-	if msg != "patch bug" {
-		t.Fatalf("message = %q, want %q", msg, "patch bug")
+	if msg != "scan repo" {
+		t.Fatalf("message = %q, want %q", msg, "scan repo")
 	}
 }
 
@@ -132,7 +132,7 @@ func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing
 	if err != nil {
 		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
 	}
-	if msg != "修复问题" {
-		t.Fatalf("message = %q, want %q", msg, "修复问题")
+	if msg != "检查日志" {
+		t.Fatalf("message = %q, want %q", msg, "检查日志")
 	}
 }

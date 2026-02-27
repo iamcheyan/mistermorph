@@ -144,8 +144,9 @@ Return ONLY JSON:
 Rules:
 - Steps should be actionable and ordered.
 - Keep within max_steps.
-- Use the same language in 'summary' as the task.
+- Use the same language in 'summary' as the 'task'.
 - Keep 'summary' conversational and concise, in plain-text.
+- tools name should be wrapped with backtick quotes.
 `)
 
 	res, err := t.client.Chat(ctx, llm.Request{

@@ -267,10 +267,10 @@ func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client,
 		return "", nil
 	}
 	stepText := firstNonEmpty(
-		strings.TrimSpace(update.StartedStep),
-		stepByIndex(plan, update.StartedIndex),
 		strings.TrimSpace(update.CompletedStep),
 		stepByIndex(plan, update.CompletedIndex),
+		strings.TrimSpace(update.StartedStep),
+		stepByIndex(plan, update.StartedIndex),
 	)
 	if stepText == "" {
 		return "", nil

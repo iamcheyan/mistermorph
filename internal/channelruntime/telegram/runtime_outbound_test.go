@@ -62,26 +62,28 @@ func TestTelegramOutboundKind(t *testing.T) {
 }
 
 func TestNextTelegramPlanProgressStateAppendsLines(t *testing.T) {
-	state, rendered := nextTelegramPlanProgressState(telegramPlanProgressEditState{}, "telegram:plan:1:1", "step 1")
+	state, rendered := nextTelegramPlanProgressState(telegramPlanProgressEditState{}, "telegram:plan:1:1", "run web_search query")
 	if state.CorrelationID != "telegram:plan:1:1" {
 		t.Fatalf("correlation_id = %q", state.CorrelationID)
 	}
-	if len(state.Lines) != 1 || state.Lines[0] != "step 1" {
+	if len(state.Lines) != 1 || state.Lines[0].Text != "run web_search query" || state.Lines[0].Emoji != "🔎" {
 		t.Fatalf("lines = %#v, want single step 1", state.Lines)
 	}
-	if rendered != "<blockquote expandable>🤔 1. step 1</blockquote>" {
+	if rendered != "<blockquote expandable>🔎 1. run web_search query</blockquote>" {
 		t.Fatalf("rendered = %q", rendered)
 	}
 
 	state.MessageID = 123
-	next, rendered := nextTelegramPlanProgressState(state, "telegram:plan:1:1", "step 2")
+	next, rendered := nextTelegramPlanProgressState(state, "telegram:plan:1:1", "save via write_file")
 	if next.MessageID != 123 {
 		t.Fatalf("message_id = %d, want 123", next.MessageID)
 	}
-	if len(next.Lines) != 2 || next.Lines[0] != "step 1" || next.Lines[1] != "step 2" {
+	if len(next.Lines) != 2 ||
+		next.Lines[0].Text != "run web_search query" || next.Lines[0].Emoji != "🔎" ||
+		next.Lines[1].Text != "save via write_file" || next.Lines[1].Emoji != "✍️" {
 		t.Fatalf("lines = %#v, want step1+step2", next.Lines)
 	}
-	if rendered != "<blockquote expandable>🤔 2. step 2<br>🤔 1. step 1</blockquote>" {
+	if rendered != "<blockquote expandable>✍️ 2. save via write_file<br>🔎 1. run web_search query</blockquote>" {
 		t.Fatalf("rendered = %q, want numbered reverse lines", rendered)
 	}
 }
@@ -90,23 +92,54 @@ func TestNextTelegramPlanProgressStateResetsOnCorrelationChange(t *testing.T) {
 	prev := telegramPlanProgressEditState{
 		CorrelationID: "telegram:plan:1:1",
 		MessageID:     99,
-		Lines:         []string{"step 1"},
+		Lines:         []telegramPlanProgressLine{{Text: "run web_search query", Emoji: "🔎"}},
 	}
-	next, rendered := nextTelegramPlanProgressState(prev, "telegram:plan:1:2", "step 2")
+	next, rendered := nextTelegramPlanProgressState(prev, "telegram:plan:1:2", "fetch with url_fetch")
 	if next.MessageID != 0 {
 		t.Fatalf("message_id = %d, want 0", next.MessageID)
 	}
-	if len(next.Lines) != 1 || next.Lines[0] != "step 2" {
+	if len(next.Lines) != 1 || next.Lines[0].Text != "fetch with url_fetch" || next.Lines[0].Emoji != "🧭" {
 		t.Fatalf("lines = %#v, want only step 2", next.Lines)
 	}
-	if rendered != "<blockquote expandable>🤔 1. step 2</blockquote>" {
+	if rendered != "<blockquote expandable>🧭 1. fetch with url_fetch</blockquote>" {
 		t.Fatalf("rendered = %q", rendered)
 	}
 }
 
 func TestRenderTelegramPlanProgressExpandableEscapesHTML(t *testing.T) {
-	got := renderTelegramPlanProgressExpandable([]string{"<b>x</b>"})
-	if got != "<blockquote expandable>🤔 1. &lt;b&gt;x&lt;/b&gt;</blockquote>" {
+	got := renderTelegramPlanProgressExpandable([]telegramPlanProgressLine{
+		{Text: "use read_file <b>x</b>", Emoji: "📖"},
+	})
+	if got != "<blockquote expandable>📖 1. use read_file &lt;b&gt;x&lt;/b&gt;</blockquote>" {
 		t.Fatalf("rendered = %q", got)
+	}
+}
+
+func TestEmojiForTelegramPlanStep(t *testing.T) {
+	tests := []struct {
+		step string
+		want string
+	}{
+		{step: "do web_search now", want: "🔎"},
+		{step: "please url_fetch page", want: "🧭"},
+		{step: "read_file config", want: "📖"},
+		{step: "write_file result", want: "✍️"},
+		{step: "telegram_send_file something", want: "🗂️"},
+		{step: "telegram_send_voice something", want: "🎙️"},
+		{step: "run bash script", want: "🧑‍💻"},
+		{step: "todo_update next steps", want: "🗓️"},
+		{step: "use contacts_send", want: "✉️"},
+	}
+	for _, tc := range tests {
+		if got := emojiForTelegramPlanStep(tc.step); got != tc.want {
+			t.Fatalf("emojiForTelegramPlanStep(%q) = %q, want %q", tc.step, got, tc.want)
+		}
+	}
+}
+
+func TestEmojiForTelegramPlanStepFallback(t *testing.T) {
+	got := emojiForTelegramPlanStep("plain natural language step")
+	if got != "💭" && got != "🤔" {
+		t.Fatalf("fallback emoji = %q, want one of 💭/🤔", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	htmlstd "html"
 	"log/slog"
+	randv2 "math/rand/v2"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -54,10 +55,15 @@ type telegramChatWorker struct {
 	Version uint64
 }
 
+type telegramPlanProgressLine struct {
+	Text  string
+	Emoji string
+}
+
 type telegramPlanProgressEditState struct {
 	CorrelationID string
 	MessageID     int64
-	Lines         []string
+	Lines         []telegramPlanProgressLine
 }
 
 func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
@@ -1464,23 +1470,59 @@ func nextTelegramPlanProgressState(state telegramPlanProgressEditState, correlat
 		next.Lines = append(next.Lines, state.Lines...)
 	}
 
-	next.Lines = append(next.Lines, line)
+	next.Lines = append(next.Lines, telegramPlanProgressLine{
+		Text:  line,
+		Emoji: emojiForTelegramPlanStep(line),
+	})
 	return next, renderTelegramPlanProgressExpandable(next.Lines)
 }
 
-func renderTelegramPlanProgressExpandable(lines []string) string {
+func renderTelegramPlanProgressExpandable(lines []telegramPlanProgressLine) string {
 	reversed := make([]string, 0, len(lines))
 	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
+		line := strings.TrimSpace(lines[i].Text)
 		if line == "" {
 			continue
 		}
-		reversed = append(reversed, fmt.Sprintf("🤔 %d. %s", i+1, htmlstd.EscapeString(line)))
+		emoji := strings.TrimSpace(lines[i].Emoji)
+		if emoji == "" {
+			emoji = emojiForTelegramPlanStep(line)
+		}
+		reversed = append(reversed, fmt.Sprintf("%s %d. %s", emoji, i+1, htmlstd.EscapeString(line)))
 	}
 	if len(reversed) == 0 {
 		return ""
 	}
 	return "<blockquote expandable>" + strings.Join(reversed, "<br>") + "</blockquote>"
+}
+
+func emojiForTelegramPlanStep(step string) string {
+	lower := strings.ToLower(strings.TrimSpace(step))
+	switch {
+	case strings.Contains(lower, "web_search"):
+		return "🔎"
+	case strings.Contains(lower, "url_fetch"):
+		return "🧭"
+	case strings.Contains(lower, "read_file"):
+		return "📖"
+	case strings.Contains(lower, "write_file"):
+		return "✍️"
+	case strings.Contains(lower, "_send_file"):
+		return "🗂️"
+	case strings.Contains(lower, "_send_voice"):
+		return "🎙️"
+	case strings.Contains(lower, "bash"):
+		return "🧑‍💻"
+	case strings.Contains(lower, "todo_update"):
+		return "🗓️"
+	case strings.Contains(lower, "contacts_send"):
+		return "✉️"
+	default:
+		if randv2.IntN(2) == 0 {
+			return "💭"
+		}
+		return "🤔"
+	}
 }
 
 func telegramTaskID(chatID int64, messageID int64) string {
