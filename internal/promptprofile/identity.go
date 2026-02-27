@@ -56,7 +56,7 @@ func soulPath() string {
 func loadPersonaDoc(path string, kind string, log *slog.Logger) (string, string) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !os.IsNotExist(err) && log != nil {
 			log.Warn("persona_load_failed", "kind", kind, "path", path, "error", err.Error())
 		}
 		if os.IsNotExist(err) {

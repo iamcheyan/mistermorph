@@ -3,18 +3,23 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/spf13/viper"
 )
 
 type stubPlanCreateLLMClient struct {
-	reply string
-	err   error
+	reply   string
+	err     error
+	lastReq llm.Request
 }
 
-func (s *stubPlanCreateLLMClient) Chat(_ context.Context, _ llm.Request) (llm.Result, error) {
+func (s *stubPlanCreateLLMClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	s.lastReq = req
 	if s.err != nil {
 		return llm.Result{}, s.err
 	}
@@ -63,5 +68,46 @@ func TestPlanCreateExecuteNormalizesAndDropsEmptySteps(t *testing.T) {
 	}
 	if parsed.Plan.Steps[1].Step != "summarize" || parsed.Plan.Steps[1].Status != "pending" {
 		t.Fatalf("steps[1] = %+v, want step=%q status=%q", parsed.Plan.Steps[1], "summarize", "pending")
+	}
+}
+
+func TestPlanCreateExecuteInjectsPersonaIdentity(t *testing.T) {
+	stateDir := t.TempDir()
+	identity := "# IDENTITY.md\n\nName: Persona Bot\n"
+	soul := "# SOUL.md\n\n## Vibe\n\nDirect and calm.\n"
+	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte(identity), 0o644); err != nil {
+		t.Fatalf("write IDENTITY.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "SOUL.md"), []byte(soul), 0o644); err != nil {
+		t.Fatalf("write SOUL.md: %v", err)
+	}
+
+	prevStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() { viper.Set("file_state_dir", prevStateDir) })
+	viper.Set("file_state_dir", stateDir)
+
+	client := &stubPlanCreateLLMClient{
+		reply: `{"plan":{"summary":"x","steps":[{"step":"collect data"}]}}`,
+	}
+	tool := NewPlanCreateTool(client, "gpt-5.2", []string{"bash"}, 6)
+	if _, err := tool.Execute(context.Background(), map[string]any{"task": "t"}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(client.lastReq.Messages) == 0 {
+		t.Fatalf("expected LLM messages")
+	}
+	systemPrompt := client.lastReq.Messages[0].Content
+	if !strings.Contains(systemPrompt, ">>> BEGIN OF IDENTITY.md <<<") {
+		t.Fatalf("system prompt missing identity block: %q", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, "Persona Bot") {
+		t.Fatalf("system prompt missing identity content: %q", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, ">>> BEGIN OF SOUL.md <<<") {
+		t.Fatalf("system prompt missing soul block: %q", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, "Direct and calm.") {
+		t.Fatalf("system prompt missing soul content: %q", systemPrompt)
 	}
 }

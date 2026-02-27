@@ -8,6 +8,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
+	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -75,6 +76,38 @@ type planCreateOutput struct {
 	Plan planCreatePlan `json:"plan"`
 }
 
+func planCreateIdentity() string {
+	spec := agent.DefaultPromptSpec()
+	promptprofile.ApplyPersonaIdentity(&spec, nil)
+	return strings.TrimSpace(spec.Identity)
+}
+
+func buildPlanCreateSystemPrompt() string {
+	base := strings.TrimSpace(`
+You generate a concise execution plan.
+Return ONLY JSON:
+{
+  "plan": {
+    "thought": "brief reasoning (optional)",
+    "summary": "1-2 sentence overview",
+    "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}]
+  }
+}
+Rules:
+- Steps should be actionable and ordered.
+- Keep within max_steps.
+- Use the same language in 'summary' as the 'task'.
+- Keep 'summary' conversational and concise, in plain-text.
+- tools name should be wrapped with backtick quotes.
+-
+`)
+	identity := planCreateIdentity()
+	if identity == "" {
+		return base
+	}
+	return identity + "\n\n" + base
+}
+
 func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	if t == nil || t.client == nil {
 		return "", fmt.Errorf("plan_create unavailable (missing llm client)")
@@ -131,23 +164,7 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
-	sys := strings.TrimSpace(`
-You generate a concise execution plan.
-Return ONLY JSON:
-{
-  "plan": {
-    "thought": "brief reasoning (optional)",
-    "summary": "1-2 sentence overview",
-    "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}]
-  }
-}
-Rules:
-- Steps should be actionable and ordered.
-- Keep within max_steps.
-- Use the same language in 'summary' as the 'task'.
-- Keep 'summary' conversational and concise, in plain-text.
-- tools name should be wrapped with backtick quotes.
-`)
+	sys := buildPlanCreateSystemPrompt()
 
 	res, err := t.client.Chat(ctx, llm.Request{
 		Model:     model,
