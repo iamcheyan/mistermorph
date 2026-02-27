@@ -280,56 +280,66 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		planProgressEditMu    sync.Mutex
 		planProgressStateByID = make(map[int64]telegramPlanProgressEditState)
 	)
+	parseSendTextInput := func(target any, opts telegrambus.SendTextOptions) (int64, int64, string, error) {
+		chatID, ok := target.(int64)
+		if !ok {
+			return 0, 0, "", fmt.Errorf("telegram target is invalid")
+		}
+		replyToMessageID := int64(0)
+		replyToRaw := strings.TrimSpace(opts.ReplyTo)
+		if replyToRaw != "" {
+			parsed, parseErr := strconv.ParseInt(replyToRaw, 10, 64)
+			if parseErr != nil || parsed <= 0 {
+				return 0, 0, "", fmt.Errorf("telegram reply_to is invalid")
+			}
+			replyToMessageID = parsed
+		}
+		return chatID, replyToMessageID, strings.TrimSpace(opts.CorrelationID), nil
+	}
+	sendPlanProgress := func(ctx context.Context, chatID int64, text string, replyToMessageID int64, correlationID string) error {
+		line := strings.TrimSpace(text)
+		if line == "" {
+			return nil
+		}
+		var state telegramPlanProgressEditState
+		planProgressEditMu.Lock()
+		state = planProgressStateByID[chatID]
+		planProgressEditMu.Unlock()
+
+		nextState, rendered := nextTelegramPlanProgressState(state, correlationID, line)
+		if rendered == "" {
+			return nil
+		}
+		if nextState.MessageID > 0 && strings.EqualFold(nextState.CorrelationID, correlationID) {
+			if err := api.editMessageHTML(ctx, chatID, nextState.MessageID, rendered, true); err == nil || isTelegramMessageNotModified(err) {
+				planProgressEditMu.Lock()
+				planProgressStateByID[chatID] = nextState
+				planProgressEditMu.Unlock()
+				return nil
+			} else {
+				logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", nextState.MessageID, "correlation_id", correlationID, "error", err.Error())
+			}
+		}
+		messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, rendered, replyToMessageID)
+		if err != nil {
+			return err
+		}
+		if messageID > 0 && correlationID != "" {
+			nextState.MessageID = messageID
+			planProgressEditMu.Lock()
+			planProgressStateByID[chatID] = nextState
+			planProgressEditMu.Unlock()
+		}
+		return nil
+	}
 	telegramDeliveryAdapter, err = telegrambus.NewDeliveryAdapter(telegrambus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
-			chatID, ok := target.(int64)
-			if !ok {
-				return fmt.Errorf("telegram target is invalid")
+			chatID, replyToMessageID, correlationID, err := parseSendTextInput(target, opts)
+			if err != nil {
+				return err
 			}
-			replyToMessageID := int64(0)
-			replyToRaw := strings.TrimSpace(opts.ReplyTo)
-			if replyToRaw != "" {
-				parsed, parseErr := strconv.ParseInt(replyToRaw, 10, 64)
-				if parseErr != nil || parsed <= 0 {
-					return fmt.Errorf("telegram reply_to is invalid")
-				}
-				replyToMessageID = parsed
-			}
-			correlationID := strings.TrimSpace(opts.CorrelationID)
 			if telegramOutboundKind(correlationID) == "plan_progress" {
-				var state telegramPlanProgressEditState
-				planProgressEditMu.Lock()
-				state = planProgressStateByID[chatID]
-				planProgressEditMu.Unlock()
-				line := strings.TrimSpace(text)
-				if line == "" {
-					return nil
-				}
-				nextState, rendered := nextTelegramPlanProgressState(state, correlationID, line)
-				if rendered == "" {
-					return nil
-				}
-				if nextState.MessageID > 0 && strings.EqualFold(nextState.CorrelationID, correlationID) {
-					if err := api.editMessageHTML(ctx, chatID, nextState.MessageID, rendered, true); err == nil || isTelegramMessageNotModified(err) {
-						planProgressEditMu.Lock()
-						planProgressStateByID[chatID] = nextState
-						planProgressEditMu.Unlock()
-						return nil
-					} else {
-						logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", nextState.MessageID, "correlation_id", correlationID, "error", err.Error())
-					}
-				}
-				messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, rendered, replyToMessageID)
-				if err != nil {
-					return err
-				}
-				if messageID > 0 && correlationID != "" {
-					nextState.MessageID = messageID
-					planProgressEditMu.Lock()
-					planProgressStateByID[chatID] = nextState
-					planProgressEditMu.Unlock()
-				}
-				return nil
+				return sendPlanProgress(ctx, chatID, text, replyToMessageID, correlationID)
 			}
 			return api.sendMessageChunkedReply(ctx, chatID, text, replyToMessageID)
 		},
