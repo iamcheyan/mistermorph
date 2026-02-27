@@ -30,7 +30,7 @@ func NewPlanCreateTool(client llm.Client, defaultModel string, toolNames []strin
 func (t *planCreateTool) Name() string { return "plan_create" }
 
 func (t *planCreateTool) Description() string {
-	return "Generate a concise execution plan for a task as JSON (plan object with thought/summary/steps/risks/questions). Use when you want a plan before execution."
+	return "Generate a concise execution plan for a task as JSON (plan object with thought/summary/steps). Use when you want a plan before execution."
 }
 
 func (t *planCreateTool) ParameterSchema() string {
@@ -66,12 +66,9 @@ func (t *planCreateTool) ParameterSchema() string {
 }
 
 type planCreatePlan struct {
-	Thought    string          `json:"thought"`
-	Summary    string          `json:"summary"`
-	Steps      agent.PlanSteps `json:"steps"`
-	Risks      []string        `json:"risks"`
-	Questions  []string        `json:"questions"`
-	Completion string          `json:"completion"`
+	Thought string          `json:"thought"`
+	Summary string          `json:"summary"`
+	Steps   agent.PlanSteps `json:"steps"`
 }
 
 type planCreateOutput struct {
@@ -141,16 +138,14 @@ Return ONLY JSON:
   "plan": {
     "thought": "brief reasoning (optional)",
     "summary": "1-2 sentence overview",
-    "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}],
-    "risks": ["optional"],
-    "questions": ["optional clarifying questions"],
-    "completion": "optional definition of done"
+    "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}]
   }
 }
 Rules:
 - Steps should be actionable and ordered.
 - Keep within max_steps.
-- If no questions, return an empty array.
+- Use the same language in 'summary' as the task.
+- Keep 'summary' conversational and concise, in plain-text.
 `)
 
 	res, err := t.client.Chat(ctx, llm.Request{

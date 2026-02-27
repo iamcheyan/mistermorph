@@ -102,10 +102,7 @@ When not calling tools, you MUST respond with JSON in one of two formats:
       {"step": "step 1", "status": "in_progress"},
       {"step": "step 2", "status": "pending"},
       {"step": "step 3", "status": "pending"}
-    ],
-    "risks": ["optional"],
-    "questions": ["optional clarifying questions"],
-    "completion": "what done looks like (optional)"
+    ]
   }
 }
 ```

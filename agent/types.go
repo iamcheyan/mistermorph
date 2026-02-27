@@ -54,12 +54,9 @@ func (s *PlanSteps) UnmarshalJSON(data []byte) error {
 }
 
 type Plan struct {
-	Thought    string    `json:"thought,omitempty"`
-	Summary    string    `json:"summary,omitempty"`
-	Steps      PlanSteps `json:"steps,omitempty"`
-	Risks      []string  `json:"risks,omitempty"`
-	Questions  []string  `json:"questions,omitempty"`
-	Completion string    `json:"completion,omitempty"`
+	Thought string    `json:"thought,omitempty"`
+	Summary string    `json:"summary,omitempty"`
+	Steps   PlanSteps `json:"steps,omitempty"`
 }
 
 type PlanStepUpdate struct {
