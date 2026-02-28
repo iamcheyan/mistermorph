@@ -11,16 +11,6 @@ func ManualContactKey(contactID string) string {
 	return fmt.Sprintf("manual:%s:%s", token(contactID), uuid.NewString())
 }
 
-func ProactiveShareKey(contactID string, itemID string, sourceChatID int64, sourceChatType string) string {
-	return fmt.Sprintf(
-		"proactive:%s:%s:%d:%s",
-		token(contactID),
-		token(itemID),
-		sourceChatID,
-		token(sourceChatType),
-	)
-}
-
 func MessageEnvelopeKey(messageID string) string {
 	return "msg:" + token(messageID)
 }

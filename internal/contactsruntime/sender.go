@@ -736,20 +736,6 @@ func slackChatTypeFromChannelID(channelID string) string {
 	}
 }
 
-func IsPublicTelegramTarget(target any, resolvedChatType string) bool {
-	chatType := strings.ToLower(strings.TrimSpace(resolvedChatType))
-	if chatType == "group" || chatType == "supergroup" {
-		return true
-	}
-	if chatType == "private" {
-		return false
-	}
-	if id, ok := target.(int64); ok && id < 0 {
-		return true
-	}
-	return false
-}
-
 func preferredChat(contact contacts.Contact) (int64, string, bool) {
 	privateChatID := contact.TGPrivateChatID
 	groupIDs := append([]int64(nil), contact.TGGroupChatIDs...)

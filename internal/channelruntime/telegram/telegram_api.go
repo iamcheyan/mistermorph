@@ -53,20 +53,6 @@ func SendMessageHTML(ctx context.Context, httpClient *http.Client, baseURL, toke
 	return api.sendMessageHTML(ctx, chatID, text, disablePreview)
 }
 
-// SendMessageMarkdownV1 sends text via Telegram Bot API using parse_mode=Markdown.
-// If Telegram rejects markdown entity parsing, it retries as plain text.
-func SendMessageMarkdownV1(ctx context.Context, httpClient *http.Client, baseURL, token string, chatID int64, text string, disablePreview bool) error {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return fmt.Errorf("telegram bot token is required")
-	}
-	if chatID == 0 {
-		return fmt.Errorf("telegram chat id is required")
-	}
-	api := newTelegramAPI(httpClient, strings.TrimSpace(baseURL), token)
-	return api.sendMessageMarkdownV1(ctx, chatID, text, disablePreview)
-}
-
 type telegramUpdate struct {
 	UpdateID int64            `json:"update_id"`
 	Message  *telegramMessage `json:"message,omitempty"`
@@ -385,27 +371,6 @@ func (api *telegramAPI) sendMessageHTML(ctx context.Context, chatID int64, text 
 	return api.sendMessageHTMLReply(ctx, chatID, text, disablePreview, 0)
 }
 
-func (api *telegramAPI) sendMessageMarkdownV1(ctx context.Context, chatID int64, text string, disablePreview bool) error {
-	return api.sendMessageMarkdownV1Reply(ctx, chatID, text, disablePreview, 0)
-}
-
-func (api *telegramAPI) sendMessageMarkdownV1Reply(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		text = "(empty)"
-	}
-	err := api.sendMessageWithParseModeReply(ctx, chatID, text, disablePreview, "Markdown", replyToMessageID)
-	if err != nil {
-		if !isTelegramEntityParseError(err) {
-			slog.Warn("failed to send telegram markdown message", "text", text, "error", err)
-			return err
-		}
-		slog.Warn("failed to parse telegram markdown entities; send plain-text fallback", "text", text, "error", err)
-		return api.sendMessageWithParseModeReply(ctx, chatID, text, disablePreview, "", replyToMessageID)
-	}
-	return nil
-}
-
 func (api *telegramAPI) sendMessageHTMLReply(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) error {
 	_, err := api.sendMessageHTMLReplyWithMessageID(ctx, chatID, text, disablePreview, replyToMessageID)
 	return err
@@ -550,11 +515,6 @@ func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Co
 		isFirstChunk = false
 	}
 	return firstMessageID, nil
-}
-
-func (api *telegramAPI) sendMessageWithParseModeReply(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) error {
-	_, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, parseMode, replyToMessageID)
-	return err
 }
 
 func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {

@@ -134,12 +134,3 @@ func TestResolveTelegramTargetWithChatIDNoPrivateFallback(t *testing.T) {
 		t.Fatalf("chatType mismatch: got %q want empty", chatType)
 	}
 }
-
-func TestIsPublicTelegramTarget(t *testing.T) {
-	if !contactsruntime.IsPublicTelegramTarget(int64(-100789), "supergroup") {
-		t.Fatalf("expected public target for group chat")
-	}
-	if contactsruntime.IsPublicTelegramTarget(int64(1001), "private") {
-		t.Fatalf("did not expect public target for private chat")
-	}
-}
