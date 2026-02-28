@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -182,20 +183,45 @@ func initConfig() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 
-	cfgFile := strings.TrimSpace(viper.GetString("config"))
+	cfgFile, explicit := resolveConfigFile()
 	if cfgFile == "" {
 		return
 	}
-	cfgFile = pathutil.ExpandHomePath(cfgFile)
 
 	viper.SetConfigFile(cfgFile)
 	if err := viper.ReadInConfig(); err != nil {
+		if !explicit && isConfigNotFoundError(err) {
+			return
+		}
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 		return
 	}
 
 	expandConfiguredDirKey("file_state_dir")
 	expandConfiguredDirKey("file_cache_dir")
+}
+
+func resolveConfigFile() (string, bool) {
+	explicit := strings.TrimSpace(viper.GetString("config"))
+	if explicit != "" {
+		return pathutil.ExpandHomePath(explicit), true
+	}
+
+	for _, candidate := range []string{"config.yaml", "~/.morph/config.yaml"} {
+		resolved := pathutil.ExpandHomePath(candidate)
+		if _, err := os.Stat(resolved); err == nil {
+			return resolved, false
+		}
+	}
+	return "", false
+}
+
+func isConfigNotFoundError(err error) bool {
+	if os.IsNotExist(err) {
+		return true
+	}
+	var notFound viper.ConfigFileNotFoundError
+	return errors.As(err, &notFound)
 }
 
 func expandConfiguredDirKey(key string) {
