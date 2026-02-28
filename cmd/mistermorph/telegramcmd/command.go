@@ -57,8 +57,7 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deps := telegramruntime.Dependencies(d)
-			deps.RuntimeToolsConfig = runtimeToolsConfig
+			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig)
 
 			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig)
 			return runTelegramWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
@@ -118,6 +117,25 @@ func buildHeartbeatRuntime(
 		Notifier:                    newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
 	}
 	return hbDeps, hbOpts
+}
+
+func buildTelegramRuntimeDeps(
+	d Dependencies,
+	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+) telegramruntime.Dependencies {
+	return telegramruntime.Dependencies{
+		Logger:                 d.Logger,
+		LogOptions:             d.LogOptions,
+		CreateLLMClient:        d.CreateLLMClient,
+		LLMProvider:            d.LLMProvider,
+		LLMEndpointForProvider: d.LLMEndpointForProvider,
+		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
+		LLMModelForProvider:    d.LLMModelForProvider,
+		Registry:               d.Registry,
+		RuntimeToolsConfig:     runtimeToolsConfig,
+		Guard:                  d.Guard,
+		PromptSpec:             d.PromptSpec,
+	}
 }
 
 func runTelegramWithOptionalHeartbeat(

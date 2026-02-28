@@ -401,12 +401,12 @@ Note: this path currently nests one heartbeat envelope inside `heartbeat`.
   - Non-heartbeat Telegram runs set `SkipTaskMessage=true` to avoid duplicating the same inbound text.
   - The current inbound text is already included via `llmHistory` (`historyWithCurrent`).
 
-4. Telegram scheduled heartbeat
+4. Channel heartbeat runtime (launched from telegram command)
 
 - Files:
-  - `internal/channelruntime/telegram/runtime.go` (heartbeat job creation + meta)
-  - `internal/channelruntime/telegram/runtime_task.go` (RunOptions wiring)
-- Heartbeat worker payload from `buildHeartbeatMeta(...)`:
+  - `cmd/mistermorph/telegramcmd/command.go` (launches optional heartbeat runtime)
+  - `internal/channelruntime/heartbeat/run.go` (scheduler + execution + meta)
+- Heartbeat worker payload from `BuildHeartbeatMeta(...)`:
 
 ```json
 {
@@ -417,20 +417,14 @@ Note: this path currently nests one heartbeat envelope inside `heartbeat`.
     "interval": "...",
     "checklist_path": "...",
     "checklist_empty": true,
-    "telegram_chat_id": 123,
-    "telegram_chat_type": "group",
-    "telegram_from_user_id": 789,
-    "telegram_from_username": "alice",
-    "telegram_from_name": "Alice",
-    "queue_len": 0,
-    "last_success_utc": "..."
+    "task_run_id": "heartbeat:20260228T010203.000000000Z"
   }
 }
 ```
 
 - Message injection behavior:
-  - Heartbeat Telegram runs set `SkipTaskMessage=false`.
-  - This ensures `job.Text` (heartbeat checklist task, usually from `HEARTBEAT.md`) is appended as a user task message and reaches the model.
+  - Heartbeat runtime does not build Telegram chat `llmHistory`.
+  - Heartbeat checklist task (usually from `HEARTBEAT.md`) is passed as the main user task to `agent.Engine.Run(...)`.
 
 5. MAEP inbound auto-reply run
 

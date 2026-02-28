@@ -178,16 +178,21 @@ Notes:
 ### 5.2 Memory Status
 
 ```text
-telegram private user
-  -> resolve identity (ext:telegram:<user_id>)
-  -> load/inject summaries
-  -> update short-term + long-term markdown
+runtime task/event
+  -> runtime memory adapter (telegram/slack/heartbeat)
+  -> injection (when enabled)
+  -> record/update memory artifacts
 ```
 
 Notes:
 
-- Runtime-level memory integration is currently wired for Telegram only; Slack memory integration is not yet wired.
-- Storage model lives in `memory/*`, runtime integration is in `internal/channelruntime/telegram/runtime_task.go`.
+- Runtime-level memory integration is wired in Telegram, Slack, and Heartbeat.
+- Telegram currently uses a legacy direct memory adapter (`internal/channelruntime/telegram/runtime_task.go`).
+- Slack and Heartbeat use shared orchestrator wiring (`internal/memoryruntime/*`) via:
+  - `internal/channelruntime/slack/runtime.go`
+  - `internal/channelruntime/slack/runtime_task.go`
+  - `internal/channelruntime/heartbeat/run.go`
+- Storage model lives in `memory/*`.
 
 ### 5.3 Heartbeat Runtime Path
 
@@ -207,7 +212,7 @@ Notes:
 - Consecutive failures are tracked by `heartbeatutil.State`; alert escalation is emitted after threshold.
 - Code:
   - shared helpers: `internal/heartbeatutil/heartbeat.go`, `internal/heartbeatutil/scheduler.go`
-  - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/telegram/runtime.go`
+  - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/heartbeat/run.go`, `cmd/mistermorph/telegramcmd/command.go`
 
 ### 5.4 Plan Creation and Progress Lifecycle
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/entryutil"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
@@ -20,7 +21,7 @@ func updateMemoryFromJob(ctx context.Context, logger *slog.Logger, client llm.Cl
 	if mgr == nil || client == nil {
 		return nil
 	}
-	output := formatFinalOutput(final)
+	output := depsutil.FormatFinalOutput(final)
 	date := time.Now().UTC()
 	longTermSubjectID = strings.TrimSpace(longTermSubjectID)
 	meta := buildMemoryWriteMeta(job)

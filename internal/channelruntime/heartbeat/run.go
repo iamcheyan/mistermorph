@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -38,6 +39,8 @@ type RunOptions struct {
 	Notifier                    Notifier
 }
 
+type Dependencies = depsutil.HeartbeatDependencies
+
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
 	return runHeartbeatLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
 }
@@ -46,34 +49,35 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	common := depsutil.CommonFromHeartbeat(d)
 
-	logger, err := loggerFromDeps(d)
+	logger, err := depsutil.LoggerFromCommon(common)
 	if err != nil {
 		return err
 	}
-	logOpts := logOptionsFromDeps(d)
+	logOpts := depsutil.LogOptionsFromCommon(common)
 
-	provider := strings.TrimSpace(llmProviderFromDeps(d))
-	client, err := llmClientFromConfig(d, llmconfig.ClientConfig{
+	provider := strings.TrimSpace(depsutil.ProviderFromCommon(common))
+	client, err := depsutil.CreateClientFromCommon(common, llmconfig.ClientConfig{
 		Provider:       provider,
-		Endpoint:       llmEndpointForProvider(d, provider),
-		APIKey:         llmAPIKeyForProvider(d, provider),
-		Model:          llmModelForProvider(d, provider),
+		Endpoint:       depsutil.EndpointForProviderFromCommon(common, provider),
+		APIKey:         depsutil.APIKeyForProviderFromCommon(common, provider),
+		Model:          depsutil.ModelForProviderFromCommon(common, provider),
 		RequestTimeout: opts.RequestTimeout,
 	})
 	if err != nil {
 		return err
 	}
-	model := strings.TrimSpace(llmModelForProvider(d, provider))
+	model := strings.TrimSpace(depsutil.ModelForProviderFromCommon(common, provider))
 	if model == "" {
 		return fmt.Errorf("missing model")
 	}
 
-	baseReg := registryFromDeps(d)
+	baseReg := depsutil.RegistryFromCommon(common)
 	if baseReg == nil {
 		return fmt.Errorf("base registry is nil")
 	}
-	sharedGuard := guardFromDeps(d, logger)
+	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
 	orchestrator, cleanup, err := newHeartbeatOrchestrator(opts)
@@ -91,7 +95,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		}
 		runAt := time.Now().UTC()
 		taskRunID := heartbeatTaskRunID(runAt)
-		meta := buildHeartbeatMeta(d, opts.Source, opts.Interval, opts.ChecklistPath, checklistEmpty, map[string]any{
+		meta := depsutil.BuildHeartbeatMetaFromDeps(d, opts.Source, opts.Interval, opts.ChecklistPath, checklistEmpty, map[string]any{
 			"task_run_id": taskRunID,
 		})
 		wg.Add(1)
@@ -116,7 +120,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
 			})
 			if runErr != nil {
-				displayErr := formatRuntimeError(runErr)
+				displayErr := depsutil.FormatRuntimeError(runErr)
 				alert, alertMsg := state.EndFailure(errors.New(displayErr))
 				if alert {
 					logger.Warn("heartbeat_alert", "source", opts.Source, "message", alertMsg)
@@ -139,7 +143,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		result := heartbeatutil.Tick(
 			state,
 			func() (string, bool, error) {
-				return buildHeartbeatTask(d, opts.ChecklistPath)
+				return depsutil.BuildHeartbeatTaskFromDeps(d, opts.ChecklistPath)
 			},
 			runTaskAsync,
 		)
@@ -213,7 +217,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	}
 	defer cancel()
 
-	promptSpec, _, skillAuthProfiles, err := promptSpecForHeartbeat(d, runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	promptSpec, _, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromHeartbeat(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
 	if err != nil {
 		return "", err
 	}
@@ -256,7 +260,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		return "", err
 	}
 
-	summary := strings.TrimSpace(formatFinalOutput(final))
+	summary := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 	if opts.MemoryOrchestrator != nil {
 		if _, memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID: opts.TaskRunID,

@@ -13,7 +13,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
@@ -319,10 +318,6 @@ func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.De
 		RuntimeToolsConfig:     base.RuntimeToolsConfig,
 		Guard:                  base.Guard,
 		PromptSpec:             base.PromptSpec,
-		BuildHeartbeatTask:     heartbeatutil.BuildHeartbeatTask,
-		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
-		},
 	}
 }
 

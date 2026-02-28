@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -96,7 +97,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	allowedTeams := toAllowlist(opts.AllowedTeamIDs)
 	allowedChannels := toAllowlist(opts.AllowedChannelIDs)
 
-	logger, err := loggerFromDeps(d)
+	logger, err := depsutil.LoggerFromCommon(d)
 	if err != nil {
 		return err
 	}
@@ -156,11 +157,11 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 
 	requestTimeout := opts.RequestTimeout
-	client, err := llmClientFromConfig(d, llmconfig.ClientConfig{
-		Provider:       llmProviderFromDeps(d),
-		Endpoint:       llmEndpointFromDeps(d),
-		APIKey:         llmAPIKeyFromDeps(d),
-		Model:          llmModelFromDeps(d),
+	client, err := depsutil.CreateClientFromCommon(d, llmconfig.ClientConfig{
+		Provider:       depsutil.ProviderFromCommon(d),
+		Endpoint:       depsutil.EndpointFromCommon(d),
+		APIKey:         depsutil.APIKeyFromCommon(d),
+		Model:          depsutil.ModelFromCommon(d),
 		RequestTimeout: requestTimeout,
 	})
 	if err != nil {
@@ -193,9 +194,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		client = &llminspect.PromptClient{Base: client, Inspector: inspector}
 	}
 
-	model := llmModelFromDeps(d)
-	logOpts := logOptionsFromDeps(d)
-	reg := registryFromDeps(d)
+	model := depsutil.ModelFromCommon(d)
+	logOpts := depsutil.LogOptionsFromCommon(d)
+	reg := depsutil.RegistryFromCommon(d)
 	if reg == nil {
 		reg = tools.NewRegistry()
 	}
@@ -243,8 +244,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
-							"provider": llmProviderFromDeps(d),
-							"model":    llmModelFromDeps(d),
+							"provider": depsutil.ProviderFromCommon(d),
+							"model":    depsutil.ModelFromCommon(d),
 						},
 						"channel": map[string]any{
 							"configured":          true,
@@ -272,7 +273,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		history                          = make(map[string][]chathistory.ChatHistoryItem)
 		stickySkillsByConv               = make(map[string][]string)
 		workers                          = make(map[string]*slackConversationWorker)
-		sharedGuard         *guard.Guard = guardFromDeps(d, logger)
+		sharedGuard         *guard.Guard = depsutil.GuardFromCommon(d, logger)
 		enqueueSlackInbound func(context.Context, busruntime.BusMessage) error
 	)
 
@@ -324,7 +325,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					if workerCtx.Err() != nil {
 						return
 					}
-					displayErr := formatRuntimeError(runErr)
+					displayErr := depsutil.FormatRuntimeError(runErr)
 					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 						finishedAt := time.Now().UTC()
 						failedStatus := daemonruntime.TaskFailed
@@ -370,7 +371,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					return
 				}
 
-				outText := strings.TrimSpace(formatFinalOutput(final))
+				outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 					finishedAt := time.Now().UTC()
 					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {

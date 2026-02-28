@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/retryutil"
@@ -75,7 +76,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		reg.Register(reactTool)
 	}
 
-	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecForTelegram(d, ctx, logger, logOpts, task, client, model, stickySkills)
+	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

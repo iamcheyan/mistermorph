@@ -14,10 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -48,6 +50,8 @@ type telegramJob struct {
 	MentionUsers     []string
 }
 
+type Dependencies = depsutil.CommonDependencies
+
 type telegramChatWorker struct {
 	Jobs    chan telegramJob
 	Version uint64
@@ -71,6 +75,13 @@ func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
 	return strings.TrimSpace(normalizedCmd) == ""
 }
 
+func shouldPublishTelegramText(final *agent.Final) bool {
+	if final == nil {
+		return true
+	}
+	return !final.IsLightweight
+}
+
 func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
 	token := strings.TrimSpace(opts.BotToken)
 	if token == "" {
@@ -87,7 +98,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		allowed[id] = true
 	}
 
-	logger, err := loggerFromDeps(d)
+	logger, err := depsutil.LoggerFromCommon(d)
 	if err != nil {
 		return err
 	}
@@ -182,11 +193,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 
 	requestTimeout := opts.RequestTimeout
-	client, err := llmClientFromConfig(d, llmconfig.ClientConfig{
-		Provider:       llmProviderFromDeps(d),
-		Endpoint:       llmEndpointFromDeps(d),
-		APIKey:         llmAPIKeyFromDeps(d),
-		Model:          llmModelFromDeps(d),
+	client, err := depsutil.CreateClientFromCommon(d, llmconfig.ClientConfig{
+		Provider:       depsutil.ProviderFromCommon(d),
+		Endpoint:       depsutil.EndpointFromCommon(d),
+		APIKey:         depsutil.APIKeyFromCommon(d),
+		Model:          depsutil.ModelFromCommon(d),
 		RequestTimeout: requestTimeout,
 	})
 	if err != nil {
@@ -218,12 +229,12 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		defer func() { _ = inspector.Close() }()
 		client = &llminspect.PromptClient{Base: client, Inspector: inspector}
 	}
-	model := llmModelFromDeps(d)
-	reg := registryFromDeps(d)
+	model := depsutil.ModelFromCommon(d)
+	reg := depsutil.RegistryFromCommon(d)
 	if reg == nil {
 		reg = tools.NewRegistry()
 	}
-	logOpts := logOptionsFromDeps(d)
+	logOpts := depsutil.LogOptionsFromCommon(d)
 
 	cfg := opts.AgentLimits.ToConfig()
 	taskRuntimeOpts := runtimeTaskOptions{
@@ -253,8 +264,8 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
-							"provider": llmProviderFromDeps(d),
-							"model":    llmModelFromDeps(d),
+							"provider": depsutil.ProviderFromCommon(d),
+							"model":    depsutil.ModelFromCommon(d),
 						},
 						"channel": map[string]any{
 							"configured":          true,
@@ -533,7 +544,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 	}
 
-	sharedGuard = guardFromDeps(d, logger)
+	sharedGuard = depsutil.GuardFromCommon(d, logger)
 	if sharedGuard != nil {
 		for _, warn := range sharedGuard.Warnings() {
 			enqueueSystemWarning(warn)
@@ -582,7 +593,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					if workerCtx.Err() != nil {
 						return
 					}
-					displayErr := formatRuntimeError(runErr)
+					displayErr := depsutil.FormatRuntimeError(runErr)
 					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 						finishedAt := time.Now().UTC()
 						failedStatus := daemonruntime.TaskFailed
@@ -614,7 +625,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					return
 				}
 
-				outText := formatFinalOutput(final)
+				outText := depsutil.FormatFinalOutput(final)
 				publishText := shouldPublishTelegramText(final)
 				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 					finishedAt := time.Now().UTC()

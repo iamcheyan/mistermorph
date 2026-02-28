@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -66,7 +67,7 @@ func runSlackTask(
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 
-	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecForSlack(d, ctx, logger, logOpts, task, client, model, stickySkills)
+	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -124,7 +125,7 @@ func runSlackTask(
 	}
 
 	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		finalOutput := strings.TrimSpace(formatFinalOutput(final))
+		finalOutput := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 		recordOffset, memErr := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID:    slackMemoryTaskRunID(job),
 			SessionID:    slackMemorySessionID(job),

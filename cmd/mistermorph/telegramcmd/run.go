@@ -11,5 +11,6 @@ type RunOptions = telegramruntime.RunOptions
 
 // Run starts telegram runtime with explicit options.
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return telegramruntime.Run(ctx, telegramruntime.Dependencies(d), telegramruntime.RunOptions(opts))
+	deps := buildTelegramRuntimeDeps(d, d.RuntimeToolsConfig)
+	return telegramruntime.Run(ctx, deps, telegramruntime.RunOptions(opts))
 }

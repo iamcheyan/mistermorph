@@ -6,21 +6,27 @@ This document describes how memory currently works in `mistermorph` as implement
 
 - Core memory subsystem is channel-agnostic and lives in `memory/*`.
 - Memory storage is markdown-file based under `memory/`.
-- Runtime-level memory wiring is currently implemented in Telegram runtime.
-- Slack runtime does not currently run this memory injection/writeback pipeline.
+- Runtime-level memory wiring currently has two paths:
+  - Telegram legacy adapter (direct `memory.Manager` flow).
+  - Shared orchestrator adapter (`internal/memoryruntime`) used by Slack and Heartbeat.
 
 ## 2. Core Components
 
 - Memory core (channel-agnostic):
   - `memory/manager.go`, `memory/update.go`, `memory/merge.go`, `memory/inject.go`, `memory/identity.go`
+- Shared runtime orchestrator:
+  - `internal/memoryruntime/orchestrator.go`
 - LLM semantic helpers used by memory merge:
   - `internal/entryutil/semantic_llm.go`
-- Current Telegram runtime adapter:
+- Current Telegram legacy adapter:
   - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/telegram/memory_flow.go`
   - `internal/channelruntime/telegram/memory_prompts.go`
   - `internal/channelruntime/telegram/prompts/memory_draft_system.md`
   - `internal/channelruntime/telegram/prompts/memory_draft_user.md`
+- Current shared-orchestrator adapters:
+  - Slack: `internal/channelruntime/slack/runtime.go`, `internal/channelruntime/slack/runtime_task.go`, `internal/channelruntime/slack/memory_flow.go`
+  - Heartbeat: `internal/channelruntime/heartbeat/run.go`, `internal/channelruntime/heartbeat/memory_flow.go`
 
 ## 3. ASCII Architecture (Memory Path)
 
@@ -68,7 +74,7 @@ This document describes how memory currently works in `mistermorph` as implement
                                   +------------------------+
 ```
 
-## 4. ASCII Runtime Flows (Current Telegram Wiring)
+## 4. ASCII Runtime Flows (Current Telegram Legacy Wiring)
 
 ### 4.1 Main Skeleton
 
@@ -150,8 +156,9 @@ Runtime(T)              MemoryMgr(MM)            LLM                   FS(memory
 
 Notes:
 
-- Flows above show current Telegram wiring; `memory.Manager` and markdown formats remain channel-agnostic.
-- New runtimes can reuse the same memory core by providing their own identity mapping and adapter calls.
+- Flows above show Telegram legacy wiring only.
+- Slack and Heartbeat currently use the shared orchestrator path (`PrepareInjection` + `Record`) instead of this direct `updateMemoryFromJob(...)` flow.
+- `memory.Manager` and markdown formats remain channel-agnostic.
 
 ## 5. Injection Behavior
 
