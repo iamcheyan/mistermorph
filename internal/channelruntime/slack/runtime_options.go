@@ -25,6 +25,10 @@ type runtimeLoopOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	MemoryEnabled                 bool
+	MemoryShortTermDays           int
+	MemoryInjectionEnabled        bool
+	MemoryInjectionMaxItems       int
 	SecretsRequireSkillProfiles   bool
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -49,6 +53,10 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		BusMaxInFlight:                opts.BusMaxInFlight,
 		RequestTimeout:                opts.RequestTimeout,
 		AgentLimits:                   opts.AgentLimits,
+		MemoryEnabled:                 opts.MemoryEnabled,
+		MemoryShortTermDays:           opts.MemoryShortTermDays,
+		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles:   opts.SecretsRequireSkillProfiles,
 		InspectPrompt:                 opts.InspectPrompt,
 		InspectRequest:                opts.InspectRequest,
@@ -80,6 +88,12 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 90 * time.Second
+	}
+	if opts.MemoryShortTermDays <= 0 {
+		opts.MemoryShortTermDays = 7
+	}
+	if opts.MemoryInjectionMaxItems <= 0 {
+		opts.MemoryInjectionMaxItems = 50
 	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
 	if opts.GroupTriggerMode == "" {

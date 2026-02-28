@@ -228,6 +228,10 @@ type SlackConfig struct {
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
+	MemoryEnabled                        bool
+	MemoryShortTermDays                  int
+	MemoryInjectionEnabled               bool
+	MemoryInjectionMaxItems              int
 	SecretsRequireSkillProfiles          bool
 }
 
@@ -272,6 +276,10 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
+		MemoryEnabled:               r.GetBool("memory.enabled"),
+		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
 		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
 	}
 }
@@ -336,6 +344,10 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		BusMaxInFlight:                cfg.BusMaxInFlight,
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,
+		MemoryEnabled:                 cfg.MemoryEnabled,
+		MemoryShortTermDays:           cfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,

@@ -115,7 +115,7 @@ Phase B public interfaces (current):
   - single-worker execution via projector-internal mutex
 - [ ] Implement runtime trigger policy (not per-event immediate):
   - auto-trigger strategy is deferred
-  - runtime will call `ProjectOnce` explicitly
+  - projection is triggered by an external caller/scheduler
 - [x] Define projection windows:
   - read journal in batches (window applies to WAL event count)
   - group events by projection target (subject-derived target file)
@@ -192,6 +192,9 @@ Caller            Orchestrator            Journal
 
 3) `ProjectOnce(limit)` (explicit projection trigger)
 
+Note: this explicit call is a temporary wiring step for compatibility/migration.
+Long-term, projection trigger should be externalized (scheduler/worker), not coupled to channel runtime request paths.
+
 ```text
 Caller            Orchestrator           Projector           Journal/Manager
   |                    |                    |                    |
@@ -221,8 +224,8 @@ Acceptance:
 ### Phase F: Heartbeat and Slack Wiring
 
 - [ ] Heartbeat adapter wiring (reuse same orchestrator).
-- [ ] Slack adapter wiring (no copy-paste of flow).
-- [ ] Configure runtime flags consistently across channels.
+- [x] Slack adapter wiring (no copy-paste of flow).
+- [x] Configure runtime flags consistently across channels for Slack memory options.
 
 Acceptance:
 

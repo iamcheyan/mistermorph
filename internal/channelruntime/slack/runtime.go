@@ -20,7 +20,9 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -41,6 +43,10 @@ type RunOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	MemoryEnabled                 bool
+	MemoryShortTermDays           int
+	MemoryInjectionEnabled        bool
+	MemoryInjectionMaxItems       int
 	SecretsRequireSkillProfiles   bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
@@ -195,8 +201,24 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 
 	cfg := opts.AgentLimits.ToConfig()
+	var memOrchestrator *memoryruntime.Orchestrator
+	if opts.MemoryEnabled {
+		memManager := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
+		memJournal := memManager.NewJournal(memory.JournalOptions{})
+		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{})
+		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
+		if err != nil {
+			return err
+		}
+		memOrchestrator = memOrch
+		defer func() { _ = memJournal.Close() }()
+	}
 	taskRuntimeOpts := runtimeTaskOptions{
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
+		MemoryEnabled:               opts.MemoryEnabled,
+		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
+		MemoryOrchestrator:          memOrchestrator,
 	}
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency

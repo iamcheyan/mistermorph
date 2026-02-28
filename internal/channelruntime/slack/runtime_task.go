@@ -14,6 +14,7 @@ import (
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -23,6 +24,10 @@ import (
 
 type runtimeTaskOptions struct {
 	SecretsRequireSkillProfiles bool
+	MemoryEnabled               bool
+	MemoryInjectionEnabled      bool
+	MemoryInjectionMaxItems     int
+	MemoryOrchestrator          *memoryruntime.Orchestrator
 }
 
 func runSlackTask(
@@ -69,6 +74,25 @@ func runSlackTask(
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 
+	memSubjectID := slackMemorySubjectID(job)
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
+		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+			SubjectID:      memSubjectID,
+			RequestContext: slackMemoryRequestContext(job.ChatType),
+			MaxItems:       runtimeOpts.MemoryInjectionMaxItems,
+		})
+		if memErr != nil {
+			if logger != nil {
+				logger.Warn("memory_injection_error", "source", "slack", "subject_id", memSubjectID, "error", memErr.Error())
+			}
+		} else if strings.TrimSpace(snap) != "" {
+			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
+			if logger != nil {
+				logger.Info("memory_injection_applied", "source", "slack", "subject_id", memSubjectID, "channel_id", job.ChannelID, "snapshot_len", len(snap))
+			}
+		}
+	}
+
 	engine := agent.New(
 		client,
 		reg,
@@ -98,6 +122,30 @@ func runSlackTask(
 	if err != nil {
 		return final, runCtx, loadedSkills, err
 	}
+
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
+		finalOutput := strings.TrimSpace(formatFinalOutput(final))
+		recordOffset, memErr := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+			TaskRunID:    slackMemoryTaskRunID(job),
+			SessionID:    slackMemorySessionID(job),
+			SubjectID:    memSubjectID,
+			Channel:      "slack",
+			Participants: slackMemoryParticipants(job),
+			TaskText:     task,
+			FinalOutput:  finalOutput,
+			Draft:        buildSlackMemoryDraft(finalOutput),
+		})
+		if memErr != nil {
+			if logger != nil {
+				logger.Warn("memory_record_error", "source", "slack", "subject_id", memSubjectID, "error", memErr.Error())
+			}
+		} else {
+			if logger != nil {
+				logger.Debug("memory_record_ok", "source", "slack", "subject_id", memSubjectID, "offset_file", recordOffset.File, "offset_line", recordOffset.Line)
+			}
+		}
+	}
+
 	return final, runCtx, loadedSkills, nil
 }
 
