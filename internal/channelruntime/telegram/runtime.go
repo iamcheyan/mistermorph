@@ -76,6 +76,15 @@ func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
 	return strings.TrimSpace(normalizedCmd) == ""
 }
 
+func sendTelegramUnauthorizedMessage(api *telegramAPI, chatID int64, chatType string) {
+	chatType = strings.TrimSpace(chatType)
+	if chatType == "" {
+		chatType = "unknown"
+	}
+	msg := fmt.Sprintf("You don't have permission to use this bot. Please contact the admin.\nchat_id: `%d`, type: `%s`", chatID, chatType)
+	_ = api.sendMessageHTML(context.Background(), chatID, msg, true)
+}
+
 func shouldPublishTelegramText(final *agent.Final) bool {
 	if final == nil {
 		return true
@@ -908,7 +917,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if shouldRunInitFlow(initRequired, normalizedCmd) {
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized", true)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
 					continue
 				}
 				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
@@ -1015,7 +1024,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			case "/humanize":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized", true)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
 					continue
 				}
 				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
@@ -1040,7 +1049,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			case "/reset":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized", true)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
 					continue
 				}
 				mu.Lock()
@@ -1060,7 +1069,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			case "/echo":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized", true)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
 					continue
 				}
 				msg := strings.TrimSpace(cmdArgs)
@@ -1073,7 +1082,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			default:
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized", true)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
 					continue
 				}
 				if isGroup {
