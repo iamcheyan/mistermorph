@@ -517,10 +517,6 @@ func isTelegramMessageNotModified(err error) bool {
 	return strings.Contains(msg, "message is not modified")
 }
 
-func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, text string) error {
-	return api.sendMessageChunkedReply(ctx, chatID, text, 0)
-}
-
 func (api *telegramAPI) sendMessageChunkedReply(ctx context.Context, chatID int64, text string, replyToMessageID int64) error {
 	_, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, text, replyToMessageID)
 	return err
