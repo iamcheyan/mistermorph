@@ -11,7 +11,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
-	"github.com/quailyquaily/mistermorph/internal/entryutil"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -406,32 +405,6 @@ func firstKVItem(items []memory.KVItem) (memory.KVItem, bool) {
 		return it, true
 	}
 	return memory.KVItem{}, false
-}
-
-func SemanticMergeShortTerm(ctx context.Context, client llm.Client, model string, existing memory.ShortTermContent, draft memory.SessionDraft) (memory.ShortTermContent, error) {
-	if client == nil {
-		return memory.ShortTermContent{}, fmt.Errorf("nil llm client")
-	}
-	incoming := memory.MergeShortTerm(memory.ShortTermContent{}, draft, time.Now().UTC().Format(entryutil.TimestampLayout))
-	if len(incoming.SummaryItems) == 0 {
-		return memory.NormalizeShortTermContent(existing), nil
-	}
-	combined := make([]memory.SummaryItem, 0, len(incoming.SummaryItems)+len(existing.SummaryItems))
-	combined = append(combined, incoming.SummaryItems...)
-	combined = append(combined, existing.SummaryItems...)
-
-	resolver := entryutil.NewLLMSemanticResolver(client, model)
-	deduped, err := memory.SemanticDedupeSummaryItems(llminspect.WithModelScene(ctx, "memory.semantic_dedupe"), combined, resolver)
-	if err != nil {
-		return memory.ShortTermContent{}, err
-	}
-
-	merged := memory.NormalizeShortTermContent(memory.ShortTermContent{SummaryItems: deduped})
-	return merged, nil
-}
-
-func HasDraftContent(draft memory.SessionDraft) bool {
-	return len(normalizeMemorySummaryItems(draft.SummaryItems)) > 0
 }
 
 func normalizeMemorySummaryItems(input []string) []string {

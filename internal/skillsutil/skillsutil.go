@@ -188,16 +188,6 @@ func skillsEnabledFromReader(r ConfigReader) bool {
 	return true
 }
 
-func truncateString(s string, max int) string {
-	if max <= 0 {
-		return s
-	}
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "...(truncated)"
-}
-
 func mapKeysSorted(m map[string]bool) []string {
 	if len(m) == 0 {
 		return nil
