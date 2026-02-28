@@ -92,6 +92,8 @@ func (o *Orchestrator) Record(req RecordRequest) (memory.JournalOffset, error) {
 	return o.journal.Append(event)
 }
 
+// Deprecated: projection trigger should be executed by an external worker that
+// calls projector directly. Keep this only for temporary migration compatibility.
 func (o *Orchestrator) ProjectOnce(ctx context.Context, limit int) (memory.ProjectOnceResult, error) {
 	return o.projector.ProjectOnce(ctx, limit)
 }

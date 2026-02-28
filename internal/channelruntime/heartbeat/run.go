@@ -80,11 +80,14 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, cleanup, err := newHeartbeatOrchestrator(opts)
+	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(opts)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
+	if projectionWorker != nil {
+		projectionWorker.Start(ctx)
+	}
 
 	state := &heartbeatutil.State{}
 	var wg sync.WaitGroup
@@ -115,6 +118,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				Config:                      cfg,
 				TaskTimeout:                 opts.TaskTimeout,
 				MemoryOrchestrator:          orchestrator,
+				MemoryProjectionWorker:      projectionWorker,
 				MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
 				MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
 				SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
@@ -199,6 +203,7 @@ type heartbeatTaskOptions struct {
 	Config                      agent.Config
 	TaskTimeout                 time.Duration
 	MemoryOrchestrator          *memoryruntime.Orchestrator
+	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
 	MemoryInjectionEnabled      bool
 	MemoryInjectionMaxItems     int
 	SecretsRequireSkillProfiles bool
@@ -277,6 +282,8 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 			Draft:       buildHeartbeatDraft(summary),
 		}); memErr != nil && opts.Logger != nil {
 			opts.Logger.Warn("memory_record_error", "source", "heartbeat", "error", memErr.Error())
+		} else if opts.MemoryProjectionWorker != nil {
+			opts.MemoryProjectionWorker.NotifyRecordAppended()
 		}
 	}
 
@@ -303,19 +310,23 @@ func cloneRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
-func newHeartbeatOrchestrator(opts runtimeLoopOptions) (*memoryruntime.Orchestrator, func(), error) {
+func newHeartbeatOrchestrator(opts runtimeLoopOptions) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	if !opts.MemoryEnabled {
-		return nil, func() {}, nil
+		return nil, nil, func() {}, nil
 	}
 	mgr := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 	journal := mgr.NewJournal(memory.JournalOptions{})
 	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{})
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
+	}
+	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{})
+	if err != nil {
+		return nil, nil, func() {}, err
 	}
 	cleanup := func() {
 		_ = journal.Close()
 	}
-	return orchestrator, cleanup, nil
+	return orchestrator, projectionWorker, cleanup, nil
 }

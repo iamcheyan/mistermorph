@@ -5,76 +5,75 @@ This document describes how memory currently works in `mistermorph` as implement
 ## 1. Scope and Status
 
 - Core memory subsystem is channel-agnostic and lives in `memory/*`.
-- Memory storage is markdown-file based under `memory/`.
-- Runtime-level memory wiring currently has two paths:
-  - Telegram legacy adapter (direct `memory.Manager` flow).
-  - Shared orchestrator adapter (`internal/memoryruntime`) used by Slack and Heartbeat.
+- Durable source of truth is WAL under `memory/log/*.jsonl`.
+- Markdown files under `memory/index.md` and `memory/YYYY-MM-DD/*.md` are projections (read model).
+- Runtime-level memory wiring now uses one path for all channels:
+  - shared orchestrator adapter (`internal/memoryruntime`) for Telegram, Slack, and Heartbeat.
 
 ## 2. Core Components
 
 - Memory core (channel-agnostic):
   - `memory/manager.go`, `memory/update.go`, `memory/merge.go`, `memory/inject.go`, `memory/identity.go`
+- Memory WAL and projection:
+  - `memory/journal.go` (append/replay/rotate/checkpoint)
+  - `memory/projector.go` (replay -> markdown projection)
 - Shared runtime orchestrator:
   - `internal/memoryruntime/orchestrator.go`
-- LLM semantic helpers used by memory merge:
-  - `internal/entryutil/semantic_llm.go`
-- Current Telegram legacy adapter:
+  - `internal/memoryruntime/adapter.go`
+  - `internal/memoryruntime/worker.go`
+- Telegram adapter and draft path:
   - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/telegram/memory_flow.go`
   - `internal/channelruntime/telegram/memory_prompts.go`
   - `internal/channelruntime/telegram/prompts/memory_draft_system.md`
   - `internal/channelruntime/telegram/prompts/memory_draft_user.md`
-- Current shared-orchestrator adapters:
+- Shared-orchestrator adapters:
   - Slack: `internal/channelruntime/slack/runtime.go`, `internal/channelruntime/slack/runtime_task.go`, `internal/channelruntime/slack/memory_flow.go`
   - Heartbeat: `internal/channelruntime/heartbeat/run.go`, `internal/channelruntime/heartbeat/memory_flow.go`
+- LLM semantic helpers used by projection dedupe:
+  - `internal/entryutil/semantic_llm.go`
 
 ## 3. ASCII Architecture (Memory Path)
 
 ```text
-                 +------------------------------------+
-                 | Runtime Memory Adapter             |
-                 | (channel-specific wiring)          |
-                 +----------------+-------------------+
-                                  |
-         +------------------------+------------------------+
-         |                                                 |
-+--------v---------+                             +---------v----------+
-| Injection Path   |                             | Writeback Path     |
-| BuildInjection   |                             | updateMemoryFromJob|
-+--------+---------+                             +---------+----------+
-         |                                                 |
-         |                                      +----------v----------+
-         |                                      | BuildMemoryDraft    |
-         |                                      | (LLM: memory.draft) |
-         |                                      +----------+----------+
-         |                                                 |
-         |                            +--------------------v-------------------+
-         |                            | existing short-term && draft non-empty |
-         |                            +----------+------------------------------+
-         |                                       |
-         |                    +------------------+------------------+
-         |                    |                                     |
-         |          +---------v---------+                 +---------v----------+
-         |          | MergeShortTerm    |                 | SemanticMergeShort |
-         |          |                   |                 | (LLM semantic dedup)|
-         |          +---------+---------+                 +---------+----------+
-         |                    |                                     |
-         +--------------------+--------------------+----------------+
-                                              |
-                                  +-----------v------------+
-                                  | memory.Manager         |
-                                  | WriteShortTerm         |
-                                  | UpdateLongTerm         |
-                                  +-----------+------------+
-                                              |
-                                  +-----------v------------+
-                                  | Markdown Store         |
-                                  | memory/index.md        |
-                                  | memory/YYYY-MM-DD/*.md |
-                                  +------------------------+
+                 +----------------------------------------+
+                 | Runtime Memory Adapter                 |
+                 | (telegram/slack/heartbeat)             |
+                 +------------------+---------------------+
+                                    |
+          +-------------------------+--------------------------+
+          |                                                    |
+ +--------v---------+                                +---------v----------+
+ | Injection Path   |                                | Writeback Path     |
+ | PrepareInjection |                                | Record             |
+ +--------+---------+                                +---------+----------+
+          |                                                    |
+          |                                         +----------v----------+
+          |                                         | Build draft         |
+          |                                         | (telegram: LLM)     |
+          |                                         +----------+----------+
+          |                                                    |
+ +--------v---------+                                +---------v----------+
+ | memory.Manager   |                                | memory.Journal     |
+ | BuildInjection   |                                | append + fsync     |
+ +--------+---------+                                +---------+----------+
+          |                                                    |
+          |                                                    |
+ +--------v-----------------------------+          +-----------v------------+
+ | Markdown projections (read model)    |          | WAL source of truth    |
+ | memory/index.md                      |          | memory/log/*.jsonl      |
+ | memory/YYYY-MM-DD/*.md               |          +-----------+------------+
+ +------------------+-------------------+                      |
+                    ^                                          |
+                    |                                          |
+                    |                              +-----------v------------+
+                    |                              | memory.Projector       |
+                    +------------------------------+ Replay + Merge + Save  |
+                                                   | (triggered externally) |
+                                                   +------------------------+
 ```
 
-## 4. ASCII Runtime Flows (Current Telegram Legacy Wiring)
+## 4. ASCII Runtime Flows (Current Shared Orchestrator Wiring)
 
 ### 4.1 Main Skeleton
 
@@ -82,90 +81,84 @@ This document describes how memory currently works in `mistermorph` as implement
 runtime task
   -> injection phase
   -> agent.Engine.Run
-  -> writeback gate (publishText + identity)
-  -> writeback phase (if gate passed)
+  -> writeback gate (publishText + orchestrator + subject_id)
+  -> record event to WAL (if gate passed)
 ```
 
 ### 4.2 Injection Flow
 
 ```text
-Runtime(T)              MemoryMgr(MM)                      FS(memory/*.md)
-    |                        |                                     |
-    | NewManager(...)        |                                     |
-    |----------------------->|                                     |
-    | BuildInjection(...)    |                                     |
-    |----------------------->|                                     |
-    |                        | read index.md + recent short-term   |
-    |                        |------------------------------------->|
-    | snapshot text          |                                     |
-    |<-----------------------|                                     |
-    | append memory block into prompt                              |
+Runtime(Adapter)         Orchestrator               Manager/FS
+     |                        |                        |
+     | PrepareInjection(...)  |                        |
+     |----------------------->|                        |
+     |                        | BuildInjection(...)    |
+     |                        |----------------------->|
+     |                        | read projected md files|
+     |                        |<-----------------------|
+     | snapshot text          |                        |
+     |<-----------------------|                        |
+     | append memory block into prompt                 |
 ```
 
 ### 4.3 Writeback Flow
 
 ```text
-Runtime(T)              MemoryMgr(MM)            LLM                   FS(memory/*.md)
-    |                        |                    |                           |
-    | [gate] publishText && identity available ?                            |
-    | LoadShortTerm(...)     |                    |                           |
-    |----------------------->|                    |                           |
-    | BuildMemoryDraft(...)  |                    |                           |
-    |-------------------------------------------->|                           |
-    | draft(summary/promote) |                    |                           |
-    |<--------------------------------------------|                           |
-    | merge stage (see 4.4)  |                    |                           |
-    | WriteShortTerm(...)    |                    |                           |
-    |----------------------->|                    |                           |
-    |                        | write YYYY-MM-DD/session.md                    |
-    |                        |-----------------------------------------------> |
-    | UpdateLongTerm(...)    |                    |                           |
-    |----------------------->|                    |                           |
-    |                        | write index.md                                |
-    |                        |-----------------------------------------------> |
+Runtime(Adapter)         LLM                Orchestrator          Journal(WAL)
+     |                    |                      |                     |
+     | [gate] publishText && subject_id present? |                     |
+     | BuildMemoryDraft (telegram)              |                     |
+     |------------------->|                      |                     |
+     | draft(summary/promote)                    |                     |
+     |<-------------------|                      |                     |
+     | Record(...)                               |                     |
+     |------------------------------------------>| append + fsync      |
+     |                                           |-------------------->|
+     | record offset                             |                     |
+     |<------------------------------------------|                     |
 ```
 
-### 4.4 Semantic Dedupe Subflow (Merge Stage)
+### 4.4 Projection Flow (External Worker)
 
 ```text
-Condition:
-  has existing short-term content && draft has summary_items
-
-existing + incoming
-  -> SemanticMergeShortTerm
-  -> LLM semantic keep_indices
-  -> deduped newest-first summary list
-
-Else:
-  -> MergeShortTerm (direct newest-first merge, no semantic dedupe)
-```
-
-```text
-Runtime(T)              MemoryMgr(MM)            LLM                   FS(memory/*.md)
-    |                        |                    |                           |
-    | SemanticMergeShortTerm |                    |                           |
-    |-------------------------------------------->|                           |
-    | keep_indices           |                    |                           |
-    |<--------------------------------------------|                           |
-    | apply deduped list     |                    |                           |
-    | WriteShortTerm(...)    |                    |                           |
-    |----------------------->|                    |                           |
-    |                        | write YYYY-MM-DD/session.md                    |
-    |                        |-----------------------------------------------> |
+External Project Worker       Projector            LLM(optional)                  FS
+          |                      |                      |                           |
+          | ProjectOnce(N)       |                      |                           |
+          |--------------------->| load checkpoint      |                           |
+          |                      |----------------------------------------------->   |
+          |                      | replay WAL from cp   |                           |
+          |                      |----------------------------------------------->   |
+          |                      | group/merge buckets  |                           |
+          |                      | semantic dedupe      |                           |
+          |                      |--------------------->|                           |
+          |                      |<---------------------|                           |
+          |                      | write short/long md  |                           |
+          |                      |----------------------------------------------->   |
+          |                      | write checkpoint     |                           |
+          |                      |----------------------------------------------->   |
+          | result               |                      |                           |
+          |<---------------------|                      |                           |
 ```
 
 Notes:
 
-- Flows above show Telegram legacy wiring only.
-- Slack and Heartbeat currently use the shared orchestrator path (`PrepareInjection` + `Record`) instead of this direct `updateMemoryFromJob(...)` flow.
+- Flows above are shared wiring for Telegram, Slack, and Heartbeat.
+- Hot path writes only WAL; markdown projection is out-of-band.
+- Runtime starts one projection worker per process when memory is enabled.
+- Worker trigger policy:
+  - timer trigger every `N` (default `10m`)
+  - count trigger when unprojected WAL events reach `M` (default `10`)
+  - skip when no new WAL records since checkpoint
+  - skip when previous round is still running
+  - bounded drain each round: `limit=50`, `max_rounds=20`
 - `memory.Manager` and markdown formats remain channel-agnostic.
 
 ## 5. Injection Behavior
 
-- Identity is resolved from Telegram user id:
-  - `ExternalKey = telegram:<user_id>`
-  - `SubjectID = ext:telegram:<user_id>`
-- Request context:
+- Telegram subject/session:
+  - `subject_id = tg:<chat_id>`
+  - `session_id = tg:<chat_id>`
+- Telegram request context:
   - `private` chat -> `ContextPrivate`
   - `group/supergroup` -> `ContextPublic`
 - Injection content:
@@ -177,10 +170,11 @@ Notes:
 
 - Writeback runs only when:
   - `publishText == true`
-  - memory manager exists
-  - long-term subject id is non-empty
+  - memory orchestrator exists
+  - `subject_id` is non-empty
 - If final reply is lightweight (no text publish), memory write is skipped.
-- On timeout (`context.DeadlineExceeded`), runtime schedules async retry for memory update.
+- Telegram writeback timeout (`context.DeadlineExceeded`) schedules async retry.
+- Telegram participants capture sender + all mention users; participants may be empty when unavailable.
 
 ## 7. Draft and Merge Rules
 
@@ -191,9 +185,10 @@ Notes:
 - Promote strictness:
   - Promotion is kept only when explicit “remember/store in memory” intent is detected.
   - At most one promote item is kept.
-- Short-term merge strategy:
-  - If existing day-session content exists and new draft is non-empty, do semantic dedupe by LLM keep-indexes.
-  - Otherwise do direct newest-first merge.
+- Merge strategy moved to projector path:
+  - projector replays WAL events and groups by target projection file.
+  - when existing summaries exist and semantic resolver is configured, semantic dedupe runs in projection.
+  - otherwise direct newest-first merge is used.
 
 ## 8. Storage Layout and Data Model
 
@@ -222,12 +217,12 @@ Notes:
 - Telegram `/mem` debug command has been removed.
 - Memory inspection should use filesystem artifacts directly (`memory/log/*.jsonl` and `memory/*.md` projections).
 
-## 10. Planned: Journal/WAL (First-Principles, Minimal Design)
+## 10. Journal/WAL Runtime Notes
 
-This section captures the intended next step for memory reliability:
+Current implementation:
 
-- `memory/log/*.jsonl` stores raw append-only memory events (source of truth).
-- `memory/*.md` remains a projection/read model (rebuildable from logs).
+- `memory/log/*.jsonl` stores append-only memory events (source of truth).
+- `memory/*.md` is a projection/read model (rebuildable from WAL).
 
 Database analogy:
 
@@ -256,7 +251,7 @@ Explicit non-goals for first iteration:
 - no schema-registry service
 - no multi-node writer arbitration
 
-### 10.3 Proposed Layout
+### 10.3 Layout
 
 ```text
 memory/
@@ -274,9 +269,8 @@ On each accepted memory update:
 
 1. append event to `memory/log/*.jsonl`
 2. flush/sync append result
-3. mark projection as dirty (enqueue async projection work)
 
-Hot path does not block on markdown projection. If projection fails or is delayed, step 1 is still durable and can be replay-recovered.
+Hot path does not block on markdown projection. Projection is now auto-triggered by runtime worker (`internal/memoryruntime/worker.go`) and calls `ProjectOnce(limit)` out-of-band.
 
 ### 10.5 Rotation and Replay
 
@@ -288,11 +282,11 @@ Hot path does not block on markdown projection. If projection fails or is delaye
 - Store a small checkpoint (last applied log file + offset/line) for fast restart.
 - On startup, replay from checkpoint to rebuild/repair markdown projections.
 
-Compression rule (minimal):
+Compression rule:
 
 - Active segment stays plain `.jsonl`.
 - Optional compression applies only to closed old segments as `.jsonl.gz`.
-- Do not bundle WAL segments into `tar.gz` in v1.
+- Do not bundle WAL segments into `tar.gz`.
 
 Checkpoint structure (`memory/log/checkpoint.json`):
 
@@ -310,7 +304,7 @@ Checkpoint structure (`memory/log/checkpoint.json`):
 
 ### 10.6 Event Shape (Minimal)
 
-First version keeps only fields needed for replay and audit, for example:
+Current event includes fields needed for replay and audit, for example:
 
 - `schema_version`
 - `event_id`
@@ -348,8 +342,8 @@ Example event:
   "event_id": "evt_01JY7K9M7T3H2QZ6A9D5V4N8P1",
   "task_run_id": "run_01JY7K9B3W8F6M2N4C1R0T9X5Q",
   "ts_utc": "2026-02-28T06:15:12Z",
-  "session_id": "tg--1003824466118",
-  "subject_id": "tg--1003824466118",
+  "session_id": "tg:-1003824466118",
+  "subject_id": "tg:-1003824466118",
   "channel": "telegram",
   "participants": [
     {
@@ -391,12 +385,30 @@ Agent-self participant example:
 
 Projection is asynchronous by design (not per-event immediate), because merge can involve LLM semantic dedupe.
 
-Current v1 implementation decision:
+Current implementation:
 
-- No built-in auto trigger yet.
-- Expose one externally triggered projection entrypoint (`ProjectOnce`) and let runtime decide when to call it.
-- Single-worker execution is kept by the projector implementation.
-- Startup/restart replay can call the same entrypoint repeatedly from checkpoint.
+- Runtime starts one projection worker per process (when memory is enabled).
+- Worker triggers projection and calls projector explicitly (`ProjectOnce(limit)`).
+- Projector currently enforces single-call execution (`ProjectOnce` guarded by mutex).
+- Startup/restart replay can run the same projector entrypoint repeatedly from checkpoint.
+
+- Auto trigger when either condition is met:
+  - timer interval reached (`N` minutes)
+  - newly appended WAL events reached threshold (`M` records)
+- Skip trigger when:
+  - there are no new WAL records since last projection checkpoint
+  - previous projection round is still running
+- Manual trigger:
+  - not provided for now
+- Worker parallelism per round:
+  - run with `X` goroutines
+  - `X` is derived from current UTC-day short-memory file count
+  - clamp `X` to at least `1`
+- Current worker defaults:
+  - `N = 10m`
+  - `M = 10`
+  - `limit = 50`
+  - `max_rounds = 20`
 
 ### 10.8 Projection Window (How Much Log per Run)
 
@@ -408,12 +420,17 @@ Projection operates by target file grouping:
 - Group read events by projection target.
 - Run one projection per touched target file in that pass.
 
-Current target organization follows existing subject/session structure:
+Current target organization uses `event.subject_id` as projection key:
 
-- `memory/YYYY-MM-DD/{subject_id}.md`
+- `memory/YYYY-MM-DD/{sanitize(subject_id)}.md`
 - examples:
   - `memory/YYYY-MM-DD/heartbeat.md`
-  - `memory/YYYY-MM-DD/tg--1003824466118.md`
+  - `memory/YYYY-MM-DD/tg_-1003824466118.md`
+
+Projection outputs in one pass:
+
+- one short-memory file per touched `(day, subject_id)` bucket
+- optional long-term update (`memory/index.md`) when event contains `draft_promote`
 
 When projecting one target file, summary merge uses all current summary items in that file.
 

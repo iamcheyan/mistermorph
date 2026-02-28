@@ -29,6 +29,7 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled      bool
 	MemoryInjectionMaxItems     int
 	MemoryOrchestrator          *memoryruntime.Orchestrator
+	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
 }
 
 func runSlackTask(
@@ -143,6 +144,9 @@ func runSlackTask(
 		} else {
 			if logger != nil {
 				logger.Debug("memory_record_ok", "source", "slack", "subject_id", memSubjectID, "offset_file", recordOffset.File, "offset_line", recordOffset.Line)
+			}
+			if runtimeOpts.MemoryProjectionWorker != nil {
+				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
 			}
 		}
 	}

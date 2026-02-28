@@ -203,6 +203,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 
 	cfg := opts.AgentLimits.ToConfig()
 	var memOrchestrator *memoryruntime.Orchestrator
+	var memProjectionWorker *memoryruntime.ProjectionWorker
 	if opts.MemoryEnabled {
 		memManager := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 		memJournal := memManager.NewJournal(memory.JournalOptions{})
@@ -211,6 +212,14 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if err != nil {
 			return err
 		}
+		worker, err := memoryruntime.NewProjectionWorker(memJournal, memProjector, memoryruntime.ProjectionWorkerOptions{
+			Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+		worker.Start(ctx)
+		memProjectionWorker = worker
 		memOrchestrator = memOrch
 		defer func() { _ = memJournal.Close() }()
 	}
@@ -220,6 +229,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
 		MemoryOrchestrator:          memOrchestrator,
+		MemoryProjectionWorker:      memProjectionWorker,
 	}
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency

@@ -113,16 +113,28 @@ Phase B public interfaces (current):
 - [x] Implement externally triggered projection entrypoint:
   - `(*Projector) ProjectOnce(ctx, limit)` replays from checkpoint and projects one bounded window
   - single-worker execution via projector-internal mutex
-- [ ] Implement runtime trigger policy (not per-event immediate):
-  - auto-trigger strategy is deferred
-  - projection is triggered by an external caller/scheduler
+- [x] Implement runtime trigger policy (not per-event immediate):
+  - projection is triggered by an external worker/scheduler
+  - auto trigger when either condition is met:
+    - timer interval reached (`N` minutes)
+    - newly appended WAL events reached threshold (`M` records)
+  - skip trigger when:
+    - no new WAL records since last projection checkpoint
+    - previous projection round is still running
+  - manual trigger is not provided for now
+  - per-round projection worker parallelism:
+    - `X` goroutines
+    - `X` derived from current UTC-day short-memory file count (clamped to >=1)
+  - implementation note:
+    - do not run multiple `ProjectOnce` calls concurrently (projector has global mutex today)
+    - apply `X` parallelism inside one projection round (bucket-level projection workers)
 - [x] Define projection windows:
   - read journal in batches (window applies to WAL event count)
   - group events by projection target (subject-derived target file)
   - run projection per target file; number of projections per pass equals number of touched files
 - [x] Projection writes:
-  - project to `memory/YYYY-MM-DD/{subject_id}.md` targets based on current subject organization
-  - examples: `heartbeat.md`, `tg--1003824466118.md`
+  - project to `memory/YYYY-MM-DD/{sanitize(subject_id)}.md` targets based on current subject organization
+  - examples: `heartbeat.md`, `tg_-1003824466118.md`
   - when projecting one target, summary merge uses all current summary items in that target file (not a truncated in-file window)
 - [x] Replay semantics:
   - duplicate replay processing is allowed (at-least-once style)
@@ -139,6 +151,12 @@ Phase C public interfaces (current):
 - `(*Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResult, error)`
   - Replay one bounded window from checkpoint and project to markdown files.
   - Returns progress (`processed`, `next_offset`, `exhausted`).
+- `memoryruntime.NewProjectionWorker(journal, projector, opts)`
+  - Build runtime projection trigger worker.
+- `(*ProjectionWorker) Start(ctx)`
+  - Start timer/count trigger loop.
+- `(*ProjectionWorker) NotifyRecordAppended()`
+  - Notify worker that a new WAL event was appended (count-trigger hint).
 
 Acceptance:
 
@@ -146,12 +164,38 @@ Acceptance:
 - [x] Markdown files can be rebuilt from journal + checkpoint via `ProjectOnce`.
 - [x] Backlog larger than one window is drained incrementally across passes.
 
+Phase C implementation breakdown (next):
+
+1. [x] Add projection worker loop (external trigger owner):
+   - keep one trigger coordinator goroutine
+   - maintain `running` guard to prevent overlapping rounds
+2. [x] Implement trigger decision:
+   - run when `N`-minute interval fires
+   - or when unprojected WAL count reaches `M`
+   - skip when no new WAL events
+3. [x] Implement `M`-threshold detection helper:
+   - read checkpoint
+   - replay up to `M` events from checkpoint (no-op callback)
+   - treat `count >= M` as count-trigger
+4. [x] Implement round execution with bounded work:
+   - each round runs bounded replay windows (`limit`, `max_rounds`)
+   - stop when exhausted or no progress
+5. [x] Implement `X` worker parallelism in projection application:
+   - compute `X` from current UTC-day short-memory file count (clamped to >=1)
+   - parallelize bucket projection within one round
+   - keep checkpoint writes deterministic
+6. [x] Add tests for trigger policy:
+   - interval-trigger and count-trigger
+   - skip on no-new-events
+   - skip on already-running
+   - bounded round behavior (`limit`/`max_rounds`)
+
 ### Phase D: Shared Runtime Orchestrator
 
 - [x] Create `internal/memoryruntime` with shared flow:
   - `PrepareInjection(...)`
   - `Record(...)`
-  - `ProjectOnce(...)`
+  - `ProjectOnce(...)` (deprecated compatibility wrapper)
 - [x] Define adapter interface for runtime-specific mapping:
   - `InjectionAdapter` for identity + request-context mapping
   - `RecordAdapter` for runtime-to-record request mapping
@@ -190,22 +234,18 @@ Caller            Orchestrator            Journal
   |<-------------------|                    |
 ```
 
-3) `ProjectOnce(limit)` (explicit projection trigger)
+3) `ProjectOnce(limit)` (deprecated compatibility wrapper)
 
-Note: this explicit call is a temporary wiring step for compatibility/migration.
-Long-term, projection trigger should be externalized (scheduler/worker), not coupled to channel runtime request paths.
+Long-term design: projection trigger is externalized (scheduler/worker), not coupled to channel runtime request paths.
 
 ```text
-Caller            Orchestrator           Projector           Journal/Manager
-  |                    |                    |                    |
-  | ProjectOnce(limit) |                    |                    |
-  |------------------->|                    |                    |
-  |                    | ProjectOnce(limit) |                    |
-  |                    |------------------->| replay from cp     |
-  |                    |                    |--> apply projection |
-  |                    |                    |--> save checkpoint  |
-  |                    |<-------------------| result/error        |
-  |<-------------------|                    |                    |
+External Worker       Projector           Journal/Manager
+  |                      |                    |
+  | ProjectOnce(limit)   |                    |
+  |--------------------->| replay from cp     |
+  |                      |--> apply projection |
+  |                      |--> save checkpoint  |
+  |<---------------------| result/error        |
 ```
 
 ### Phase H: Heartbeat Decoupling (Prerequisite)
@@ -311,8 +351,8 @@ Parity Checklist (must all pass before final cleanup):
 
 Acceptance:
 
-- [ ] Existing Telegram memory tests pass with `orchestrator` path.
-- [ ] Fixture parity tests pass with zero known mismatch.
+- [x] Existing Telegram memory tests pass with `orchestrator` path.
+- [x] Fixture parity tests pass with zero known mismatch.
 
 ### Phase F: Heartbeat and Slack Wiring
 

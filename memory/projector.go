@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -93,12 +94,7 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 	result.Processed = len(records)
 
 	errs := make([]error, 0, 4)
-	for _, key := range order {
-		bucket := buckets[key]
-		if err := p.projectShortTermBucket(ctx, bucket); err != nil {
-			errs = append(errs, err)
-		}
-	}
+	errs = append(errs, p.projectShortTermBuckets(ctx, buckets, order)...)
 
 	for _, rec := range records {
 		if !hasDraftPromote(rec.Event.DraftPromote) {
@@ -193,6 +189,68 @@ func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
 		}
 	}
 	return nil
+}
+
+func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[string]shortTermBucket, order []string) []error {
+	if len(order) == 0 {
+		return nil
+	}
+	workers := p.currentDayBucketWorkers()
+	if workers > len(order) {
+		workers = len(order)
+	}
+	if workers <= 0 {
+		workers = 1
+	}
+
+	jobs := make(chan shortTermBucket, len(order))
+	for _, key := range order {
+		jobs <- buckets[key]
+	}
+	close(jobs)
+
+	errs := make([]error, 0, 4)
+	var errsMu sync.Mutex
+	var wg sync.WaitGroup
+	worker := func() {
+		defer wg.Done()
+		for bucket := range jobs {
+			if err := p.projectShortTermBucket(ctx, bucket); err != nil {
+				errsMu.Lock()
+				errs = append(errs, err)
+				errsMu.Unlock()
+			}
+		}
+	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	wg.Wait()
+	return errs
+}
+
+func (p *Projector) currentDayBucketWorkers() int {
+	dayDir, _ := p.manager.ShortTermDayDir(time.Now().UTC())
+	entries, err := os.ReadDir(dayDir)
+	if err != nil {
+		return 1
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(entry.Name()))
+		if strings.HasSuffix(name, ".md") {
+			count++
+		}
+	}
+	if count <= 0 {
+		return 1
+	}
+	return count
 }
 
 func buildShortTermBuckets(records []JournalRecord) (map[string]shortTermBucket, []string, error) {

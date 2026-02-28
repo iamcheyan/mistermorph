@@ -240,6 +240,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	cfg := opts.AgentLimits.ToConfig()
 	var memOrchestrator *memoryruntime.Orchestrator
 	var memManager *memory.Manager
+	var memProjectionWorker *memoryruntime.ProjectionWorker
 	if opts.MemoryEnabled {
 		memManager = memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 		memJournal := memManager.NewJournal(memory.JournalOptions{})
@@ -248,6 +249,14 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		if err != nil {
 			return err
 		}
+		worker, err := memoryruntime.NewProjectionWorker(memJournal, memProjector, memoryruntime.ProjectionWorkerOptions{
+			Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+		worker.Start(pollCtx)
+		memProjectionWorker = worker
 		memOrchestrator = memOrch
 		defer func() { _ = memJournal.Close() }()
 	}
@@ -257,6 +266,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
 		MemoryManager:               memManager,
 		MemoryOrchestrator:          memOrchestrator,
+		MemoryProjectionWorker:      memProjectionWorker,
 	}
 	pollTimeout := opts.PollTimeout
 	taskTimeout := opts.TaskTimeout
