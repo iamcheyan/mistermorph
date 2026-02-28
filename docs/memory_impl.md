@@ -82,7 +82,7 @@ Acceptance:
   - checkpoint tracks last applied `file + line`
   - on restart, replay resumes from checkpoint instead of replaying all logs
 - [x] Keep active segment as plain `.jsonl`.
-- [ ] Optional: compress only closed old segments to `.jsonl.gz`.
+- [x] Optional: compress only closed old segments to `.jsonl.gz`.
 - [x] Do not use `tar.gz` packaging for WAL segments.
 
 Acceptance:
@@ -116,20 +116,18 @@ Phase B public interfaces (current):
 - [ ] Implement runtime trigger policy (not per-event immediate):
   - auto-trigger strategy is deferred
   - runtime will call `ProjectOnce` explicitly
-- [ ] Define projection windows:
+- [x] Define projection windows:
   - read journal in batches (window applies to WAL event count)
-  - group events by projection target (subject/session derived target file)
+  - group events by projection target (subject-derived target file)
   - run projection per target file; number of projections per pass equals number of touched files
-- [ ] Projection writes:
+- [x] Projection writes:
   - project to `memory/YYYY-MM-DD/{subject_id}.md` targets based on current subject organization
   - examples: `heartbeat.md`, `tg--1003824466118.md`
   - when projecting one target, summary merge uses all current summary items in that target file (not a truncated in-file window)
-- [ ] Replay semantics:
+- [x] Replay semantics:
   - duplicate replay processing is allowed (at-least-once style)
   - merge path handles duplicate impact
-- [ ] Reuse existing Semantic Dedupe Subflow for short-term merge (no new dedupe pipeline).
-- [ ] Lag visibility:
-  - expose checkpoint and pending lag.
+- [x] Reuse existing Semantic Dedupe Subflow for short-term merge (no new dedupe pipeline).
 - [x] Checkpoint advance policy:
   - checkpoint is flushed by batch (for example every 10 processed events)
   - on projection error, checkpoint still advances; caller gets returned error (no separate projector error log file)
@@ -144,9 +142,9 @@ Phase C public interfaces (current):
 
 Acceptance:
 
-- [ ] Append path does not block on markdown projection.
+- [x] Append path does not block on markdown projection.
 - [x] Markdown files can be rebuilt from journal + checkpoint via `ProjectOnce`.
-- [ ] Backlog larger than one window is drained incrementally across passes.
+- [x] Backlog larger than one window is drained incrementally across passes.
 
 ### Phase D: Shared Runtime Orchestrator
 
