@@ -147,10 +147,7 @@ mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORP
 <a id="embedding-to-other-projects"></a>
 ## 嵌入到其他项目
 
-常见的两种集成方式：
-
-- 作为 Go 库：见 `../../demo/embed-go/`。
-- 作为 CLI 子进程：见 `../../demo/embed-cli/`。
+请参见 [../integration.md](../integration.md) 获取嵌入模式与示例。
 
 <a id="built-in-tools"></a>
 ## 内置工具

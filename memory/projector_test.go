@@ -221,6 +221,59 @@ func TestProjectorProjectOnce_RejectsEmptySubjectID(t *testing.T) {
 	}
 }
 
+func TestProjectorProjectOnce_IdempotentWhenReplayingSameEvents(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(root, 7)
+	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-02-28T11:00:00Z") }
+
+	e1 := baseProjectorEvent("evt_1", "run_1", "2026-02-28T11:01:00Z", "tg-5001", []string{"same item"})
+	e2 := baseProjectorEvent("evt_2", "run_1", "2026-02-28T11:02:00Z", "tg-5001", []string{"another item"})
+	if _, err := j.Append(e1); err != nil {
+		t.Fatalf("Append(evt_1) error = %v", err)
+	}
+	if _, err := j.Append(e2); err != nil {
+		t.Fatalf("Append(evt_2) error = %v", err)
+	}
+
+	p := NewProjector(mgr, j, ProjectorOptions{CheckpointBatch: 10})
+	if _, err := p.ProjectOnce(context.Background(), 10); err != nil {
+		t.Fatalf("ProjectOnce(first) error = %v", err)
+	}
+
+	day := mustTimeRFC3339(t, "2026-02-28T00:00:00Z")
+	_, firstContent, ok, err := mgr.LoadShortTerm(day, "tg-5001")
+	if err != nil {
+		t.Fatalf("LoadShortTerm(first) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("LoadShortTerm(first) ok = false, want true")
+	}
+	firstCount := len(firstContent.SummaryItems)
+	if firstCount != 2 {
+		t.Fatalf("summary count after first projection = %d, want 2", firstCount)
+	}
+
+	if err := j.SaveCheckpoint(JournalCheckpoint{}); err != nil {
+		t.Fatalf("SaveCheckpoint(reset) error = %v", err)
+	}
+	if _, err := p.ProjectOnce(context.Background(), 10); err != nil {
+		t.Fatalf("ProjectOnce(second replay) error = %v", err)
+	}
+
+	_, secondContent, ok, err := mgr.LoadShortTerm(day, "tg-5001")
+	if err != nil {
+		t.Fatalf("LoadShortTerm(second) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("LoadShortTerm(second) ok = false, want true")
+	}
+	secondCount := len(secondContent.SummaryItems)
+	if secondCount != firstCount {
+		t.Fatalf("summary count after replay = %d, want %d", secondCount, firstCount)
+	}
+}
+
 type alwaysFailResolver struct{}
 
 func (alwaysFailResolver) SelectDedupKeepIndices(ctx context.Context, items []entryutil.SemanticItem) ([]int, error) {

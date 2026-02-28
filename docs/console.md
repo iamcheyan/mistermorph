@@ -1,6 +1,6 @@
 # Mistermorph Console SPA
 
-This directory contains the Console SPA used by:
+This document describes the Console SPA under `web/console`, used by:
 
 ```bash
 mistermorph console serve

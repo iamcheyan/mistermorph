@@ -21,7 +21,7 @@
 - `internal/memoryruntime` package: shared orchestration.
 - `memory/log/*.jsonl` journal with rotate + replay + checkpoint.
 - Async markdown projector.
-- Telegram adapter migration (behavior parity).
+- Telegram adapter migration (final orchestrator path).
 - Follow-up adapters for heartbeat and slack.
 
 ## 4. Work Breakdown
@@ -139,7 +139,7 @@ Phase B public interfaces (current):
 - [x] Replay semantics:
   - duplicate replay processing is allowed (at-least-once style)
   - merge path handles duplicate impact
-- [x] Reuse existing Semantic Dedupe Subflow for short-term merge (no new dedupe pipeline).
+- [x] Use the single projection-flow semantic dedupe step for short-term merge (no separate dedupe pipeline).
 - [x] Checkpoint advance policy:
   - checkpoint is flushed by batch (for example every 10 processed events)
   - on projection error, checkpoint still advances; caller gets returned error (no separate projector error log file)
@@ -199,11 +199,11 @@ Phase C implementation breakdown (next):
 - [x] Define adapter interface for runtime-specific mapping:
   - `InjectionAdapter` for identity + request-context mapping
   - `RecordAdapter` for runtime-to-record request mapping
-- [ ] Remove duplicated inline memory flow from channel runtime code paths.
+- [x] Remove duplicated inline memory flow from channel runtime code paths.
 
 Acceptance:
 
-- [ ] Core flow logic exists in one place only (wiring migration pending).
+- [x] Core flow logic exists in one place only.
 
 Current orchestrator sequences (Phase D skeleton):
 
@@ -255,10 +255,10 @@ External Worker       Projector           Journal/Manager
   - requires task execution
   - optional notifier adapter (Telegram/Slack/etc.)
   - does not require Telegram runtime ownership
-- [ ] Remove Telegram-owned heartbeat control flow:
+- [x] Remove Telegram-owned heartbeat control flow:
   - [x] scheduler/tick wiring
   - [x] `IsHeartbeat`-driven execution branching in Telegram request path
-- [ ] Preserve existing heartbeat alert semantics and task metadata.
+- [x] Preserve existing heartbeat alert semantics and task metadata.
 - [x] Heartbeat run path must register tools like main flows:
   - register base registry tools
   - register runtime tools (`toolsutil.RegisterRuntimeTools`)
@@ -299,60 +299,34 @@ Acceptance:
 - [x] Telegram runtime no longer owns heartbeat scheduling/state transitions.
 - [x] Heartbeat notification remains adapter-based and replaceable.
 
-### Phase E: Telegram Migration (Parity First)
+### Phase E: Telegram Migration (Final Path)
 
 Goal:
 
-- move Telegram memory flow to shared orchestrator without behavior regressions.
+- keep Telegram memory flow on the shared orchestrator-only path.
 
 Decisions confirmed:
 
 - Telegram `subject_id` keeps current semantics: chat-scoped (`tg:<chat_id>` equivalent mapping).
 - No runtime path switch (`legacy|orchestrator`) is introduced; runtime path is orchestrator only.
 - No shadow dual-run mode is introduced.
-- Legacy Telegram memory code may stay temporarily in repository for migration safety, but not runtime-selectable.
-- Telegram adapter must build draft data with the same method/inputs as current legacy flow.
+- Telegram adapter keeps existing draft construction behavior.
 - Telegram adapter must keep current promote gating behavior (explicit-memory intent rules).
-
-Known acceptable differences in migration:
-
-- Write timing difference (`append journal -> async projection`) is acceptable.
-- Semantic dedupe timing/window difference is acceptable.
-- User-visible memory mismatch during migration is accepted risk; focus is deterministic behavior and eventual cleanup.
 
 E1. Adapter Integration (no traffic switch):
 
 - [x] Implement Telegram `InjectionAdapter` + `RecordAdapter` on top of `internal/memoryruntime`.
 - [x] Wire Telegram runtime directly to `orchestrator` path as the only active runtime path.
-- [x] Keep legacy Telegram memory helpers temporarily in repository for transition safety; direct legacy runtime path is not selectable.
+- [x] Remove legacy runtime-selectable memory flow from Telegram.
 
-E2. Deterministic Parity Verification (no shadow runtime):
+E2. Cleanup:
 
-- [x] Add fixture-based parity tests comparing legacy vs orchestrator behavior on fixed inputs:
-  - injection snapshot
-  - writeback gate decision
-  - summary draft/promotion payload
-  - resulting short-term projection inputs
-- [x] Add focused regression tests for known risk points (listed below).
-
-E3. Cutover and Cleanup:
-
-- [ ] Remove Telegram legacy direct memory flow code after parity tests are stable.
+- [x] Remove Telegram legacy direct memory flow code from Telegram runtime and tests.
 - [x] Remove Telegram `/mem` command path and related docs/tests.
-
-Parity Checklist (must all pass before final cleanup):
-
-- [x] Identity mapping parity (`subject_id`, `session_id`, request context).
-- [x] Injection parity (same snapshot semantics for private/public chats).
-- [x] Writeback gate parity (`is_lightweight`, publish/no-publish, identity checks).
-- [ ] Semantic dedupe parity (same merge behavior and ordering).
-- [x] Promote parity (same explicit-memory gating and cap rules).
-- [ ] Timeout/retry parity (same retry conditions and observable behavior).
 
 Acceptance:
 
 - [x] Existing Telegram memory tests pass with `orchestrator` path.
-- [x] Fixture parity tests pass with zero known mismatch.
 
 ### Phase F: Heartbeat and Slack Wiring
 
@@ -366,21 +340,21 @@ Acceptance:
 
 ### Phase G: Verification and Operations
 
-- [ ] Add tests for:
+- [x] Add tests for:
   - append durability
   - rotate
   - replay
   - projector idempotency
-- [ ] Add kill/restart scenario test:
+- [x] Add kill/restart scenario test:
   - crash between append and projection
   - restart replay fixes projection
-- [ ] Add minimal operational docs:
+- [x] Add minimal operational docs:
   - how to inspect logs
   - how to replay/rebuild projection
 
 Acceptance:
 
-- [ ] End-to-end recovery scenario is reproducible with documented steps.
+- [x] End-to-end recovery scenario is reproducible with documented steps.
 
 ## 5. Suggested Sequence
 

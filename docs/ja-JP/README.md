@@ -148,10 +148,7 @@ mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORP
 <a id="embedding-to-other-projects"></a>
 ## 他プロジェクトへの組み込み
 
-代表的な統合方法は 2 つです。
-
-- Go ライブラリとして利用: `../../demo/embed-go/`
-- CLI サブプロセスとして利用: `../../demo/embed-cli/`
+[../integration.md](../integration.md) に組み込みパターンとサンプルをまとめています。
 
 <a id="built-in-tools"></a>
 ## 組み込みツール

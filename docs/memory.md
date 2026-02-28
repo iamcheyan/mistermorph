@@ -1,6 +1,6 @@
-# Memory System (Core + Current Wiring)
+# Memory System (Core + Wiring)
 
-This document describes how memory currently works in `mistermorph` as implemented today.
+This document describes how memory works in `mistermorph`.
 
 ## 1. Scope and Status
 
@@ -73,7 +73,7 @@ This document describes how memory currently works in `mistermorph` as implement
                                                    +------------------------+
 ```
 
-## 4. ASCII Runtime Flows (Current Shared Orchestrator Wiring)
+## 4. ASCII Runtime Flows (Shared Orchestrator Wiring)
 
 ### 4.1 Main Skeleton
 
@@ -192,7 +192,7 @@ Notes:
 
 ## 8. Storage Layout and Data Model
 
-Current file layout:
+File layout:
 
 ```text
 memory/
@@ -210,7 +210,7 @@ Notes:
 - Frontmatter stores:
   - `created_at`, `updated_at`, `summary`, `session_id`
   - `contact_id`, `contact_nickname`
-- Long-term file path is currently global `memory/index.md` (current `LongTermPath(...)` ignores subject id).
+- Long-term file path is global `memory/index.md` (`LongTermPath(...)` ignores subject id).
 
 ## 9. Telegram Admin Commands
 
@@ -219,7 +219,7 @@ Notes:
 
 ## 10. Journal/WAL Runtime Notes
 
-Current implementation:
+Implementation:
 
 - `memory/log/*.jsonl` stores append-only memory events (source of truth).
 - `memory/*.md` is a projection/read model (rebuildable from WAL).
@@ -238,7 +238,7 @@ Database analogy:
 
 ### 10.2 Minimal Scope (No Overdesign)
 
-- Single-process append writer (current runtime model).
+- Single-process append writer.
 - JSONL only; one event per line.
 - Local rotation only (size based).
 - Replay from local logs only.
@@ -292,7 +292,7 @@ Checkpoint structure (`memory/log/checkpoint.json`):
 
 ```json
 {
-  "file": "since-2026-02-28-0002.jsonl",
+  "file": "since-2026-02-28-0001.jsonl",
   "line": 18,
   "updated_at": "2026-02-28T06:30:12Z"
 }
@@ -304,7 +304,7 @@ Checkpoint structure (`memory/log/checkpoint.json`):
 
 ### 10.6 Event Shape (Minimal)
 
-Current event includes fields needed for replay and audit, for example:
+Event includes fields needed for replay and audit, for example:
 
 - `schema_version`
 - `event_id`
@@ -352,7 +352,7 @@ Example event:
       "protocol": "tg"
     }
   ],
-  "task_text": "啧啧啧",
+  "task_text": "emmm",
   "final_output": "",
   "draft_summary_items": [],
   "draft_promote": {}
@@ -374,7 +374,7 @@ Agent-self participant example:
   "participants": [
     {
       "id": 0,
-      "nickname": "阿嬷",
+      "nickname": "Miss A.Mo",
       "protocol": ""
     }
   ]
@@ -385,11 +385,11 @@ Agent-self participant example:
 
 Projection is asynchronous by design (not per-event immediate), because merge can involve LLM semantic dedupe.
 
-Current implementation:
+Implementation:
 
 - Runtime starts one projection worker per process (when memory is enabled).
 - Worker triggers projection and calls projector explicitly (`ProjectOnce(limit)`).
-- Projector currently enforces single-call execution (`ProjectOnce` guarded by mutex).
+- Projector enforces single-call execution (`ProjectOnce` guarded by mutex).
 - Startup/restart replay can run the same projector entrypoint repeatedly from checkpoint.
 
 - Auto trigger when either condition is met:
@@ -399,12 +399,12 @@ Current implementation:
   - there are no new WAL records since last projection checkpoint
   - previous projection round is still running
 - Manual trigger:
-  - not provided for now
+  - not provided
 - Worker parallelism per round:
   - run with `X` goroutines
-  - `X` is derived from current UTC-day short-memory file count
+  - `X` is derived from UTC-day short-memory file count
   - clamp `X` to at least `1`
-- Current worker defaults:
+- Worker defaults:
   - `N = 10m`
   - `M = 10`
   - `limit = 50`
@@ -420,7 +420,7 @@ Projection operates by target file grouping:
 - Group read events by projection target.
 - Run one projection per touched target file in that pass.
 
-Current target organization uses `event.subject_id` as projection key:
+Target organization uses `event.subject_id` as projection key:
 
 - `memory/YYYY-MM-DD/{sanitize(subject_id)}.md`
 - examples:
@@ -432,24 +432,52 @@ Projection outputs in one pass:
 - one short-memory file per touched `(day, subject_id)` bucket
 - optional long-term update (`memory/index.md`) when event contains `draft_promote`
 
-When projecting one target file, summary merge uses all current summary items in that file.
+When projecting one target file, summary merge uses all existing summary items in that file.
 
 If backlog exceeds window, projector continues in later passes from updated checkpoint.
 
-### 10.9 Semantic Dedupe Reuse
+### 10.9 Semantic Dedupe (ASCII)
 
-Projection merge reuses the existing Semantic Dedupe Subflow:
+Projection uses one flow:
 
-- existing short-term + incoming draft -> semantic dedupe merge
-- otherwise -> direct merge
+- merge incoming WAL records with existing short-memory summary items
+- run semantic dedupe only when existing summary is non-empty and resolver is configured
+- otherwise keep direct merge result
 
-No new dedupe algorithm/prompt is introduced in WAL projection.
+No separate dedupe pipeline is used.
 
-Phase C replay/checkpoint policy (current decision):
+Replay/checkpoint policy:
 
 - At-least-once processing is acceptable (replay may process duplicate events).
 - Checkpoint is advanced in batches (for example every 10 processed events).
 - On projection error, checkpoint still advances; caller receives the returned error.
+
+```text
+Projector                 LLM Semantic Resolver                   FS
+    |                               |                             |
+    | replay WAL window             |                             |
+    |-------------------------------|---------------------------->|
+    | load existing short-term      |                             |
+    |------------------------------------------------------------>|
+    | merge incoming + existing     |                             |
+    | (newest-first, normalized)    |                             |
+    |                               |                             |
+    | existing summary exists?      |                             |
+    |-- no --> skip semantic dedupe |                             |
+    |                               |                             |
+    |-- yes --> SemanticDedupeSummaryItems(items)                |
+    |--------------->|                                            |
+    |                | select keep indices                        |
+    |<---------------|                                            |
+    | apply deduped items                                        |
+    | write short-term markdown                                  |
+    |------------------------------------------------------------>|
+```
+
+Notes:
+
+- Semantic dedupe is only called when existing short-term summary is non-empty and resolver is configured.
+- If semantic dedupe fails, projection returns error for that batch; checkpoint still advances by this policy.
 
 ## 11. Operational Log Keywords
 
@@ -471,3 +499,39 @@ Use these keywords for fast runtime memory troubleshooting:
 Quick grep for projection issues:
 
 - `memory_record_ok|memory_projection_error|memory_projection_run_error`
+
+## 12. Replay / Rebuild Runbook
+
+What to check first:
+
+- WAL: `memory/log/*.jsonl`
+- Projection: `memory/index.md`, `memory/YYYY-MM-DD/*.md`
+- Progress: `memory/log/checkpoint.json`
+
+Safe rebuild procedure:
+
+1. Stop runtime processes (telegram/slack/heartbeat).
+2. Back up projection files if needed.
+3. Remove checkpoint:
+
+```bash
+rm -f memory/log/checkpoint.json
+```
+
+4. Start runtime with memory enabled.
+
+Projection worker will replay WAL from the beginning and rewrite projection files.
+
+Verify rebuild:
+
+1. `memory/log/checkpoint.json` is recreated and advances.
+2. `memory/index.md` and `memory/YYYY-MM-DD/*.md` are updated.
+3. Logs do not show:
+   - `memory_projection_run_error`
+   - `memory_projection_error`
+
+Notes:
+
+- WAL replay order is deterministic (`file + line`).
+- Projection is asynchronous and bounded per trigger round.
+- At-least-once replay is allowed; merge handles duplicates.

@@ -2,17 +2,29 @@
 
 ## Core Docs
 
+Core components:
+
 - [Architecture](./arch.md)
 - [Prompt System](./prompt.md)
 - [Tools](./tools.md)
-- [Security](./security.md)
 - [Skills](./skills.md)
-- [Telegram Runtime](./telegram.md)
-- [Slack (Socket Mode)](./slack.md)
+- [Memory](./memory.md)
+
+Channels:
+
+- [Telegram](./telegram.md)
+- [Slack](./slack.md)
 - [Bus](./bus.md)
-- [Bus Implementation](./bus_impl.md)
+
+Integration:
+
+- [Integration](./integration.md)
+
+Others:
+
+- [Console](./console.md)
+- [Security](./security.md)
 - [Troubleshoots](./troubleshoots.md)
-- [Console SPA](../web/console/README.md)
 
 ## Localized README
 

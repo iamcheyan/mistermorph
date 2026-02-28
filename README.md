@@ -10,7 +10,7 @@ Other languages: [简体中文](docs/zh-CN/README.md) | [日本語](docs/ja-JP/R
 - [Quickstart](#quickstart)
 - [Supported Models](#supported-models)
 - [Daemon mode](#daemon-mode)
-- [Console mode](#console-mode)
+- [Console WebUI](#console-webui)
 - [Telegram bot mode](#telegram-bot-mode)
 - [Slack bot mode](#slack-bot-mode)
 - [Embedding](#embedding-to-other-projects)
@@ -184,7 +184,7 @@ mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORP
   --task "Summarize this repo and write to ./summary.md"
 ```
 
-## Console mode
+## Console WebUI
 
 Run a local Console web UI for runtime inspection and file management.
 
@@ -232,35 +232,11 @@ Open:
 
 `http://127.0.0.1:9080/console`
 
-More details: [`web/console/README.md`](web/console/README.md).
+More details: [`docs/console.md`](docs/console.md).
 
 ## Embedding to other projects
 
-Two common integration options:
-
-- As a Go library: see `demo/embed-go/`.
-- As a subprocess CLI: see `demo/embed-cli/`.
-
-For Go-library embedding with built-in wiring, use `integration`:
-
-```go
-cfg := integration.DefaultConfig()
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"} // optional; empty = all built-ins
-cfg.Inspect.Prompt = true   // optional
-cfg.Inspect.Request = true  // optional
-cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
-
-rt := integration.New(cfg)
-
-reg := rt.NewRegistry() // built-in tools wiring
-prepared, err := rt.NewRunEngineWithRegistry(ctx, task, reg)
-if err != nil { /* ... */ }
-defer prepared.Cleanup()
-
-final, runCtx, err := prepared.Engine.Run(ctx, task, agent.RunOptions{Model: prepared.Model})
-_ = final
-_ = runCtx
-```
+See [`docs/integration.md`](docs/integration.md) for embedding patterns and examples.
 
 ## Built-in Tools
 
