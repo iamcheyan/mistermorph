@@ -30,8 +30,6 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		FileCacheMaxAge:             24 * time.Hour,
 		FileCacheMaxFiles:           200,
 		FileCacheMaxTotalBytes:      int64(64 * 1024 * 1024),
-		HeartbeatEnabled:            true,
-		HeartbeatInterval:           15 * time.Minute,
 		MemoryEnabled:               true,
 		MemoryShortTermDays:         30,
 		MemoryInjectionEnabled:      true,
@@ -49,7 +47,7 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	if got.BusMaxInFlight != 2048 || got.AgentLimits.MaxSteps != 20 || got.AgentLimits.ToolRepeatLimit != 6 || got.FileCacheMaxFiles != 200 {
 		t.Fatalf("resolved options mismatch: %#v", got)
 	}
-	if !got.HeartbeatEnabled || !got.MemoryEnabled || !got.SecretsRequireSkillProfiles {
+	if !got.MemoryEnabled || !got.SecretsRequireSkillProfiles {
 		t.Fatalf("boolean run options should be preserved: %#v", got)
 	}
 }
@@ -91,9 +89,6 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	}
 	if got.FileCacheMaxTotalBytes != int64(512*1024*1024) {
 		t.Fatalf("file cache max total bytes = %d, want 536870912", got.FileCacheMaxTotalBytes)
-	}
-	if got.HeartbeatInterval != 30*time.Minute {
-		t.Fatalf("heartbeat interval = %v, want 30m", got.HeartbeatInterval)
 	}
 	if got.MemoryShortTermDays != 7 {
 		t.Fatalf("memory short term days = %d, want 7", got.MemoryShortTermDays)

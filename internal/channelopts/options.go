@@ -41,8 +41,6 @@ type TelegramConfig struct {
 	FileCacheMaxAge                      time.Duration
 	FileCacheMaxFiles                    int
 	FileCacheMaxTotalBytes               int64
-	HeartbeatEnabled                     bool
-	HeartbeatInterval                    time.Duration
 	MemoryEnabled                        bool
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
@@ -93,8 +91,6 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		FileCacheMaxAge:             r.GetDuration("file_cache.max_age"),
 		FileCacheMaxFiles:           r.GetInt("file_cache.max_files"),
 		FileCacheMaxTotalBytes:      r.GetInt64("file_cache.max_total_bytes"),
-		HeartbeatEnabled:            r.GetBool("heartbeat.enabled"),
-		HeartbeatInterval:           r.GetDuration("heartbeat.interval"),
 		MemoryEnabled:               r.GetBool("memory.enabled"),
 		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
@@ -105,6 +101,25 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 
 func TelegramConfigFromViper() TelegramConfig {
 	return TelegramConfigFromReader(viper.GetViper())
+}
+
+type HeartbeatConfig struct {
+	Enabled  bool
+	Interval time.Duration
+}
+
+func HeartbeatConfigFromReader(r ConfigReader) HeartbeatConfig {
+	if r == nil {
+		return HeartbeatConfig{}
+	}
+	return HeartbeatConfig{
+		Enabled:  r.GetBool("heartbeat.enabled"),
+		Interval: r.GetDuration("heartbeat.interval"),
+	}
+}
+
+func HeartbeatConfigFromViper() HeartbeatConfig {
+	return HeartbeatConfigFromReader(viper.GetViper())
 }
 
 func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramruntime.RunOptions, error) {
@@ -169,8 +184,6 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		FileCacheMaxAge:               cfg.FileCacheMaxAge,
 		FileCacheMaxFiles:             cfg.FileCacheMaxFiles,
 		FileCacheMaxTotalBytes:        cfg.FileCacheMaxTotalBytes,
-		HeartbeatEnabled:              cfg.HeartbeatEnabled,
-		HeartbeatInterval:             cfg.HeartbeatInterval,
 		MemoryEnabled:                 cfg.MemoryEnabled,
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,

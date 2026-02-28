@@ -27,8 +27,6 @@ type runtimeLoopOptions struct {
 	FileCacheMaxAge               time.Duration
 	FileCacheMaxFiles             int
 	FileCacheMaxTotalBytes        int64
-	HeartbeatEnabled              bool
-	HeartbeatInterval             time.Duration
 	MemoryEnabled                 bool
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
@@ -59,8 +57,6 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		FileCacheMaxAge:               opts.FileCacheMaxAge,
 		FileCacheMaxFiles:             opts.FileCacheMaxFiles,
 		FileCacheMaxTotalBytes:        opts.FileCacheMaxTotalBytes,
-		HeartbeatEnabled:              opts.HeartbeatEnabled,
-		HeartbeatInterval:             opts.HeartbeatInterval,
 		MemoryEnabled:                 opts.MemoryEnabled,
 		MemoryShortTermDays:           opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
@@ -107,9 +103,6 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	if opts.FileCacheMaxTotalBytes <= 0 {
 		opts.FileCacheMaxTotalBytes = int64(512 * 1024 * 1024)
-	}
-	if opts.HeartbeatInterval <= 0 {
-		opts.HeartbeatInterval = 30 * time.Minute
 	}
 	if opts.MemoryShortTermDays <= 0 {
 		opts.MemoryShortTermDays = 7

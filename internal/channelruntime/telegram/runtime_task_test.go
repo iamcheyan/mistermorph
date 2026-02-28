@@ -22,21 +22,21 @@ func TestShouldWriteMemory(t *testing.T) {
 			name:              "skip when output is not published",
 			publishText:       false,
 			memManager:        mgr,
-			longTermSubjectID: heartbeatMemorySessionID,
+			longTermSubjectID: "ext:telegram:1",
 			want:              false,
 		},
 		{
 			name:              "skip when memory manager is missing",
 			publishText:       true,
 			memManager:        nil,
-			longTermSubjectID: heartbeatMemorySessionID,
+			longTermSubjectID: "ext:telegram:1",
 			want:              false,
 		},
 		{
 			name:              "write when long-term subject is resolved",
 			publishText:       true,
 			memManager:        mgr,
-			longTermSubjectID: heartbeatMemorySessionID,
+			longTermSubjectID: "ext:telegram:1",
 			want:              true,
 		},
 		{
@@ -59,23 +59,11 @@ func TestShouldWriteMemory(t *testing.T) {
 }
 
 func TestResolveLongTermSubjectID(t *testing.T) {
-	if got := resolveLongTermSubjectID(telegramJob{IsHeartbeat: true}, memory.Identity{}); got != heartbeatMemorySessionID {
-		t.Fatalf("heartbeat subject = %q, want %q", got, heartbeatMemorySessionID)
-	}
-	if got := resolveLongTermSubjectID(telegramJob{}, memory.Identity{Enabled: true, SubjectID: "ext:telegram:1"}); got != "ext:telegram:1" {
+	if got := resolveLongTermSubjectID(memory.Identity{Enabled: true, SubjectID: "ext:telegram:1"}); got != "ext:telegram:1" {
 		t.Fatalf("normal subject = %q, want %q", got, "ext:telegram:1")
 	}
-	if got := resolveLongTermSubjectID(telegramJob{}, memory.Identity{Enabled: false, SubjectID: "ext:telegram:1"}); got != "" {
+	if got := resolveLongTermSubjectID(memory.Identity{Enabled: false, SubjectID: "ext:telegram:1"}); got != "" {
 		t.Fatalf("disabled identity subject = %q, want empty", got)
-	}
-}
-
-func TestShouldSkipTaskMessage(t *testing.T) {
-	if got := shouldSkipTaskMessage(telegramJob{IsHeartbeat: true}); got {
-		t.Fatalf("heartbeat should not skip task message")
-	}
-	if got := shouldSkipTaskMessage(telegramJob{IsHeartbeat: false}); !got {
-		t.Fatalf("non-heartbeat should skip task message")
 	}
 }
 

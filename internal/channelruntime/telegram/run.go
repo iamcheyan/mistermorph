@@ -27,8 +27,6 @@ type RunOptions struct {
 	FileCacheMaxAge               time.Duration
 	FileCacheMaxFiles             int
 	FileCacheMaxTotalBytes        int64
-	HeartbeatEnabled              bool
-	HeartbeatInterval             time.Duration
 	MemoryEnabled                 bool
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool

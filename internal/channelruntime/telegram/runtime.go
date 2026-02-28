@@ -21,7 +21,6 @@ import (
 	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -45,7 +44,6 @@ type telegramJob struct {
 	FromDisplayName  string
 	Text             string
 	Version          uint64
-	IsHeartbeat      bool
 	Meta             map[string]any
 	MentionUsers     []string
 }
@@ -421,7 +419,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		lastFromLast       = make(map[int64]string)
 		lastChatType       = make(map[int64]string)
 		knownMentions      = make(map[int64]map[string]string)
-		heartbeatState     = &heartbeatutil.State{}
 		offset             int64
 	)
 	initRequired := false
@@ -567,11 +564,8 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					h = nil
 				}
 
-				var typingStop func()
-				if !job.IsHeartbeat {
-					typingStop = startTypingTicker(workerCtx, api, chatID, "typing", 4*time.Second)
-					defer typingStop()
-				}
+				typingStop := startTypingTicker(workerCtx, api, chatID, "typing", 4*time.Second)
+				defer typingStop()
 				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 					startedAt := time.Now().UTC()
 					daemonStore.Update(job.TaskID, func(rec *daemonruntime.TaskInfo) {
@@ -607,20 +601,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						MessageID: job.MessageID,
 						Err:       runErr,
 					})
-					if job.IsHeartbeat {
-						alert, msg := heartbeatState.EndFailure(errors.New(displayErr))
-						if alert {
-							logger.Warn("heartbeat_alert", "source", "telegram", "chat_id", chatID, "message", msg)
-							mu.Lock()
-							cur := history[chatID]
-							cur = append(cur, newTelegramSystemHistoryItem(chatID, job.ChatType, msg, time.Now().UTC(), botUser))
-							history[chatID] = trimChatHistoryItems(cur, telegramHistoryCap)
-							mu.Unlock()
-						} else {
-							logger.Warn("heartbeat_error", "source", "telegram", "chat_id", chatID, "error", displayErr)
-						}
-						return
-					}
 					errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
 					if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, "error: "+displayErr, "", errorCorrelationID); err != nil {
 						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
@@ -648,7 +628,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						}
 					})
 				}
-				if publishText && !job.IsHeartbeat {
+				if publishText {
 					if workerCtx.Err() != nil {
 						return
 					}
@@ -667,15 +647,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						})
 					}
 				}
-				if job.IsHeartbeat {
-					heartbeatState.EndSuccess(time.Now())
-					summary := strings.TrimSpace(outText)
-					if summary == "" {
-						summary = "empty"
-					}
-					logger.Info("heartbeat_summary", "source", "telegram", "chat_id", chatID, "message", summary)
-				}
-
 				mu.Lock()
 				// Respect resets that happened while the task was running.
 				if w.Version != curVersion {
@@ -686,9 +657,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
 				}
 				cur := history[chatID]
-				if !job.IsHeartbeat {
-					cur = append(cur, newTelegramInboundHistoryItem(job))
-				}
+				cur = append(cur, newTelegramInboundHistoryItem(job))
 				if reaction != nil {
 					note := "[reacted]"
 					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
@@ -804,138 +773,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			MentionUsers: append([]string(nil), inbound.MentionUsers...),
 		})
 		return nil
-	}
-
-	hbEnabled := opts.HeartbeatEnabled
-	hbInterval := opts.HeartbeatInterval
-	hbChecklist := statepaths.HeartbeatChecklistPath()
-	if hbEnabled && hbInterval > 0 {
-		const heartbeatChatID int64 = 0
-		go func() {
-			runHeartbeatTick := func() {
-				result := heartbeatutil.Tick(
-					heartbeatState,
-					func() (string, bool, error) {
-						return buildHeartbeatTask(d, hbChecklist)
-					},
-					func(task string, checklistEmpty bool) string {
-						mu.Lock()
-						defer mu.Unlock()
-
-						chatID := heartbeatChatID
-						w := getOrStartWorkerLocked(chatID)
-						if w == nil {
-							return "worker_unavailable"
-						}
-						if len(w.Jobs) > 0 {
-							return "worker_busy"
-						}
-						chatType := lastChatType[chatID]
-						if strings.TrimSpace(chatType) == "" {
-							chatType = "unknown"
-						}
-						fromUserID := lastFromUser[chatID]
-						fromUsername := lastFromUsername[chatID]
-						fromName := lastFromName[chatID]
-						fromFirst := lastFromFirst[chatID]
-						fromLast := lastFromLast[chatID]
-						var mentionUsers []string
-						if isGroupChat(chatType) {
-							mentionUsers = mentionUsersSnapshot(knownMentions[chatID], mentionUserSnapshotLimit)
-						}
-						extra := map[string]any{
-							"telegram_chat_id":       chatID,
-							"telegram_chat_type":     chatType,
-							"telegram_from_user_id":  fromUserID,
-							"telegram_from_username": fromUsername,
-							"telegram_from_name":     fromName,
-							"queue_len":              len(w.Jobs),
-						}
-						_, lastSuccess, _, _ := heartbeatState.Snapshot()
-						if !lastSuccess.IsZero() {
-							extra["last_success_utc"] = lastSuccess.UTC().Format(time.RFC3339)
-						}
-						meta := buildHeartbeatMeta(d, "telegram", hbInterval, hbChecklist, checklistEmpty, extra)
-						heartbeatRunAt := time.Now().UTC()
-						heartbeatTaskID := telegramHeartbeatTaskID(chatID, heartbeatRunAt)
-						job := telegramJob{
-							TaskID:          heartbeatTaskID,
-							ChatID:          chatID,
-							ChatType:        chatType,
-							SentAt:          heartbeatRunAt,
-							FromUserID:      fromUserID,
-							FromUsername:    fromUsername,
-							FromFirstName:   fromFirst,
-							FromLastName:    fromLast,
-							FromDisplayName: fromName,
-							Text:            task,
-							Version:         w.Version,
-							IsHeartbeat:     true,
-							Meta:            meta,
-							MentionUsers:    mentionUsers,
-						}
-						if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-							daemonStore.Upsert(daemonruntime.TaskInfo{
-								ID:        job.TaskID,
-								Status:    daemonruntime.TaskQueued,
-								Task:      daemonruntime.TruncateUTF8(task, 2000),
-								Model:     strings.TrimSpace(model),
-								Timeout:   taskTimeout.String(),
-								CreatedAt: heartbeatRunAt,
-								Result: map[string]any{
-									"source":                 "telegram",
-									"trigger":                "heartbeat",
-									"telegram_chat_id":       chatID,
-									"telegram_chat_type":     chatType,
-									"telegram_from_user_id":  fromUserID,
-									"telegram_from_username": fromUsername,
-									"telegram_from_name":     fromName,
-									"mention_users":          append([]string(nil), mentionUsers...),
-								},
-							})
-						}
-						select {
-						case w.Jobs <- job:
-							return ""
-						default:
-							return "worker_queue_full"
-						}
-					},
-				)
-				switch result.Outcome {
-				case heartbeatutil.TickBuildError:
-					if strings.TrimSpace(result.AlertMessage) != "" {
-						logger.Warn("heartbeat_alert", "source", "telegram", "message", result.AlertMessage)
-					} else {
-						logger.Warn("telegram_heartbeat_task_error", "error", result.BuildError.Error())
-					}
-					enqueueSystemWarning(result.BuildError.Error())
-					broadcastSystemWarnings()
-				case heartbeatutil.TickSkipped:
-					logger.Debug("heartbeat_skip", "source", "telegram", "reason", result.SkipReason)
-				}
-			}
-
-			initialTimer := time.NewTimer(15 * time.Second)
-			defer initialTimer.Stop()
-			select {
-			case <-pollCtx.Done():
-				return
-			case <-initialTimer.C:
-			}
-			runHeartbeatTick()
-
-			ticker := time.NewTicker(hbInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-pollCtx.Done():
-					return
-				case <-ticker.C:
-					runHeartbeatTick()
-				}
-			}
-		}()
 	}
 
 	for {
@@ -1539,13 +1376,6 @@ func emojiForTelegramPlanStep(step string) string {
 
 func telegramTaskID(chatID int64, messageID int64) string {
 	return daemonruntime.BuildTaskID("tg", chatID, messageID)
-}
-
-func telegramHeartbeatTaskID(chatID int64, scheduledAt time.Time) string {
-	if scheduledAt.IsZero() {
-		scheduledAt = time.Now().UTC()
-	}
-	return daemonruntime.BuildTaskID("tg_hb", chatID, scheduledAt.UnixNano())
 }
 
 func isTaskContextCanceled(err error) bool {

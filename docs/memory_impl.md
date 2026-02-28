@@ -208,6 +208,57 @@ Caller            Orchestrator           Projector           Journal/Manager
   |<-------------------|                    |                    |
 ```
 
+### Phase H: Heartbeat Decoupling (Prerequisite)
+
+- [x] Split heartbeat runtime flow from Telegram runtime.
+- [x] Keep heartbeat dependency minimal:
+  - requires task execution
+  - optional notifier adapter (Telegram/Slack/etc.)
+  - does not require Telegram runtime ownership
+- [ ] Remove Telegram-owned heartbeat control flow:
+  - [x] scheduler/tick wiring
+  - [x] `IsHeartbeat`-driven execution branching in Telegram request path
+- [ ] Preserve existing heartbeat alert semantics and task metadata.
+- [x] Heartbeat run path must register tools like main flows:
+  - register base registry tools
+  - register runtime tools (`toolsutil.RegisterRuntimeTools`)
+
+Phase H implementation steps (minimal):
+
+1. [x] Add independent `internal/channelruntime/heartbeat` runtime:
+   - owns ticker + enqueue + execution loop
+   - no Telegram runtime dependency
+2. [x] Keep execution path aligned with other run flows:
+   - construct per-run registry from base tools
+   - register runtime tools
+   - run agent with heartbeat task/meta
+3. [x] Integrate memoryruntime orchestrator:
+   - write WAL event via `Record(...)`
+   - fixed `subject_id/session_id` for heartbeat stream
+   - do not couple runtime path with synchronous projection
+4. [x] Move notification to adapter injection:
+   - heartbeat runtime emits plain text notification message
+   - adapter decides delivery channel (Telegram/Slack/etc.)
+5. [x] Remove heartbeat ownership from Telegram runtime:
+  - delete ticker/start/heartbeat state wiring there
+  - keep Telegram as optional notifier adapter only
+
+Notifier design (first-principles, no overdesign):
+
+- Use one optional interface with one method only:
+  - `Notify(ctx, text) error`
+- Keep payload minimal:
+  - plain text string only (no channel-specific fields in core interface)
+- If notifier is nil:
+  - heartbeat still runs; notification is skipped
+- Channel-specific details belong in adapter implementations, not in heartbeat core runtime.
+
+Acceptance:
+
+- [ ] Heartbeat can run without Telegram runtime enabled.
+- [x] Telegram runtime no longer owns heartbeat scheduling/state transitions.
+- [x] Heartbeat notification remains adapter-based and replaceable.
+
 ### Phase E: Telegram Migration (Parity First)
 
 - [ ] Implement Telegram adapter on top of shared orchestrator.
@@ -254,9 +305,10 @@ Acceptance:
 1. Phase A + Phase B
 2. Phase C
 3. Phase D
-4. Phase E
-5. Phase F
-6. Phase G
+4. Phase H
+5. Phase E
+6. Phase F
+7. Phase G
 
 ## 6. Stop Conditions (Avoid Overdesign)
 

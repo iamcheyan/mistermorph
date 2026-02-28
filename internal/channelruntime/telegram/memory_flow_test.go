@@ -5,24 +5,6 @@ import (
 )
 
 func TestBuildMemoryWriteMeta(t *testing.T) {
-	t.Run("heartbeat uses fixed session path", func(t *testing.T) {
-		meta := buildMemoryWriteMeta(telegramJob{
-			IsHeartbeat:  true,
-			ChatID:       42,
-			FromUserID:   1001,
-			FromUsername: "alice",
-		})
-		if meta.SessionID != heartbeatMemorySessionID {
-			t.Fatalf("session_id = %q, want %q", meta.SessionID, heartbeatMemorySessionID)
-		}
-		if len(meta.ContactIDs) != 0 {
-			t.Fatalf("contact_ids = %#v, want empty", meta.ContactIDs)
-		}
-		if len(meta.ContactNicknames) != 0 {
-			t.Fatalf("contact_nicknames = %#v, want empty", meta.ContactNicknames)
-		}
-	})
-
 	t.Run("normal chat keeps tg session and contact meta", func(t *testing.T) {
 		meta := buildMemoryWriteMeta(telegramJob{
 			ChatID:          777,

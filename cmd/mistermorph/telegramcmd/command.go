@@ -1,13 +1,18 @@
 package telegramcmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
 )
@@ -34,7 +39,10 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			}
 			allowedIDs = parsedAllowedIDs
 
-			runOpts, err := channelopts.BuildTelegramRunOptions(channelopts.TelegramConfigFromViper(), channelopts.TelegramInput{
+			cfg := channelopts.TelegramConfigFromViper()
+			hbCfg := channelopts.HeartbeatConfigFromViper()
+			runtimeToolsConfig := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			runOpts, err := channelopts.BuildTelegramRunOptions(cfg, channelopts.TelegramInput{
 				BotToken:                      token,
 				AllowedChatIDs:                allowedIDs,
 				GroupTriggerMode:              strings.TrimSpace(configutil.FlagOrViperString(cmd, "telegram-group-trigger-mode", "telegram.group_trigger_mode")),
@@ -50,8 +58,10 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 				return err
 			}
 			deps := telegramruntime.Dependencies(d)
-			deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
-			return telegramruntime.Run(cmd.Context(), deps, runOpts)
+			deps.RuntimeToolsConfig = runtimeToolsConfig
+
+			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig)
+			return runTelegramWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
 		},
 	}
 
@@ -67,4 +77,103 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_telegram_YYYYMMDD_HHmmss.md.")
 
 	return cmd
+}
+
+func buildHeartbeatRuntime(
+	d Dependencies,
+	telegramCfg channelopts.TelegramConfig,
+	hbCfg channelopts.HeartbeatConfig,
+	telegramToken string,
+	allowedChatIDs []int64,
+	taskTimeout time.Duration,
+	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
+	hbDeps := heartbeatruntime.Dependencies{
+		Logger:                 d.Logger,
+		LogOptions:             d.LogOptions,
+		CreateLLMClient:        d.CreateLLMClient,
+		LLMProvider:            d.LLMProvider,
+		LLMEndpointForProvider: d.LLMEndpointForProvider,
+		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
+		LLMModelForProvider:    d.LLMModelForProvider,
+		Registry:               d.Registry,
+		RuntimeToolsConfig:     runtimeToolsConfig,
+		Guard:                  d.Guard,
+		PromptSpec:             d.PromptSpec,
+		BuildHeartbeatTask:     d.BuildHeartbeatTask,
+		BuildHeartbeatMeta:     d.BuildHeartbeatMeta,
+	}
+	hbOpts := heartbeatruntime.RunOptions{
+		Interval:                    hbCfg.Interval,
+		TaskTimeout:                 taskTimeout,
+		RequestTimeout:              telegramCfg.RequestTimeout,
+		AgentLimits:                 telegramCfg.AgentLimits,
+		Source:                      "telegram",
+		ChecklistPath:               statepaths.HeartbeatChecklistPath(),
+		MemoryEnabled:               telegramCfg.MemoryEnabled,
+		MemoryShortTermDays:         telegramCfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:      telegramCfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:     telegramCfg.MemoryInjectionMaxItems,
+		SecretsRequireSkillProfiles: telegramCfg.SecretsRequireSkillProfiles,
+		Notifier:                    newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
+	}
+	return hbDeps, hbOpts
+}
+
+func runTelegramWithOptionalHeartbeat(
+	ctx context.Context,
+	telegramDeps telegramruntime.Dependencies,
+	telegramOpts telegramruntime.RunOptions,
+	hbDeps heartbeatruntime.Dependencies,
+	hbOpts heartbeatruntime.RunOptions,
+	hbEnabled bool,
+) error {
+	if !hbEnabled || hbOpts.Interval <= 0 {
+		return telegramruntime.Run(ctx, telegramDeps, telegramOpts)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- telegramruntime.Run(runCtx, telegramDeps, telegramOpts)
+	}()
+	go func() {
+		errCh <- heartbeatruntime.Run(runCtx, hbDeps, hbOpts)
+	}()
+
+	var firstErr error
+	for i := 0; i < 2; i++ {
+		err := <-errCh
+		if err != nil && !errors.Is(err, context.Canceled) && firstErr == nil {
+			firstErr = err
+		}
+		cancel()
+	}
+	return firstErr
+}
+
+func newTelegramHeartbeatNotifier(token string, chatIDs []int64) heartbeatruntime.Notifier {
+	filtered := make([]int64, 0, len(chatIDs))
+	for _, id := range chatIDs {
+		if id != 0 {
+			filtered = append(filtered, id)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	return heartbeatruntime.NotifyFunc(func(ctx context.Context, text string) error {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return nil
+		}
+		for _, chatID := range filtered {
+			if err := telegramruntime.SendMessageHTML(ctx, client, "https://api.telegram.org", token, chatID, text, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

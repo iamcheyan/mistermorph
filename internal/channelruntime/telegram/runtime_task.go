@@ -38,9 +38,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 	task := job.Text
 	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
-	if !job.IsHeartbeat {
-		historyWithCurrent = append(historyWithCurrent, newTelegramInboundHistoryItem(job))
-	}
+	historyWithCurrent = append(historyWithCurrent, newTelegramInboundHistoryItem(job))
 	historyRaw, err := json.MarshalIndent(map[string]any{
 		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelTelegram, historyWithCurrent),
 	}, "", "  ")
@@ -121,29 +119,26 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			} else if logger != nil {
 				logger.Debug("memory_identity_unavailable", "source", "telegram", "enabled", id.Enabled, "subject_id", strings.TrimSpace(id.SubjectID))
 			}
-		} else if logger != nil && !job.IsHeartbeat {
+		} else if logger != nil {
 			logger.Debug("memory_identity_unavailable", "source", "telegram", "reason", "missing_user_id")
 		}
 	}
 
-	var planUpdateHook func(runCtx *agent.Context, update agent.PlanStepUpdate)
-	if !job.IsHeartbeat {
-		planUpdateHook = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
-			if runCtx == nil || runCtx.Plan == nil {
-				return
-			}
-			msg, err := generateTelegramPlanProgressMessage(ctx, client, model, task, runCtx.Plan, update, requestTimeout)
-			if err != nil {
-				logger.Warn("telegram_plan_progress_error", "error", err.Error())
-				return
-			}
-			if strings.TrimSpace(msg) == "" {
-				return
-			}
-			correlationID := fmt.Sprintf("telegram:plan:%d:%d", job.ChatID, job.MessageID)
-			if err := sendTelegramText(context.Background(), job.ChatID, msg, correlationID); err != nil {
-				logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-			}
+	planUpdateHook := func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+		if runCtx == nil || runCtx.Plan == nil {
+			return
+		}
+		msg, err := generateTelegramPlanProgressMessage(ctx, client, model, task, runCtx.Plan, update, requestTimeout)
+		if err != nil {
+			logger.Warn("telegram_plan_progress_error", "error", err.Error())
+			return
+		}
+		if strings.TrimSpace(msg) == "" {
+			return
+		}
+		correlationID := fmt.Sprintf("telegram:plan:%d:%d", job.ChatID, job.MessageID)
+		if err := sendTelegramText(context.Background(), job.ChatID, msg, correlationID); err != nil {
+			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
 
@@ -152,9 +147,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		agent.WithLogOptions(logOpts),
 		agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
 		agent.WithGuard(sharedGuard),
-	}
-	if planUpdateHook != nil {
-		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(planUpdateHook))
+		agent.WithPlanStepUpdate(planUpdateHook),
 	}
 	engine := agent.New(
 		client,
@@ -181,7 +174,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		Model:           model,
 		History:         llmHistory,
 		Meta:            meta,
-		SkipTaskMessage: shouldSkipTaskMessage(job),
+		SkipTaskMessage: true,
 	})
 	if err != nil {
 		return final, agentCtx, loadedSkills, nil, err
@@ -202,7 +195,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 
 	publishText := shouldPublishTelegramText(final)
 
-	longTermSubjectID := resolveLongTermSubjectID(job, memIdentity)
+	longTermSubjectID := resolveLongTermSubjectID(memIdentity)
 	if shouldWriteMemory(publishText, memManager, longTermSubjectID) {
 		if err := updateMemoryFromJob(ctx, logger, client, model, memManager, longTermSubjectID, job, history, historyCap, final, requestTimeout); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -216,10 +209,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	return final, agentCtx, loadedSkills, reaction, nil
 }
 
-func resolveLongTermSubjectID(job telegramJob, memIdentity memory.Identity) string {
-	if job.IsHeartbeat {
-		return heartbeatMemorySessionID
-	}
+func resolveLongTermSubjectID(memIdentity memory.Identity) string {
 	if !memIdentity.Enabled {
 		return ""
 	}
@@ -231,11 +221,6 @@ func shouldWriteMemory(publishText bool, memManager *memory.Manager, longTermSub
 		return false
 	}
 	return strings.TrimSpace(longTermSubjectID) != ""
-}
-
-func shouldSkipTaskMessage(job telegramJob) bool {
-	// Non-heartbeat runs already inject the current inbound text via llmHistory.
-	return !job.IsHeartbeat
 }
 
 func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {

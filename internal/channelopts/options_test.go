@@ -7,6 +7,51 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 )
 
+type stubConfigReader map[string]any
+
+func (s stubConfigReader) GetStringSlice(key string) []string {
+	if v, ok := s[key].([]string); ok {
+		return append([]string(nil), v...)
+	}
+	return nil
+}
+func (s stubConfigReader) GetString(key string) string {
+	if v, ok := s[key].(string); ok {
+		return v
+	}
+	return ""
+}
+func (s stubConfigReader) GetFloat64(key string) float64 {
+	if v, ok := s[key].(float64); ok {
+		return v
+	}
+	return 0
+}
+func (s stubConfigReader) GetDuration(key string) time.Duration {
+	if v, ok := s[key].(time.Duration); ok {
+		return v
+	}
+	return 0
+}
+func (s stubConfigReader) GetInt(key string) int {
+	if v, ok := s[key].(int); ok {
+		return v
+	}
+	return 0
+}
+func (s stubConfigReader) GetInt64(key string) int64 {
+	if v, ok := s[key].(int64); ok {
+		return v
+	}
+	return 0
+}
+func (s stubConfigReader) GetBool(key string) bool {
+	if v, ok := s[key].(bool); ok {
+		return v
+	}
+	return false
+}
+
 func TestParseTelegramAllowedChatIDs(t *testing.T) {
 	got, err := ParseTelegramAllowedChatIDs([]string{" 1 ", "", "-100", "1"})
 	if err != nil {
@@ -87,5 +132,18 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)
+	}
+}
+
+func TestHeartbeatConfigFromReader(t *testing.T) {
+	cfg := HeartbeatConfigFromReader(stubConfigReader{
+		"heartbeat.enabled":  true,
+		"heartbeat.interval": 15 * time.Minute,
+	})
+	if !cfg.Enabled {
+		t.Fatalf("enabled = false, want true")
+	}
+	if cfg.Interval != 15*time.Minute {
+		t.Fatalf("interval = %v, want 15m", cfg.Interval)
 	}
 }

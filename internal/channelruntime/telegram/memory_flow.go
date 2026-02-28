@@ -88,12 +88,7 @@ func updateMemoryFromJob(ctx context.Context, logger *slog.Logger, client llm.Cl
 	return nil
 }
 
-const heartbeatMemorySessionID = "heartbeat"
-
 func buildMemoryWriteMeta(job telegramJob) memory.WriteMeta {
-	if job.IsHeartbeat {
-		return memory.WriteMeta{SessionID: heartbeatMemorySessionID}
-	}
 	meta := memory.WriteMeta{SessionID: fmt.Sprintf("tg:%d", job.ChatID)}
 	if contactID := telegramMemoryContactID(job.FromUsername, job.FromUserID); contactID != "" {
 		meta.ContactIDs = []string{contactID}
