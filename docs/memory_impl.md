@@ -28,7 +28,7 @@
 
 ### Phase A: Data Contract
 
-- [ ] Define `MemoryEvent` schema with minimal fields:
+- [x] Define `MemoryEvent` schema with minimal fields:
   - `schema_version`
   - `event_id`
   - `task_run_id`
@@ -44,10 +44,10 @@
   - `final_output`
   - `draft_summary_items`
   - `draft_promote`
-- [ ] Define id rules:
+- [x] Define id rules:
   - `event_id` unique per event.
   - `task_run_id` links events to one run.
-- [ ] Add schema validation helpers.
+- [x] Add schema validation helpers.
   - `participants` may be empty.
   - if `participants` contains items, each entry must satisfy one of:
     - normal participant: non-empty `id`, non-empty `nickname`, non-empty `protocol`
@@ -55,27 +55,58 @@
 
 Acceptance:
 
-- [ ] Invalid events are rejected before journal append.
+- [x] Invalid events are rejected before journal append.
 
 ### Phase B: Journal (WAL)
 
-- [ ] Implement journal append API:
+- [x] Implement journal append API:
   - `Append(event) -> offset`
   - `Append` includes flush/sync.
-- [ ] Implement file rotation:
-  - Rotate on size threshold.
-  - Rotate on date boundary.
-- [ ] Implement monotonic naming:
-  - `YYYY-MM-DD-0001.jsonl`, `YYYY-MM-DD-0002.jsonl`.
-- [ ] Implement replay iterator (ordered by file + line).
-- [ ] Implement checkpoint store:
+- [x] Implement file rotation:
+  - Rotate on size threshold only.
+- [x] Implement monotonic naming:
+  - `since-YYYY-MM-DD-0001.jsonl`, `since-YYYY-MM-DD-0002.jsonl`.
+  - `YYYY-MM-DD` means the first record date in that segment.
+- [x] Implement replay iterator (ordered by file + line).
+- [x] Implement checkpoint store:
   - last applied file
   - last applied offset/line
+- [x] Segment reuse on restart:
+  - reopen latest segment and continue appending to the same file
+  - do not create a new segment just because process restarted
+- [x] Line offset rule:
+  - count existing lines only when opening an existing segment
+  - normal append path must be O(1): write + sync + line++
+- [x] Checkpoint semantics:
+  - checkpoint is projector/replay consumer progress, not writer progress
+  - checkpoint tracks last applied `file + line`
+  - on restart, replay resumes from checkpoint instead of replaying all logs
+- [x] Keep active segment as plain `.jsonl`.
+- [ ] Optional: compress only closed old segments to `.jsonl.gz`.
+- [x] Do not use `tar.gz` packaging for WAL segments.
 
 Acceptance:
 
-- [ ] Crash after append but before projection keeps event durable.
-- [ ] Replay from checkpoint re-processes missing projections only.
+- [x] Crash after append but before projection keeps event durable.
+- [x] Replay from checkpoint re-processes missing projections only.
+
+Phase B public interfaces (current):
+
+- `NewJournal(root string, opts JournalOptions) *Journal`
+  - Construct journal writer/replayer under `<root>/log`.
+- `(*Manager) NewJournal(opts JournalOptions) *Journal`
+  - Convenience wrapper using manager memory root.
+- `(*Journal) Append(event MemoryEvent) (JournalOffset, error)`
+  - Validate + append one event, sync to disk, return `file + line`.
+- `(*Journal) ReplayFrom(offset JournalOffset, limit int, fn func(JournalRecord) error) (JournalOffset, bool, error)`
+  - Ordered replay with explicit max record count.
+  - Returns `nextOffset` (last delivered record position) and `exhausted` (`true` when replay reached end).
+- `(*Journal) LoadCheckpoint() (JournalCheckpoint, bool, error)`
+  - Read projector progress from `checkpoint.json`.
+- `(*Journal) SaveCheckpoint(cp JournalCheckpoint) error`
+  - Atomically persist projector progress.
+- `(*Journal) Close() error`
+  - Close current active file handle.
 
 ### Phase C: Projector (Async)
 

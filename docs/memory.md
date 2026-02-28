@@ -238,7 +238,7 @@ Database analogy:
 
 - Single-process append writer (current runtime model).
 - JSONL only; one event per line.
-- Local rotation only (size/date based).
+- Local rotation only (size based).
 - Replay from local logs only.
 
 Explicit non-goals for first iteration:
@@ -254,8 +254,8 @@ Explicit non-goals for first iteration:
 ```text
 memory/
   log/
-    2026-02-28-0001.jsonl
-    2026-02-28-0002.jsonl
+    since-2026-02-28-0001.jsonl
+    since-2026-02-28-0002.jsonl
   index.md
   YYYY-MM-DD/
     <session>.md
@@ -273,10 +273,33 @@ Hot path does not block on markdown projection. If projection fails or is delaye
 
 ### 10.5 Rotation and Replay
 
-- Rotate when file exceeds threshold or day changes.
+- Rotate only when file exceeds size threshold.
 - Keep monotonic file naming for deterministic replay order.
+- File naming carries segment start date for indexing:
+  - `since-YYYY-MM-DD-0001.jsonl`
+  - `since-YYYY-MM-DD-0002.jsonl`
 - Store a small checkpoint (last applied log file + offset/line) for fast restart.
 - On startup, replay from checkpoint to rebuild/repair markdown projections.
+
+Compression rule (minimal):
+
+- Active segment stays plain `.jsonl`.
+- Optional compression applies only to closed old segments as `.jsonl.gz`.
+- Do not bundle WAL segments into `tar.gz` in v1.
+
+Checkpoint structure (`memory/log/checkpoint.json`):
+
+```json
+{
+  "file": "since-2026-02-28-0002.jsonl",
+  "line": 18,
+  "updated_at": "2026-02-28T06:30:12Z"
+}
+```
+
+- `file`: last applied segment logical name (always `.jsonl` key).
+- `line`: last applied line number in that segment.
+- `updated_at`: checkpoint write timestamp (RFC3339, UTC).
 
 ### 10.6 Event Shape (Minimal)
 
