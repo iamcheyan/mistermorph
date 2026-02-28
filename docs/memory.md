@@ -450,3 +450,24 @@ Phase C replay/checkpoint policy (current decision):
 - At-least-once processing is acceptable (replay may process duplicate events).
 - Checkpoint is advanced in batches (for example every 10 processed events).
 - On projection error, checkpoint still advances; caller receives the returned error.
+
+## 11. Operational Log Keywords
+
+Use these keywords for fast runtime memory troubleshooting:
+
+- Projection worker:
+  - `memory_projection_run_error`
+  - `memory_projection_error`
+- Writeback record:
+  - `memory_record_ok`
+  - `memory_record_error`
+- Injection:
+  - `memory_injection_applied`
+  - `memory_injection_error`
+  - `memory_injection_skipped` (Telegram)
+- Telegram writeback path (legacy name kept in code):
+  - `memory_update_error`
+
+Quick grep for projection issues:
+
+- `memory_record_ok|memory_projection_error|memory_projection_run_error`
