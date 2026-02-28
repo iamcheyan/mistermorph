@@ -131,78 +131,6 @@ func (s *FileStore) PutContact(ctx context.Context, contact Contact) error {
 	})
 }
 
-func (s *FileStore) SetContactStatus(ctx context.Context, contactID string, status Status) (Contact, error) {
-	if err := ensureNotCanceled(ctx); err != nil {
-		return Contact{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	contactID = strings.TrimSpace(contactID)
-	if contactID == "" {
-		return Contact{}, fmt.Errorf("contact_id is required")
-	}
-	switch strings.ToLower(strings.TrimSpace(string(status))) {
-	case string(StatusActive):
-		status = StatusActive
-	case string(StatusInactive):
-		status = StatusInactive
-	default:
-		return Contact{}, fmt.Errorf("invalid status")
-	}
-
-	var moved Contact
-	found := false
-	lockPath, err := s.stateLockPath()
-	if err != nil {
-		return Contact{}, err
-	}
-	err = fsstore.WithLock(ctx, lockPath, func() error {
-		active, err := s.loadContactsMarkdownLocked(s.activeContactsPath(), StatusActive)
-		if err != nil {
-			return err
-		}
-		inactive, err := s.loadContactsMarkdownLocked(s.inactiveContactsPath(), StatusInactive)
-		if err != nil {
-			return err
-		}
-
-		if item, ok := findContactByID(active, contactID); ok {
-			moved = item
-			found = true
-		}
-		if !found {
-			if item, ok := findContactByID(inactive, contactID); ok {
-				moved = item
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("contact not found: %s", contactID)
-		}
-
-		active = removeContactByID(active, contactID)
-		inactive = removeContactByID(inactive, contactID)
-		if status == StatusInactive {
-			inactive = append(inactive, moved)
-		} else {
-			active = append(active, moved)
-		}
-
-		if err := s.saveContactsMarkdownLocked(s.activeContactsPath(), "Active Contacts", StatusActive, active); err != nil {
-			return err
-		}
-		if err := s.saveContactsMarkdownLocked(s.inactiveContactsPath(), "Inactive Contacts", StatusInactive, inactive); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return Contact{}, err
-	}
-	return moved, nil
-}
-
 func (s *FileStore) ListContacts(ctx context.Context, status Status) ([]Contact, error) {
 	if err := ensureNotCanceled(ctx); err != nil {
 		return nil, err
@@ -883,18 +811,6 @@ func hasContactID(items []Contact, contactID string) bool {
 	return false
 }
 
-func findContactByID(items []Contact, contactID string) (Contact, bool) {
-	contactID = strings.TrimSpace(contactID)
-	if contactID == "" {
-		return Contact{}, false
-	}
-	for _, item := range items {
-		if strings.TrimSpace(item.ContactID) == contactID {
-			return item, true
-		}
-	}
-	return Contact{}, false
-}
 
 func (s *FileStore) loadBusInboxLocked() ([]BusInboxRecord, error) {
 	var file busInboxFile

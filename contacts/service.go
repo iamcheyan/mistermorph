@@ -34,7 +34,6 @@ type ContactStore interface {
 	GetContact(ctx context.Context, contactID string) (Contact, bool, error)
 	PutContact(ctx context.Context, contact Contact) error
 	ListContacts(ctx context.Context, status Status) ([]Contact, error)
-	SetContactStatus(ctx context.Context, contactID string, status Status) (Contact, error)
 }
 
 type OutboxStore interface {

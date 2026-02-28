@@ -13,7 +13,7 @@ This document describes how memory works in `mistermorph`.
 ## 2. Core Components
 
 - Memory core (channel-agnostic):
-  - `memory/manager.go`, `memory/update.go`, `memory/merge.go`, `memory/inject.go`, `memory/identity.go`
+  - `memory/manager.go`, `memory/update.go`, `memory/merge.go`, `memory/inject.go`
 - Memory WAL and projection:
   - `memory/journal.go` (append/replay/rotate/checkpoint)
   - `memory/projector.go` (replay -> markdown projection)

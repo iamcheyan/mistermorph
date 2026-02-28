@@ -133,11 +133,8 @@ These are prompts sent through separate `llm.Request` calls outside the main too
 
 ### 2) Skill router selection
 
-- File/Function: `skills/select.go` / `Select(...)`
-- Purpose: select a bounded skill subset for loading
-- Primary input: `task`, discovered skill catalog, `max_skills`
-- Output: `Selection{skills_to_load, reasoning}`
-- JSON required: **Yes** (`ForceJSON=true`)
+- Status: removed.
+- Current behavior: runtime no longer issues a standalone LLM skill-router request.
 
 ### 3) Remote SKILL.md security review
 

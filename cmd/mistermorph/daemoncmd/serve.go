@@ -108,8 +108,8 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					id := qt.info.ID
 					resumeApprovalID := strings.TrimSpace(qt.resumeApprovalID)
 					started := time.Now()
-					store.Update(id, func(info *TaskInfo) {
-						info.Status = TaskRunning
+					store.Update(id, func(info *daemonruntime.TaskInfo) {
+						info.Status = daemonruntime.TaskRunning
 						info.PendingAt = nil
 						if resumeApprovalID != "" {
 							info.ResumedAt = &started
@@ -139,8 +139,8 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 							}
 						}
 						pendingAt := time.Now()
-						store.Update(id, func(info *TaskInfo) {
-							info.Status = TaskPending
+						store.Update(id, func(info *daemonruntime.TaskInfo) {
+							info.Status = daemonruntime.TaskPending
 							info.PendingAt = &pendingAt
 							info.ApprovalRequestID = pendingID
 							info.Result = map[string]any{
@@ -158,18 +158,18 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					if displayErr == "" && runErr != nil {
 						displayErr = strings.TrimSpace(runErr.Error())
 					}
-					store.Update(id, func(info *TaskInfo) {
+					store.Update(id, func(info *daemonruntime.TaskInfo) {
 						info.FinishedAt = &finished
 						if runErr != nil {
 							if errorsIsContextDeadline(qt.ctx, runErr) {
-								info.Status = TaskCanceled
+								info.Status = daemonruntime.TaskCanceled
 							} else {
-								info.Status = TaskFailed
+								info.Status = daemonruntime.TaskFailed
 							}
 							info.Error = displayErr
 							return
 						}
-						info.Status = TaskDone
+						info.Status = daemonruntime.TaskDone
 						info.Result = map[string]any{
 							"final":   final,
 							"metrics": runCtx.Metrics,

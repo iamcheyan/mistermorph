@@ -9,11 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
 
 type queuedTask struct {
-	info   *TaskInfo
+	info   *daemonruntime.TaskInfo
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -42,15 +43,15 @@ func NewTaskStore(maxQueue int) *TaskStore {
 	}
 }
 
-func (s *TaskStore) Enqueue(parent context.Context, task string, model string, timeout time.Duration) (*TaskInfo, error) {
+func (s *TaskStore) Enqueue(parent context.Context, task string, model string, timeout time.Duration) (*daemonruntime.TaskInfo, error) {
 	return s.enqueue(parent, task, model, timeout, nil, false, nil)
 }
 
-func (s *TaskStore) EnqueueHeartbeat(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, hbState *heartbeatutil.State) (*TaskInfo, error) {
+func (s *TaskStore) EnqueueHeartbeat(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, hbState *heartbeatutil.State) (*daemonruntime.TaskInfo, error) {
 	return s.enqueue(parent, task, model, timeout, meta, true, hbState)
 }
 
-func (s *TaskStore) enqueue(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, isHeartbeat bool, hbState *heartbeatutil.State) (*TaskInfo, error) {
+func (s *TaskStore) enqueue(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, isHeartbeat bool, hbState *heartbeatutil.State) (*daemonruntime.TaskInfo, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
@@ -62,9 +63,9 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 	now := time.Now()
 	ctx, cancel := context.WithTimeout(parent, timeout)
 
-	info := &TaskInfo{
+	info := &daemonruntime.TaskInfo{
 		ID:        id,
-		Status:    TaskQueued,
+		Status:    daemonruntime.TaskQueued,
 		Task:      task,
 		Model:     model,
 		Timeout:   timeout.String(),
@@ -91,7 +92,7 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 	}
 }
 
-func (s *TaskStore) Get(id string) (*TaskInfo, bool) {
+func (s *TaskStore) Get(id string) (*daemonruntime.TaskInfo, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	qt, ok := s.tasks[id]
@@ -111,7 +112,7 @@ func (s *TaskStore) QueueLen() int {
 	return len(s.queue)
 }
 
-func (s *TaskStore) List(status TaskStatus, limit int) []TaskInfo {
+func (s *TaskStore) List(status daemonruntime.TaskStatus, limit int) []daemonruntime.TaskInfo {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -123,7 +124,7 @@ func (s *TaskStore) List(status TaskStatus, limit int) []TaskInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]TaskInfo, 0, len(s.tasks))
+	out := make([]daemonruntime.TaskInfo, 0, len(s.tasks))
 	for _, qt := range s.tasks {
 		if qt == nil || qt.info == nil {
 			continue
@@ -148,7 +149,7 @@ func (s *TaskStore) List(status TaskStatus, limit int) []TaskInfo {
 	return out
 }
 
-func (s *TaskStore) Update(id string, fn func(info *TaskInfo)) {
+func (s *TaskStore) Update(id string, fn func(info *daemonruntime.TaskInfo)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	qt := s.tasks[id]
@@ -173,7 +174,7 @@ func (s *TaskStore) EnqueueResumeByApprovalID(approvalRequestID string) (string,
 		if strings.TrimSpace(t.info.ApprovalRequestID) != approvalRequestID {
 			continue
 		}
-		if t.info.Status != TaskPending {
+		if t.info.Status != daemonruntime.TaskPending {
 			continue
 		}
 		qt = t
@@ -218,11 +219,11 @@ func (s *TaskStore) FailPendingByApprovalID(approvalRequestID string, errMsg str
 		if strings.TrimSpace(qt.info.ApprovalRequestID) != approvalRequestID {
 			continue
 		}
-		if qt.info.Status != TaskPending {
+		if qt.info.Status != daemonruntime.TaskPending {
 			continue
 		}
 		id = qt.info.ID
-		qt.info.Status = TaskFailed
+		qt.info.Status = daemonruntime.TaskFailed
 		qt.info.Error = strings.TrimSpace(errMsg)
 		qt.info.FinishedAt = &now
 		cancel = qt.cancel

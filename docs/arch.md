@@ -113,9 +113,6 @@ Skills / installer:
 - Remote skill installation safety-review request (extract download files and risks from untrusted SKILL content).
   tools: `none`
   files: `skillscmd/skills_install_builtin.go`
-- Skill selection router request (catalog-based load selection; currently present as standalone utility).
-  tools: `none`
-  files: `skills/select.go`
 
 ## 3. Two Runtime Families
 

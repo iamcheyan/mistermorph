@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -59,7 +60,7 @@ func NewSubmitCmd() *cobra.Command {
 			if model == "" {
 				model = llmutil.ModelFromViper()
 			}
-			reqBody := SubmitTaskRequest{
+			reqBody := daemonruntime.SubmitTaskRequest{
 				Task:    task,
 				Model:   model,
 				Timeout: strings.TrimSpace(configutil.FlagOrViperString(cmd, "submit-timeout", "submit.timeout")),
@@ -84,7 +85,7 @@ func NewSubmitCmd() *cobra.Command {
 				return fmt.Errorf("server http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 			}
 
-			var submitResp SubmitTaskResponse
+			var submitResp daemonruntime.SubmitTaskResponse
 			if err := json.Unmarshal(raw, &submitResp); err != nil {
 				return fmt.Errorf("failed to parse server response: %w", err)
 			}
@@ -108,9 +109,9 @@ func NewSubmitCmd() *cobra.Command {
 					return err
 				}
 				switch info.Status {
-				case TaskQueued, TaskRunning:
+				case daemonruntime.TaskQueued, daemonruntime.TaskRunning:
 					continue
-				case TaskPending:
+				case daemonruntime.TaskPending:
 					// Print the final object if present (it should include status=pending + approval_request_id).
 					if m, ok := info.Result.(map[string]any); ok {
 						if final, ok := m["final"]; ok {
@@ -122,7 +123,7 @@ func NewSubmitCmd() *cobra.Command {
 					enc := json.NewEncoder(os.Stdout)
 					enc.SetIndent("", "  ")
 					return enc.Encode(info)
-				case TaskDone:
+				case daemonruntime.TaskDone:
 					// Prefer printing the final object if present.
 					if m, ok := info.Result.(map[string]any); ok {
 						if final, ok := m["final"]; ok {
@@ -134,7 +135,7 @@ func NewSubmitCmd() *cobra.Command {
 					enc := json.NewEncoder(os.Stdout)
 					enc.SetIndent("", "  ")
 					return enc.Encode(info)
-				case TaskFailed, TaskCanceled:
+				case daemonruntime.TaskFailed, daemonruntime.TaskCanceled:
 					return fmt.Errorf("%s: %s", info.Status, info.Error)
 				default:
 					return fmt.Errorf("unknown status: %s", info.Status)
@@ -154,7 +155,7 @@ func NewSubmitCmd() *cobra.Command {
 	return cmd
 }
 
-func fetchTaskInfo(client *http.Client, serverURL, auth, id string) (*TaskInfo, error) {
+func fetchTaskInfo(client *http.Client, serverURL, auth, id string) (*daemonruntime.TaskInfo, error) {
 	httpReq, err := http.NewRequest(http.MethodGet, strings.TrimRight(serverURL, "/")+"/tasks/"+id, nil)
 	if err != nil {
 		return nil, err
@@ -170,7 +171,7 @@ func fetchTaskInfo(client *http.Client, serverURL, auth, id string) (*TaskInfo, 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("server http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
-	var info TaskInfo
+	var info daemonruntime.TaskInfo
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return nil, fmt.Errorf("failed to parse task info: %w", err)
 	}

@@ -43,30 +43,31 @@ func TestFileStoreContactsReadWrite(t *testing.T) {
 	if err := store.PutContact(ctx, inactive); err != nil {
 		t.Fatalf("PutContact(inactive) error = %v", err)
 	}
-	if _, err := store.SetContactStatus(ctx, inactive.ContactID, StatusInactive); err != nil {
-		t.Fatalf("SetContactStatus(inactive) error = %v", err)
-	}
 
 	activeList, err := store.ListContacts(ctx, StatusActive)
 	if err != nil {
 		t.Fatalf("ListContacts(active) error = %v", err)
 	}
-	if len(activeList) != 1 || activeList[0].ContactID != active.ContactID {
+	if len(activeList) != 2 {
 		t.Fatalf("active contacts mismatch: got=%v", activeList)
 	}
-	if activeList[0].SlackDMChannelID == "" {
+	byID := map[string]Contact{}
+	for _, item := range activeList {
+		byID[item.ContactID] = item
+	}
+	if byID[active.ContactID].SlackDMChannelID == "" {
 		t.Fatalf("active contact slack_dm_channel_id should be set")
+	}
+	if byID[inactive.ContactID].TGPrivateChatID != 1001 {
+		t.Fatalf("active tg_private_chat_id mismatch: got %d want 1001", byID[inactive.ContactID].TGPrivateChatID)
 	}
 
 	inactiveList, err := store.ListContacts(ctx, StatusInactive)
 	if err != nil {
 		t.Fatalf("ListContacts(inactive) error = %v", err)
 	}
-	if len(inactiveList) != 1 || inactiveList[0].ContactID != inactive.ContactID {
+	if len(inactiveList) != 0 {
 		t.Fatalf("inactive contacts mismatch: got=%v", inactiveList)
-	}
-	if inactiveList[0].TGPrivateChatID != 1001 {
-		t.Fatalf("inactive tg_private_chat_id mismatch: got %d want 1001", inactiveList[0].TGPrivateChatID)
 	}
 }
 
