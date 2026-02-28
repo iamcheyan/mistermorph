@@ -70,7 +70,7 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 		t.Fatalf("ReplayFrom() next line = %d, want 1", next.Line)
 	}
 
-	got, err := o.ProjectOnce(context.Background(), 10)
+	got, err := p.ProjectOnce(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("ProjectOnce() error = %v", err)
 	}

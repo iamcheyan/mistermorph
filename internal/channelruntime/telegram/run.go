@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -59,29 +58,6 @@ func normalizeAllowedChatIDs(ids []int64) []int64 {
 	}
 	if len(out) == 0 {
 		return []int64{}
-	}
-	return out
-}
-
-func normalizeRunStringSlice(values []string) []string {
-	if len(values) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	if len(out) == 0 {
-		return []string{}
 	}
 	return out
 }

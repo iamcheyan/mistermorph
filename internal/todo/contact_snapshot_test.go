@@ -57,8 +57,12 @@ func TestLoadContactSnapshot(t *testing.T) {
 	if !foundJohn {
 		t.Fatalf("expected John snapshot item")
 	}
+	reachableSet := map[string]bool{}
+	for _, id := range snap.ReachableIDs {
+		reachableSet[id] = true
+	}
 	for _, id := range []string{"tg:1001", "slack:T001:D002"} {
-		if !snap.HasReachableID(id) {
+		if !reachableSet[id] {
 			t.Fatalf("expected reachable id %q", id)
 		}
 	}

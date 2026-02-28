@@ -48,35 +48,6 @@ func StripMarkdownReferenceLinks(content string) string {
 	return markdownLinkPattern.ReplaceAllString(content, "")
 }
 
-// MarkdownReferenceLinkRanges returns byte ranges of markdown links "[...](...)".
-func MarkdownReferenceLinkRanges(content string) [][2]int {
-	indices := markdownLinkPattern.FindAllStringIndex(content, -1)
-	if len(indices) == 0 {
-		return nil
-	}
-	out := make([][2]int, 0, len(indices))
-	for _, pair := range indices {
-		if len(pair) != 2 || pair[0] < 0 || pair[1] <= pair[0] || pair[1] > len(content) {
-			continue
-		}
-		out = append(out, [2]int{pair[0], pair[1]})
-	}
-	return out
-}
-
-// WithinMarkdownReferenceLink reports whether [start,end) is fully inside any markdown link range.
-func WithinMarkdownReferenceLink(ranges [][2]int, start int, end int) bool {
-	if len(ranges) == 0 || start < 0 || end <= start {
-		return false
-	}
-	for _, pair := range ranges {
-		if start >= pair[0] && end <= pair[1] {
-			return true
-		}
-	}
-	return false
-}
-
 // FormatMarkdownReference formats "[Label](protocol:id)" and validates the reference id.
 func FormatMarkdownReference(label string, refID string) (string, error) {
 	label = strings.TrimSpace(label)

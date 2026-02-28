@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,16 +81,24 @@ func TestTodoUpdateTool(t *testing.T) {
 		t.Fatalf("expected two ForceJSON llm calls (add resolve + complete match)")
 	}
 
-	store := todo.NewStore(wip, done)
-	listOut, err := store.List("both")
+	wipRaw, err := os.ReadFile(wip)
 	if err != nil {
-		t.Fatalf("store list error = %v", err)
+		t.Fatalf("ReadFile(wip) error = %v", err)
 	}
-	if listOut.OpenCount != 0 || listOut.DoneCount != 1 {
-		t.Fatalf("unexpected list counts: %+v", listOut)
+	doneRaw, err := os.ReadFile(done)
+	if err != nil {
+		t.Fatalf("ReadFile(done) error = %v", err)
 	}
-	if len(listOut.WIPItems) != 0 || len(listOut.DONEItems) != 1 {
-		t.Fatalf("unexpected list items: %+v", listOut)
+	wipFile, err := todo.ParseWIP(string(wipRaw))
+	if err != nil {
+		t.Fatalf("ParseWIP() error = %v", err)
+	}
+	doneFile, err := todo.ParseDONE(string(doneRaw))
+	if err != nil {
+		t.Fatalf("ParseDONE() error = %v", err)
+	}
+	if len(wipFile.Entries) != 0 || len(doneFile.Entries) != 1 {
+		t.Fatalf("unexpected todo state: wip=%d done=%d", len(wipFile.Entries), len(doneFile.Entries))
 	}
 }
 
@@ -132,16 +141,19 @@ func TestTodoUpdateToolAddWithChatIDParam(t *testing.T) {
 		t.Fatalf("entry chat_id mismatch: got %q want %q", parsed.Entry.ChatID, "tg:-1001981343441")
 	}
 
-	store := todo.NewStore(wip, done)
-	listOut, err := store.List("wip")
+	wipRaw, err := os.ReadFile(wip)
 	if err != nil {
-		t.Fatalf("store list error = %v", err)
+		t.Fatalf("ReadFile(wip) error = %v", err)
 	}
-	if len(listOut.WIPItems) != 1 {
-		t.Fatalf("expected one WIP item, got %d", len(listOut.WIPItems))
+	wipFile, err := todo.ParseWIP(string(wipRaw))
+	if err != nil {
+		t.Fatalf("ParseWIP() error = %v", err)
 	}
-	if listOut.WIPItems[0].ChatID != "tg:-1001981343441" {
-		t.Fatalf("persisted chat_id mismatch: got %q want %q", listOut.WIPItems[0].ChatID, "tg:-1001981343441")
+	if len(wipFile.Entries) != 1 {
+		t.Fatalf("expected one WIP item, got %d", len(wipFile.Entries))
+	}
+	if wipFile.Entries[0].ChatID != "tg:-1001981343441" {
+		t.Fatalf("persisted chat_id mismatch: got %q want %q", wipFile.Entries[0].ChatID, "tg:-1001981343441")
 	}
 }
 

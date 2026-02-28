@@ -4,15 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/entryutil"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 )
-
-func (s *Store) Add(ctx context.Context, raw string) (UpdateResult, error) {
-	return s.AddWithChatID(ctx, raw, "")
-}
 
 func (s *Store) AddWithChatID(ctx context.Context, raw string, chatID string) (UpdateResult, error) {
 	wip, done, err := s.readFiles()
@@ -108,38 +103,6 @@ func (s *Store) Complete(ctx context.Context, raw string) (UpdateResult, error) 
 		},
 		Entry: &doneEntry,
 	}, nil
-}
-
-func (s *Store) List(scope string) (ListResult, error) {
-	scope = strings.ToLower(strings.TrimSpace(scope))
-	if scope == "" {
-		scope = "wip"
-	}
-	switch scope {
-	case "wip", "done", "both":
-	default:
-		return ListResult{}, fmt.Errorf("invalid scope: %s", scope)
-	}
-
-	wip, done, err := s.readFiles()
-	if err != nil {
-		return ListResult{}, err
-	}
-	out := ListResult{
-		Scope:       scope,
-		OpenCount:   len(wip.Entries),
-		DoneCount:   len(done.Entries),
-		WIPPath:     s.WIPPath,
-		DONEPath:    s.DONEPath,
-		GeneratedAt: s.nowUTC().Format(time.RFC3339),
-	}
-	if scope == "wip" || scope == "both" {
-		out.WIPItems = append([]Entry{}, wip.Entries...)
-	}
-	if scope == "done" || scope == "both" {
-		out.DONEItems = append([]Entry{}, done.Entries...)
-	}
-	return out, nil
 }
 
 func validTimestamp(v string) bool {

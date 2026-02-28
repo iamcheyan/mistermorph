@@ -50,7 +50,7 @@ func TestStoreAddAndComplete(t *testing.T) {
 	now := time.Date(2026, 2, 9, 10, 0, 0, 0, time.UTC)
 	store.Now = func() time.Time { return now }
 
-	addRes, err := store.Add(context.Background(), "帮 [John](tg:1001) 发消息给 [Momo](slack:T111:D222)")
+	addRes, err := store.AddWithChatID(context.Background(), "帮 [John](tg:1001) 发消息给 [Momo](slack:T111:D222)", "")
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -73,12 +73,12 @@ func TestStoreAddAndComplete(t *testing.T) {
 		t.Fatalf("unexpected complete entry: %#v", completeRes.Entry)
 	}
 
-	listRes, err := store.List("both")
+	wip, done, err := store.readFiles()
 	if err != nil {
-		t.Fatalf("List() error = %v", err)
+		t.Fatalf("readFiles() error = %v", err)
 	}
-	if len(listRes.WIPItems) != 0 || len(listRes.DONEItems) != 1 {
-		t.Fatalf("unexpected list result: %#v", listRes)
+	if len(wip.Entries) != 0 || len(done.Entries) != 1 {
+		t.Fatalf("unexpected state: wip=%#v done=%#v", wip.Entries, done.Entries)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestStoreAddRejectsInvalidReferenceID(t *testing.T) {
 		return time.Date(2026, 2, 9, 10, 0, 0, 0, time.UTC)
 	}
 
-	_, err := store.Add(context.Background(), "提醒 [John](unknown id) 明天回复")
+	_, err := store.AddWithChatID(context.Background(), "提醒 [John](unknown id) 明天回复", "")
 	if err == nil {
 		t.Fatalf("expected Add() to fail for invalid reference id")
 	}
@@ -107,7 +107,7 @@ func TestStoreAddAcceptsCustomProtocolReferenceID(t *testing.T) {
 		return time.Date(2026, 2, 9, 10, 0, 0, 0, time.UTC)
 	}
 
-	_, err := store.Add(context.Background(), "提醒 [Momo](peer:12D3KooWPeer) 明天回复")
+	_, err := store.AddWithChatID(context.Background(), "提醒 [Momo](peer:12D3KooWPeer) 明天回复", "")
 	if err != nil {
 		t.Fatalf("expected Add() to accept custom protocol reference id, got %v", err)
 	}

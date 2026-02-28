@@ -44,30 +44,3 @@ func TestValidateRequiredReferenceMentions_EnglishFirstPersonMissing(t *testing.
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-
-func TestAnnotateFirstPersonReference(t *testing.T) {
-	out, changed, err := AnnotateFirstPersonReference("今晚20点提醒我看球赛", "tg:1001")
-	if err != nil {
-		t.Fatalf("AnnotateFirstPersonReference() error = %v", err)
-	}
-	if !changed {
-		t.Fatalf("expected changed=true")
-	}
-	if out != "今晚20点提醒[我](tg:1001)看球赛" {
-		t.Fatalf("unexpected output: %q", out)
-	}
-}
-
-func TestAnnotateFirstPersonReference_NoChangeWhenAlreadyAnnotated(t *testing.T) {
-	in := "今晚20点提醒[我](tg:1001)看球赛"
-	out, changed, err := AnnotateFirstPersonReference(in, "tg:1001")
-	if err != nil {
-		t.Fatalf("AnnotateFirstPersonReference() error = %v", err)
-	}
-	if changed {
-		t.Fatalf("expected changed=false")
-	}
-	if out != in {
-		t.Fatalf("unexpected output: %q", out)
-	}
-}

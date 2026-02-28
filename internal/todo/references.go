@@ -39,35 +39,6 @@ func ValidateRequiredReferenceMentions(content string, snapshot ContactSnapshot)
 	return &MissingReferenceIDError{Items: []MissingReference{item}}
 }
 
-// AnnotateFirstPersonReference rewrites one unannotated first-person mention
-// into "[mention](refID)". It returns (rewritten, changed, error).
-func AnnotateFirstPersonReference(content string, refID string) (string, bool, error) {
-	content = strings.TrimSpace(content)
-	refID = strings.TrimSpace(refID)
-	if content == "" {
-		return "", false, fmt.Errorf("content is required")
-	}
-	if refID == "" {
-		return content, false, nil
-	}
-
-	stripped := refid.StripMarkdownReferenceLinks(content)
-	if firstPersonMention(stripped) == "" {
-		return content, false, nil
-	}
-
-	linkRanges := refid.MarkdownReferenceLinkRanges(content)
-	for _, token := range []string{"我们", "本人", "我"} {
-		if rewritten, ok := annotateFirstUnannotatedLiteral(content, token, refID, linkRanges); ok {
-			return rewritten, true, nil
-		}
-	}
-	if rewritten, ok := annotateFirstUnannotatedEnglishSelf(content, refID, linkRanges); ok {
-		return rewritten, true, nil
-	}
-	return content, false, nil
-}
-
 func firstPersonMention(content string) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -82,54 +53,6 @@ func firstPersonMention(content string) string {
 		return strings.TrimSpace(m)
 	}
 	return ""
-}
-
-func annotateFirstUnannotatedLiteral(content string, token string, refID string, ranges [][2]int) (string, bool) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return content, false
-	}
-	searchPos := 0
-	for {
-		off := strings.Index(content[searchPos:], token)
-		if off < 0 {
-			return content, false
-		}
-		start := searchPos + off
-		end := start + len(token)
-		if refid.WithinMarkdownReferenceLink(ranges, start, end) {
-			searchPos = end
-			continue
-		}
-		annotated, err := refid.FormatMarkdownReference(token, refID)
-		if err != nil {
-			return content, false
-		}
-		return content[:start] + annotated + content[end:], true
-	}
-}
-
-func annotateFirstUnannotatedEnglishSelf(content string, refID string, ranges [][2]int) (string, bool) {
-	indices := englishSelfWordPattern.FindAllStringIndex(content, -1)
-	for _, pair := range indices {
-		if len(pair) != 2 {
-			continue
-		}
-		start, end := pair[0], pair[1]
-		if start < 0 || end > len(content) || start >= end {
-			continue
-		}
-		if refid.WithinMarkdownReferenceLink(ranges, start, end) {
-			continue
-		}
-		word := content[start:end]
-		annotated, err := refid.FormatMarkdownReference(word, refID)
-		if err != nil {
-			return content, false
-		}
-		return content[:start] + annotated + content[end:], true
-	}
-	return content, false
 }
 
 func suggestSelfReferenceID(snapshot ContactSnapshot) string {

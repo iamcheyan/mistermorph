@@ -156,58 +156,6 @@ func TestEnsureGeminiToolCallThoughtSignaturesSynthesize(t *testing.T) {
 	}
 }
 
-func TestIsGeminiModel(t *testing.T) {
-	tests := []struct {
-		name  string
-		model string
-		want  bool
-	}{
-		{
-			name:  "plain gemini",
-			model: "gemini-2.0-flash",
-			want:  true,
-		},
-		{
-			name:  "prefixed carrot gemini",
-			model: "carrot/gemini-3-pro",
-			want:  true,
-		},
-		{
-			name:  "google gemini path",
-			model: "google/gemini-3-flash-preview",
-			want:  true,
-		},
-		{
-			name:  "non gemini",
-			model: "gpt-5.2",
-			want:  false,
-		},
-		{
-			name:  "empty",
-			model: "",
-			want:  false,
-		},
-		{
-			name:  "bare gemini without hyphen",
-			model: "gemini",
-			want:  false,
-		},
-		{
-			name:  "contains gemini but not valid marker",
-			model: "mygemini-3-pro",
-			want:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isGeminiModel(tt.model); got != tt.want {
-				t.Fatalf("isGeminiModel(%q) = %v, want %v", tt.model, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestShouldEnsureGeminiThoughtSignature(t *testing.T) {
 	tests := []struct {
 		name     string

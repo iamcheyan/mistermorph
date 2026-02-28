@@ -14,7 +14,6 @@ import (
 type ContactSnapshot struct {
 	Contacts     []ContactSnapshotItem `json:"contacts"`
 	ReachableIDs []string              `json:"reachable_ids"`
-	reachableSet map[string]bool
 }
 
 type ContactSnapshotItem struct {
@@ -75,34 +74,7 @@ func LoadContactSnapshot(ctx context.Context, contactsDir string) (ContactSnapsh
 		return out.Contacts[i].Name < out.Contacts[j].Name
 	})
 	out.ReachableIDs = dedupeSortedStrings(reachableAll)
-	out.ensureReachableSet()
 	return out, nil
-}
-
-func (s *ContactSnapshot) HasReachableID(ref string) bool {
-	if s == nil {
-		return false
-	}
-	s.ensureReachableSet()
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return false
-	}
-	return s.reachableSet[ref]
-}
-
-func (s *ContactSnapshot) ensureReachableSet() {
-	if s == nil || s.reachableSet != nil {
-		return
-	}
-	s.reachableSet = make(map[string]bool, len(s.ReachableIDs)*2)
-	for _, raw := range s.ReachableIDs {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			continue
-		}
-		s.reachableSet[v] = true
-	}
 }
 
 func chooseContactName(item contacts.Contact) string {

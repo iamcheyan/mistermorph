@@ -143,14 +143,6 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	}, nil
 }
 
-func isGeminiModel(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		return false
-	}
-	return strings.HasPrefix(model, "gemini-") || strings.Contains(model, "/gemini-")
-}
-
 func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }

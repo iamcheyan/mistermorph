@@ -44,21 +44,3 @@ func TestFormatMarkdownReferenceRejectsInvalidID(t *testing.T) {
 		t.Fatalf("expected invalid reference id error")
 	}
 }
-
-func TestMarkdownReferenceLinkRanges(t *testing.T) {
-	content := "提醒 [John](tg:1001) 通知 [Momo](aqua:12D3KooW)"
-	ranges := MarkdownReferenceLinkRanges(content)
-	if len(ranges) != 2 {
-		t.Fatalf("MarkdownReferenceLinkRanges() len = %d, want 2", len(ranges))
-	}
-	start := strings.Index(content, "John")
-	if start < 0 {
-		t.Fatalf("expected John in test content")
-	}
-	if !WithinMarkdownReferenceLink(ranges, start, start+len("John")) {
-		t.Fatalf("expected range within first markdown link")
-	}
-	if WithinMarkdownReferenceLink(ranges, 0, 2) {
-		t.Fatalf("did not expect plain text range to be inside markdown link")
-	}
-}
