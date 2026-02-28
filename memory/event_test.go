@@ -106,26 +106,6 @@ func TestMemoryEventValidateForAppend(t *testing.T) {
 	})
 }
 
-func TestValidateMemoryEventsForAppend_DuplicateEventID(t *testing.T) {
-	a := baseMemoryEvent()
-	b := baseMemoryEvent()
-	b.TaskRunID = "run_02"
-	err := ValidateMemoryEventsForAppend([]MemoryEvent{a, b})
-	if err == nil || !strings.Contains(err.Error(), "duplicates events[0].event_id") {
-		t.Fatalf("ValidateMemoryEventsForAppend() error = %v, want duplicate event_id error", err)
-	}
-}
-
-func TestValidateMemoryEventsForAppend_OK(t *testing.T) {
-	a := baseMemoryEvent()
-	b := baseMemoryEvent()
-	b.EventID = "evt_02"
-	b.TaskRunID = "run_02"
-	if err := ValidateMemoryEventsForAppend([]MemoryEvent{a, b}); err != nil {
-		t.Fatalf("ValidateMemoryEventsForAppend() error = %v", err)
-	}
-}
-
 func baseMemoryEvent() MemoryEvent {
 	return MemoryEvent{
 		SchemaVersion:     CurrentMemoryEventSchemaVersion,

@@ -76,20 +76,6 @@ func ValidateMemoryEventForAppend(e MemoryEvent) error {
 	return nil
 }
 
-func ValidateMemoryEventsForAppend(events []MemoryEvent) error {
-	seen := make(map[string]int, len(events))
-	for i, e := range events {
-		if err := ValidateMemoryEventForAppend(e); err != nil {
-			return fmt.Errorf("events[%d]: %w", i, err)
-		}
-		if prev, ok := seen[e.EventID]; ok {
-			return fmt.Errorf("events[%d].event_id duplicates events[%d].event_id", i, prev)
-		}
-		seen[e.EventID] = i
-	}
-	return nil
-}
-
 func validateMemoryParticipant(index int, p MemoryParticipant) error {
 	nicknameField := fmt.Sprintf("participants[%d].nickname", index)
 	protocolField := fmt.Sprintf("participants[%d].protocol", index)
