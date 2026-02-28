@@ -99,7 +99,7 @@ Implemented error codes:
 - Outbound paths:
   - `outbound/telegram` -> Telegram delivery adapter
 - Business outputs (task output, task failure, file-download failure, plan updates) are on bus outbound.
-- Operational/admin responses (`/help`, `/mem`, bootstrap guidance, etc.) may still use direct send.
+- Operational/admin responses (`/help`, bootstrap guidance, etc.) may still use direct send.
 
 ### 4.2 `mistermorph slack`
 - Starts inproc bus using `bus.max_inflight`.

@@ -106,7 +106,7 @@ Implemented channel adapters:
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - Telegram poll inbound path: Telegram inbound adapter -> bus -> handler -> worker queue
 - business outbound messages (task output, task failures, file-download failures, plan updates) are sent through bus outbound
-- operational/admin messages (for example `/help`, `/mem`, initialization/system notices) may still use direct send
+- operational/admin messages (for example `/help`, initialization/system notices) may still use direct send
 
 `mistermorph slack`:
 - starts inproc bus

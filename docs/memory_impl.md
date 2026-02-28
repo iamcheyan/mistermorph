@@ -298,7 +298,7 @@ E2. Deterministic Parity Verification (no shadow runtime):
 E3. Cutover and Cleanup:
 
 - [ ] Remove Telegram legacy direct memory flow code after parity tests are stable.
-- [ ] Remove Telegram `/mem` command path and related docs/tests.
+- [x] Remove Telegram `/mem` command path and related docs/tests.
 
 Parity Checklist (must all pass before final cleanup):
 

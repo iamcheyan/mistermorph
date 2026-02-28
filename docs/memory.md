@@ -217,10 +217,10 @@ Notes:
   - `contact_id`, `contact_nickname`
 - Long-term file path is currently global `memory/index.md` (current `LongTermPath(...)` ignores subject id).
 
-## 9. `/mem` Command
+## 9. Telegram Admin Commands
 
-- Telegram `/mem` (private chat only) loads the same injection snapshot via `BuildInjection(...)` and sends it back for inspection.
-- This is a read/debug surface, not a separate storage mechanism.
+- Telegram `/mem` debug command has been removed.
+- Memory inspection should use filesystem artifacts directly (`memory/log/*.jsonl` and `memory/*.md` projections).
 
 ## 10. Planned: Journal/WAL (First-Principles, Minimal Design)
 

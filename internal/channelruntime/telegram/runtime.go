@@ -993,7 +993,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/start", "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /echo <msg>, /mem, /humanize, /reset, /id\n\n" +
+					"Commands: /echo <msg>, /humanize, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1001,52 +1001,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				continue
 			case "/id":
 				_ = api.sendMessageHTML(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
-				continue
-			case "/mem":
-				if len(allowed) > 0 && !allowed[chatID] {
-					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					_ = api.sendMessageHTML(context.Background(), chatID, "unauthorized, please contact the bot administrator", true)
-					continue
-				}
-				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "please use /mem in the private chat", true)
-					continue
-				}
-				if fromUserID <= 0 {
-					_ = api.sendMessageHTML(context.Background(), chatID, "failed to recognize the user (msg.from is nil)", true)
-					continue
-				}
-				if !opts.MemoryEnabled {
-					_ = api.sendMessageHTML(context.Background(), chatID, "memory is not enabled (set memory.enabled=true)", true)
-					continue
-				}
-
-				ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-				id, err := (&memory.Resolver{}).ResolveTelegram(ctx, fromUserID)
-				cancel()
-				if err != nil {
-					_ = api.sendMessageHTML(context.Background(), chatID, "memory identity error: "+err.Error(), true)
-					continue
-				}
-				if !id.Enabled || strings.TrimSpace(id.SubjectID) == "" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "memory identity disabled", true)
-					continue
-				}
-
-				mgr := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
-				maxItems := opts.MemoryInjectionMaxItems
-				snap, err := mgr.BuildInjection(id.SubjectID, memory.ContextPrivate, maxItems)
-				if err != nil {
-					_ = api.sendMessageHTML(context.Background(), chatID, "memory load error: "+err.Error(), true)
-					continue
-				}
-				if strings.TrimSpace(snap) == "" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "(empty)", true)
-					continue
-				}
-				if err := api.sendMessageChunked(context.Background(), chatID, snap); err != nil {
-					logger.Warn("telegram_send_error", "error", err.Error())
-				}
 				continue
 			case "/humanize":
 				if len(allowed) > 0 && !allowed[chatID] {
