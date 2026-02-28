@@ -110,30 +110,42 @@ Phase B public interfaces (current):
 
 ### Phase C: Projector (Async)
 
-- [ ] Implement async projection worker:
-  - consume events in order
-  - update markdown projection
-- [ ] Implement trigger policy (not per-event immediate):
-  - dirty-key tracking after WAL append
-  - count threshold trigger
-  - age threshold trigger
-  - periodic tick trigger
+- [x] Implement externally triggered projection entrypoint:
+  - `(*Projector) ProjectOnce(ctx, limit)` replays from checkpoint and projects one bounded window
+  - single-worker execution via projector-internal mutex
+- [ ] Implement runtime trigger policy (not per-event immediate):
+  - auto-trigger strategy is deferred
+  - runtime will call `ProjectOnce` explicitly
 - [ ] Define projection windows:
-  - journal read window (max events per pass)
-  - semantic merge window (max items per LLM dedupe call)
+  - read journal in batches (window applies to WAL event count)
+  - group events by projection target (subject/session derived target file)
+  - run projection per target file; number of projections per pass equals number of touched files
 - [ ] Projection writes:
-  - short-term file
-  - long-term file
-- [ ] Projection idempotency:
-  - duplicate replay must not double-apply.
+  - project to `memory/YYYY-MM-DD/{subject_id}.md` targets based on current subject organization
+  - examples: `heartbeat.md`, `tg--1003824466118.md`
+  - when projecting one target, summary merge uses all current summary items in that target file (not a truncated in-file window)
+- [ ] Replay semantics:
+  - duplicate replay processing is allowed (at-least-once style)
+  - merge path handles duplicate impact
 - [ ] Reuse existing Semantic Dedupe Subflow for short-term merge (no new dedupe pipeline).
 - [ ] Lag visibility:
   - expose checkpoint and pending lag.
+- [x] Checkpoint advance policy:
+  - checkpoint is flushed by batch (for example every 10 processed events)
+  - on projection error, checkpoint still advances; caller gets returned error (no separate projector error log file)
+
+Phase C public interfaces (current):
+
+- `NewProjector(manager *Manager, journal *Journal, opts ProjectorOptions) *Projector`
+  - Build one projector instance; trigger policy is controlled by caller.
+- `(*Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResult, error)`
+  - Replay one bounded window from checkpoint and project to markdown files.
+  - Returns progress (`processed`, `next_offset`, `exhausted`).
 
 Acceptance:
 
 - [ ] Append path does not block on markdown projection.
-- [ ] Markdown files can be rebuilt from journal + checkpoint.
+- [x] Markdown files can be rebuilt from journal + checkpoint via `ProjectOnce`.
 - [ ] Backlog larger than one window is drained incrementally across passes.
 
 ### Phase D: Shared Runtime Orchestrator

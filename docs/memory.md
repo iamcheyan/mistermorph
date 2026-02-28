@@ -341,8 +341,8 @@ Example event:
   "event_id": "evt_01JY7K9M7T3H2QZ6A9D5V4N8P1",
   "task_run_id": "run_01JY7K9B3W8F6M2N4C1R0T9X5Q",
   "ts_utc": "2026-02-28T06:15:12Z",
-  "session_id": "tg:-1003824466118",
-  "subject_id": "ext:telegram:28036192",
+  "session_id": "tg--1003824466118",
+  "subject_id": "tg--1003824466118",
   "channel": "telegram",
   "participants": [
     {
@@ -384,23 +384,31 @@ Agent-self participant example:
 
 Projection is asynchronous by design (not per-event immediate), because merge can involve LLM semantic dedupe.
 
-Minimal trigger policy:
+Current v1 implementation decision:
 
-- Maintain dirty projection keys after WAL append.
-- Run projector when at least one condition is met:
-  - pending dirty count reaches threshold
-  - oldest pending event age reaches threshold
-  - periodic tick finds dirty keys
-- On startup/restart, run replay+projection from checkpoint.
+- No built-in auto trigger yet.
+- Expose one externally triggered projection entrypoint (`ProjectOnce`) and let runtime decide when to call it.
+- Single-worker execution is kept by the projector implementation.
+- Startup/restart replay can call the same entrypoint repeatedly from checkpoint.
 
 ### 10.8 Projection Window (How Much Log per Run)
 
 `window` means how much unapplied WAL is consumed in one projection pass.
 
-Use two bounded windows:
+Projection operates by target file grouping:
 
-- Journal window: max event lines read from checkpoint in one pass.
-- Merge window: max summary candidates sent to one semantic dedupe merge call.
+- Read WAL by event-count window.
+- Group read events by projection target.
+- Run one projection per touched target file in that pass.
+
+Current target organization follows existing subject/session structure:
+
+- `memory/YYYY-MM-DD/{subject_id}.md`
+- examples:
+  - `memory/YYYY-MM-DD/heartbeat.md`
+  - `memory/YYYY-MM-DD/tg--1003824466118.md`
+
+When projecting one target file, summary merge uses all current summary items in that file.
 
 If backlog exceeds window, projector continues in later passes from updated checkpoint.
 
@@ -412,3 +420,9 @@ Projection merge reuses the existing Semantic Dedupe Subflow:
 - otherwise -> direct merge
 
 No new dedupe algorithm/prompt is introduced in WAL projection.
+
+Phase C replay/checkpoint policy (current decision):
+
+- At-least-once processing is acceptable (replay may process duplicate events).
+- Checkpoint is advanced in batches (for example every 10 processed events).
+- On projection error, checkpoint still advances; caller receives the returned error.
