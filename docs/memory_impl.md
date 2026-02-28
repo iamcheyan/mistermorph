@@ -288,12 +288,12 @@ E1. Adapter Integration (no traffic switch):
 
 E2. Deterministic Parity Verification (no shadow runtime):
 
-- [ ] Add fixture-based parity tests comparing legacy vs orchestrator behavior on fixed inputs:
+- [x] Add fixture-based parity tests comparing legacy vs orchestrator behavior on fixed inputs:
   - injection snapshot
   - writeback gate decision
   - summary draft/promotion payload
   - resulting short-term projection inputs
-- [ ] Add focused regression tests for known risk points (listed below).
+- [x] Add focused regression tests for known risk points (listed below).
 
 E3. Cutover and Cleanup:
 
@@ -302,11 +302,11 @@ E3. Cutover and Cleanup:
 
 Parity Checklist (must all pass before final cleanup):
 
-- [ ] Identity mapping parity (`subject_id`, `session_id`, request context).
-- [ ] Injection parity (same snapshot semantics for private/public chats).
-- [ ] Writeback gate parity (`is_lightweight`, publish/no-publish, identity checks).
+- [x] Identity mapping parity (`subject_id`, `session_id`, request context).
+- [x] Injection parity (same snapshot semantics for private/public chats).
+- [x] Writeback gate parity (`is_lightweight`, publish/no-publish, identity checks).
 - [ ] Semantic dedupe parity (same merge behavior and ordering).
-- [ ] Promote parity (same explicit-memory gating and cap rules).
+- [x] Promote parity (same explicit-memory gating and cap rules).
 - [ ] Timeout/retry parity (same retry conditions and observable behavior).
 
 Acceptance:

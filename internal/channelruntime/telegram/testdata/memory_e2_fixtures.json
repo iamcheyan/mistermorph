@@ -1,0 +1,117 @@
+{
+  "writeback_gate": [
+    {
+      "name": "publish_with_orchestrator_and_subject",
+      "publish_text": true,
+      "has_orchestrator": true,
+      "subject_id": "tg:-1001",
+      "expected": true
+    },
+    {
+      "name": "skip_when_not_published",
+      "publish_text": false,
+      "has_orchestrator": true,
+      "subject_id": "tg:-1001",
+      "expected": false
+    },
+    {
+      "name": "skip_when_orchestrator_missing",
+      "publish_text": true,
+      "has_orchestrator": false,
+      "subject_id": "tg:-1001",
+      "expected": false
+    },
+    {
+      "name": "skip_when_subject_empty",
+      "publish_text": true,
+      "has_orchestrator": true,
+      "subject_id": "",
+      "expected": false
+    },
+    {
+      "name": "skip_when_subject_whitespace",
+      "publish_text": true,
+      "has_orchestrator": true,
+      "subject_id": "   ",
+      "expected": false
+    }
+  ],
+  "record_cases": [
+    {
+      "name": "explicit_memory_private",
+      "max_items": 20,
+      "job": {
+        "task_id": "telegram:-1001:226",
+        "chat_id": -1001,
+        "message_id": 226,
+        "chat_type": "private",
+        "from_user_id": 28036192,
+        "from_username": "ballcatcat",
+        "from_first_name": "Lyric",
+        "from_last_name": "",
+        "from_display_name": "Lyric",
+        "mention_users": ["johnwick", "@johnwick", "alice"]
+      },
+      "task_text": "remember: I prefer sugar-free coffee",
+      "final_output": "Understood, I will remember your preference.",
+      "llm_draft_json": "{\"summary_items\":[\"  Preference: sugar-free coffee  \",\"Preference: sugar-free coffee\",\"Use sugar-free by default\"],\"promote\":{\"goals_projects\":[\"Keep beverage preference\",\"Backup goal\"],\"key_facts\":[{\"title\":\"drink\",\"value\":\"sugar-free coffee\"}]}}",
+      "existing_short_term": ["Discussed running routine yesterday"],
+      "existing_long_term_goals": ["Ship phase D"],
+      "existing_long_term_facts": [{"title":"timezone","value":"UTC+8"}],
+      "expected": {
+        "task_run_id": "telegram:-1001:226",
+        "session_id": "tg:-1001",
+        "subject_id": "tg:-1001",
+        "request_context": "private",
+        "participants": [
+          {"id":"@ballcatcat","nickname":"Lyric","protocol":"tg"},
+          {"id":"@johnwick","nickname":"@johnwick","protocol":"tg"},
+          {"id":"@alice","nickname":"@alice","protocol":"tg"}
+        ],
+        "summary_items": ["Preference: sugar-free coffee","Use sugar-free by default"],
+        "promote_goals": ["Keep beverage preference"],
+        "promote_key_facts": [],
+        "task_text": "remember: I prefer sugar-free coffee",
+        "final_output": "Understood, I will remember your preference."
+      }
+    },
+    {
+      "name": "non_explicit_memory_group",
+      "max_items": 10,
+      "job": {
+        "task_id": "telegram:-1002:227",
+        "chat_id": -1002,
+        "message_id": 227,
+        "chat_type": "supergroup",
+        "from_user_id": 123456,
+        "from_username": "",
+        "from_first_name": "Alice",
+        "from_last_name": "",
+        "from_display_name": "Alice",
+        "mention_users": ["bob", "@carol"]
+      },
+      "task_text": "let us talk about movies",
+      "final_output": "Try watching Dune.",
+      "llm_draft_json": "{\"summary_items\":[\"Movie recommendations discussed\",\"Movie recommendations discussed\",\"Recommended Dune\"],\"promote\":{\"goals_projects\":[\"Track movie preference\"],\"key_facts\":[{\"title\":\"genre\",\"value\":\"sci-fi\"}]}}",
+      "existing_short_term": [],
+      "existing_long_term_goals": ["Review backlog"],
+      "existing_long_term_facts": [],
+      "expected": {
+        "task_run_id": "telegram:-1002:227",
+        "session_id": "tg:-1002",
+        "subject_id": "tg:-1002",
+        "request_context": "public",
+        "participants": [
+          {"id":"123456","nickname":"Alice","protocol":"tg"},
+          {"id":"@bob","nickname":"@bob","protocol":"tg"},
+          {"id":"@carol","nickname":"@carol","protocol":"tg"}
+        ],
+        "summary_items": ["Movie recommendations discussed","Recommended Dune"],
+        "promote_goals": [],
+        "promote_key_facts": [],
+        "task_text": "let us talk about movies",
+        "final_output": "Try watching Dune."
+      }
+    }
+  ]
+}
