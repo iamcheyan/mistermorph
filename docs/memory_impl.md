@@ -255,32 +255,74 @@ Notifier design (first-principles, no overdesign):
 
 Acceptance:
 
-- [ ] Heartbeat can run without Telegram runtime enabled.
+- [x] Heartbeat can run without Telegram runtime enabled.
 - [x] Telegram runtime no longer owns heartbeat scheduling/state transitions.
 - [x] Heartbeat notification remains adapter-based and replaceable.
 
 ### Phase E: Telegram Migration (Parity First)
 
-- [ ] Implement Telegram adapter on top of shared orchestrator.
-- [ ] Keep current behavior parity:
-  - injection behavior
-  - writeback gating
-  - heartbeat session mapping
-- [ ] Keep `/mem` command behavior (read projection snapshot).
+Goal:
+
+- move Telegram memory flow to shared orchestrator without behavior regressions.
+
+Decisions confirmed:
+
+- Telegram `subject_id` keeps current semantics: chat-scoped (`tg:<chat_id>` equivalent mapping).
+- No runtime path switch (`legacy|orchestrator`) is introduced; runtime path is orchestrator only.
+- No shadow dual-run mode is introduced.
+- Legacy Telegram memory code may stay temporarily in repository for migration safety, but not runtime-selectable.
+- Telegram adapter must build draft data with the same method/inputs as current legacy flow.
+- Telegram adapter must keep current promote gating behavior (explicit-memory intent rules).
+
+Known acceptable differences in migration:
+
+- Write timing difference (`append journal -> async projection`) is acceptable.
+- Semantic dedupe timing/window difference is acceptable.
+- User-visible memory mismatch during migration is accepted risk; focus is deterministic behavior and eventual cleanup.
+
+E1. Adapter Integration (no traffic switch):
+
+- [x] Implement Telegram `InjectionAdapter` + `RecordAdapter` on top of `internal/memoryruntime`.
+- [x] Wire Telegram runtime directly to `orchestrator` path as the only active runtime path.
+- [x] Keep legacy Telegram memory helpers temporarily in repository for transition safety; direct legacy runtime path is not selectable.
+
+E2. Deterministic Parity Verification (no shadow runtime):
+
+- [ ] Add fixture-based parity tests comparing legacy vs orchestrator behavior on fixed inputs:
+  - injection snapshot
+  - writeback gate decision
+  - summary draft/promotion payload
+  - resulting short-term projection inputs
+- [ ] Add focused regression tests for known risk points (listed below).
+
+E3. Cutover and Cleanup:
+
+- [ ] Remove Telegram legacy direct memory flow code after parity tests are stable.
+- [ ] Remove Telegram `/mem` command path and related docs/tests.
+
+Parity Checklist (must all pass before final cleanup):
+
+- [ ] Identity mapping parity (`subject_id`, `session_id`, request context).
+- [ ] Injection parity (same snapshot semantics for private/public chats).
+- [ ] Writeback gate parity (`is_lightweight`, publish/no-publish, identity checks).
+- [ ] Semantic dedupe parity (same merge behavior and ordering).
+- [ ] Promote parity (same explicit-memory gating and cap rules).
+- [ ] Timeout/retry parity (same retry conditions and observable behavior).
 
 Acceptance:
 
-- [ ] Existing telegram memory tests pass with adapter path.
+- [ ] Existing Telegram memory tests pass with `orchestrator` path.
+- [ ] Fixture parity tests pass with zero known mismatch.
 
 ### Phase F: Heartbeat and Slack Wiring
 
-- [ ] Heartbeat adapter wiring (reuse same orchestrator).
+- [x] Heartbeat adapter wiring (reuse same orchestrator).
 - [x] Slack adapter wiring (no copy-paste of flow).
 - [x] Configure runtime flags consistently across channels for Slack memory options.
 
 Acceptance:
 
-- [ ] Slack and heartbeat do not add a separate memory pipeline.
+- [x] Slack and heartbeat do not add a separate memory pipeline.
 
 ### Phase G: Verification and Operations
 

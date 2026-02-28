@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -237,12 +238,25 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	logOpts := depsutil.LogOptionsFromCommon(d)
 
 	cfg := opts.AgentLimits.ToConfig()
+	var memOrchestrator *memoryruntime.Orchestrator
+	var memManager *memory.Manager
+	if opts.MemoryEnabled {
+		memManager = memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
+		memJournal := memManager.NewJournal(memory.JournalOptions{})
+		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{})
+		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
+		if err != nil {
+			return err
+		}
+		memOrchestrator = memOrch
+		defer func() { _ = memJournal.Close() }()
+	}
 	taskRuntimeOpts := runtimeTaskOptions{
-		MemoryEnabled:               opts.MemoryEnabled,
-		MemoryShortTermDays:         opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
+		MemoryManager:               memManager,
+		MemoryOrchestrator:          memOrchestrator,
 	}
 	pollTimeout := opts.PollTimeout
 	taskTimeout := opts.TaskTimeout

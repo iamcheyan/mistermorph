@@ -14,9 +14,9 @@ import (
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/retryutil"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -26,11 +26,11 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryEnabled               bool
-	MemoryShortTermDays         int
 	MemoryInjectionEnabled      bool
 	MemoryInjectionMaxItems     int
 	SecretsRequireSkillProfiles bool
+	MemoryManager               *memory.Manager
+	MemoryOrchestrator          *memoryruntime.Orchestrator
 }
 
 func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, filesEnabled bool, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
@@ -85,43 +85,20 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	promptprofile.AppendTelegramRuntimeBlocks(&promptSpec, isGroupChat(job.ChatType), job.MentionUsers)
 
-	var memManager *memory.Manager
-	var memIdentity memory.Identity
-	if runtimeOpts.MemoryEnabled {
-		memManager = memory.NewManager(statepaths.MemoryDir(), runtimeOpts.MemoryShortTermDays)
-		if job.FromUserID > 0 {
-			memReqCtx := memory.ContextPublic
-			if strings.ToLower(strings.TrimSpace(job.ChatType)) == "private" {
-				memReqCtx = memory.ContextPrivate
+	memSubjectID := telegramMemorySubjectID(job)
+	if runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
+		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjectionWithAdapter(telegramMemoryInjectionAdapter{job: job}, runtimeOpts.MemoryInjectionMaxItems)
+		if memErr != nil {
+			if logger != nil {
+				logger.Warn("memory_injection_error", "source", "telegram", "subject_id", memSubjectID, "chat_id", job.ChatID, "error", memErr.Error())
 			}
-			id, err := (&memory.Resolver{}).ResolveTelegram(ctx, job.FromUserID)
-			if err != nil {
-				return nil, nil, loadedSkills, nil, fmt.Errorf("memory identity: %w", err)
-			}
-			if id.Enabled && strings.TrimSpace(id.SubjectID) != "" {
-				memIdentity = id
-				if runtimeOpts.MemoryInjectionEnabled {
-					maxItems := runtimeOpts.MemoryInjectionMaxItems
-					snap, err := memManager.BuildInjection(id.SubjectID, memReqCtx, maxItems)
-					if err != nil {
-						return nil, nil, loadedSkills, nil, fmt.Errorf("memory injection: %w", err)
-					}
-					if strings.TrimSpace(snap) != "" {
-						promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
-						if logger != nil {
-							logger.Info("memory_injection_applied", "source", "telegram", "subject_id", id.SubjectID, "chat_id", job.ChatID, "snapshot_len", len(snap))
-						}
-					} else if logger != nil {
-						logger.Debug("memory_injection_skipped", "source", "telegram", "reason", "empty_snapshot", "subject_id", id.SubjectID, "chat_id", job.ChatID)
-					}
-				} else if logger != nil {
-					logger.Debug("memory_injection_skipped", "source", "telegram", "reason", "disabled")
-				}
-			} else if logger != nil {
-				logger.Debug("memory_identity_unavailable", "source", "telegram", "enabled", id.Enabled, "subject_id", strings.TrimSpace(id.SubjectID))
+		} else if strings.TrimSpace(snap) != "" {
+			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
+			if logger != nil {
+				logger.Info("memory_injection_applied", "source", "telegram", "subject_id", memSubjectID, "chat_id", job.ChatID, "snapshot_len", len(snap))
 			}
 		} else if logger != nil {
-			logger.Debug("memory_identity_unavailable", "source", "telegram", "reason", "missing_user_id")
+			logger.Debug("memory_injection_skipped", "source", "telegram", "reason", "empty_snapshot", "subject_id", memSubjectID, "chat_id", job.ChatID)
 		}
 	}
 
@@ -195,13 +172,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 
 	publishText := shouldPublishTelegramText(final)
-
-	longTermSubjectID := resolveLongTermSubjectID(memIdentity)
-	if shouldWriteMemory(publishText, memManager, longTermSubjectID) {
-		if err := updateMemoryFromJob(ctx, logger, client, model, memManager, longTermSubjectID, job, history, historyCap, final, requestTimeout); err != nil {
+	if shouldWriteMemory(publishText, runtimeOpts.MemoryOrchestrator, memSubjectID) {
+		if err := recordMemoryFromJob(ctx, logger, client, model, runtimeOpts.MemoryOrchestrator, runtimeOpts.MemoryManager, job, history, historyCap, final, requestTimeout); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				retryutil.AsyncRetry(logger, "memory_update", 2*time.Second, requestTimeout, func(retryCtx context.Context) error {
-					return updateMemoryFromJob(retryCtx, logger, client, model, memManager, longTermSubjectID, job, history, historyCap, final, requestTimeout)
+					return recordMemoryFromJob(retryCtx, logger, client, model, runtimeOpts.MemoryOrchestrator, runtimeOpts.MemoryManager, job, history, historyCap, final, requestTimeout)
 				})
 			}
 			logger.Warn("memory_update_error", "error", err.Error())
@@ -210,18 +185,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	return final, agentCtx, loadedSkills, reaction, nil
 }
 
-func resolveLongTermSubjectID(memIdentity memory.Identity) string {
-	if !memIdentity.Enabled {
-		return ""
-	}
-	return strings.TrimSpace(memIdentity.SubjectID)
-}
-
-func shouldWriteMemory(publishText bool, memManager *memory.Manager, longTermSubjectID string) bool {
-	if !publishText || memManager == nil {
+func shouldWriteMemory(publishText bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
+	if !publishText || orchestrator == nil {
 		return false
 	}
-	return strings.TrimSpace(longTermSubjectID) != ""
+	return strings.TrimSpace(subjectID) != ""
 }
 
 func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
