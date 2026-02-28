@@ -1,4 +1,4 @@
-package slack
+package heartbeat
 
 import (
 	"context"
@@ -26,6 +26,8 @@ type Dependencies struct {
 	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
 	Guard                  func(logger *slog.Logger) *guard.Guard
 	PromptSpec             func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
+	BuildHeartbeatTask     func(checklistPath string) (string, bool, error)
+	BuildHeartbeatMeta     func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any
 }
 
 func loggerFromDeps(d Dependencies) (*slog.Logger, error) {
@@ -52,18 +54,6 @@ func llmModelForProvider(d Dependencies, provider string) string {
 	return depsutil.ProviderField(d.LLMModelForProvider, provider)
 }
 
-func llmEndpointFromDeps(d Dependencies) string {
-	return llmEndpointForProvider(d, llmProviderFromDeps(d))
-}
-
-func llmAPIKeyFromDeps(d Dependencies) string {
-	return llmAPIKeyForProvider(d, llmProviderFromDeps(d))
-}
-
-func llmModelFromDeps(d Dependencies) string {
-	return llmModelForProvider(d, llmProviderFromDeps(d))
-}
-
 func llmClientFromConfig(d Dependencies, cfg llmconfig.ClientConfig) (llm.Client, error) {
 	return depsutil.CreateClient(d.CreateLLMClient, cfg)
 }
@@ -76,8 +66,16 @@ func guardFromDeps(d Dependencies, log *slog.Logger) *guard.Guard {
 	return depsutil.Guard(d.Guard, log)
 }
 
-func promptSpecForSlack(d Dependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+func promptSpecForHeartbeat(d Dependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 	return depsutil.PromptSpec(d.PromptSpec, ctx, logger, logOpts, task, client, model, stickySkills)
+}
+
+func buildHeartbeatTask(d Dependencies, checklistPath string) (string, bool, error) {
+	return depsutil.BuildHeartbeatTask(d.BuildHeartbeatTask, checklistPath)
+}
+
+func buildHeartbeatMeta(d Dependencies, source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+	return depsutil.BuildHeartbeatMeta(d.BuildHeartbeatMeta, source, interval, checklistPath, checklistEmpty, extra)
 }
 
 func formatFinalOutput(final *agent.Final) string {

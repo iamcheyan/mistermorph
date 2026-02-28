@@ -2,15 +2,13 @@ package telegram
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
-	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -33,45 +31,27 @@ type Dependencies struct {
 }
 
 func loggerFromDeps(d Dependencies) (*slog.Logger, error) {
-	if d.Logger == nil {
-		return nil, fmt.Errorf("Logger dependency missing")
-	}
-	return d.Logger()
+	return depsutil.Logger(d.Logger)
 }
 
 func logOptionsFromDeps(d Dependencies) agent.LogOptions {
-	if d.LogOptions == nil {
-		return agent.LogOptions{}
-	}
-	return d.LogOptions()
+	return depsutil.LogOptions(d.LogOptions)
 }
 
 func llmProviderFromDeps(d Dependencies) string {
-	if d.LLMProvider == nil {
-		return ""
-	}
-	return d.LLMProvider()
+	return depsutil.Provider(d.LLMProvider)
 }
 
 func llmEndpointForProvider(d Dependencies, provider string) string {
-	if d.LLMEndpointForProvider == nil {
-		return ""
-	}
-	return d.LLMEndpointForProvider(provider)
+	return depsutil.ProviderField(d.LLMEndpointForProvider, provider)
 }
 
 func llmAPIKeyForProvider(d Dependencies, provider string) string {
-	if d.LLMAPIKeyForProvider == nil {
-		return ""
-	}
-	return d.LLMAPIKeyForProvider(provider)
+	return depsutil.ProviderField(d.LLMAPIKeyForProvider, provider)
 }
 
 func llmModelForProvider(d Dependencies, provider string) string {
-	if d.LLMModelForProvider == nil {
-		return ""
-	}
-	return d.LLMModelForProvider(provider)
+	return depsutil.ProviderField(d.LLMModelForProvider, provider)
 }
 
 func llmEndpointFromDeps(d Dependencies) string {
@@ -87,50 +67,27 @@ func llmModelFromDeps(d Dependencies) string {
 }
 
 func llmClientFromConfig(d Dependencies, cfg llmconfig.ClientConfig) (llm.Client, error) {
-	if d.CreateLLMClient == nil {
-		return nil, fmt.Errorf("CreateLLMClient dependency missing")
-	}
-	return d.CreateLLMClient(cfg.Provider, cfg.Endpoint, cfg.APIKey, cfg.Model, cfg.RequestTimeout)
+	return depsutil.CreateClient(d.CreateLLMClient, cfg)
 }
 
 func registryFromDeps(d Dependencies) *tools.Registry {
-	if d.Registry == nil {
-		return nil
-	}
-	return d.Registry()
+	return depsutil.Registry(d.Registry)
 }
 
 func guardFromDeps(d Dependencies, log *slog.Logger) *guard.Guard {
-	if d.Guard == nil {
-		return nil
-	}
-	return d.Guard(log)
+	return depsutil.Guard(d.Guard, log)
 }
 
 func promptSpecForTelegram(d Dependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
-	if d.PromptSpec == nil {
-		return agent.PromptSpec{}, nil, nil, fmt.Errorf("PromptSpec dependency missing")
-	}
-	return d.PromptSpec(ctx, logger, logOpts, task, client, model, stickySkills)
+	return depsutil.PromptSpec(d.PromptSpec, ctx, logger, logOpts, task, client, model, stickySkills)
 }
 
 func formatFinalOutput(final *agent.Final) string {
-	return outputfmt.FormatFinalOutput(final)
+	return depsutil.FormatFinalOutput(final)
 }
 
 func formatRuntimeError(err error) string {
-	s := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
-	if s != "" {
-		return s
-	}
-	if err == nil {
-		return "unknown error"
-	}
-	raw := strings.TrimSpace(err.Error())
-	if raw == "" {
-		return "unknown error"
-	}
-	return raw
+	return depsutil.FormatRuntimeError(err)
 }
 
 func shouldPublishTelegramText(final *agent.Final) bool {
@@ -141,18 +98,9 @@ func shouldPublishTelegramText(final *agent.Final) bool {
 }
 
 func buildHeartbeatTask(d Dependencies, checklistPath string) (string, bool, error) {
-	if d.BuildHeartbeatTask == nil {
-		return "", true, fmt.Errorf("BuildHeartbeatTask dependency missing")
-	}
-	return d.BuildHeartbeatTask(checklistPath)
+	return depsutil.BuildHeartbeatTask(d.BuildHeartbeatTask, checklistPath)
 }
 
 func buildHeartbeatMeta(d Dependencies, source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-	if d.BuildHeartbeatMeta == nil {
-		return map[string]any{
-			"trigger":   "heartbeat",
-			"heartbeat": map[string]any{"source": source, "interval": interval.String()},
-		}
-	}
-	return d.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, extra)
+	return depsutil.BuildHeartbeatMeta(d.BuildHeartbeatMeta, source, interval, checklistPath, checklistEmpty, extra)
 }
