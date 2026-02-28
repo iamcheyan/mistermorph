@@ -1,0 +1,258 @@
+package memory
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	CurrentMemoryEventSchemaVersion = 1
+)
+
+type MemoryEvent struct {
+	SchemaVersion     int                 `json:"schema_version"`
+	EventID           string              `json:"event_id"`
+	TaskRunID         string              `json:"task_run_id"`
+	TSUTC             string              `json:"ts_utc"`
+	SessionID         string              `json:"session_id"`
+	SubjectID         string              `json:"subject_id"`
+	Channel           string              `json:"channel"`
+	Participants      []MemoryParticipant `json:"participants"`
+	TaskText          string              `json:"task_text"`
+	FinalOutput       string              `json:"final_output"`
+	DraftSummaryItems []string            `json:"draft_summary_items"`
+	DraftPromote      PromoteDraft        `json:"draft_promote"`
+}
+
+type MemoryParticipant struct {
+	ID       any    `json:"id"`
+	Nickname string `json:"nickname"`
+	Protocol string `json:"protocol"`
+}
+
+func (e MemoryEvent) ValidateForAppend() error {
+	return ValidateMemoryEventForAppend(e)
+}
+
+func ValidateMemoryEventForAppend(e MemoryEvent) error {
+	if e.SchemaVersion <= 0 {
+		return fmt.Errorf("schema_version must be >= 1")
+	}
+	if err := validateRequiredCanonicalString("event_id", e.EventID); err != nil {
+		return err
+	}
+	if err := validateRequiredCanonicalString("task_run_id", e.TaskRunID); err != nil {
+		return err
+	}
+	if err := validateRequiredCanonicalString("ts_utc", e.TSUTC); err != nil {
+		return err
+	}
+	if _, err := time.Parse(time.RFC3339, e.TSUTC); err != nil {
+		return fmt.Errorf("ts_utc must be RFC3339")
+	}
+	if err := validateRequiredCanonicalString("session_id", e.SessionID); err != nil {
+		return err
+	}
+	if err := validateRequiredCanonicalString("subject_id", e.SubjectID); err != nil {
+		return err
+	}
+	if err := validateRequiredCanonicalString("channel", e.Channel); err != nil {
+		return err
+	}
+	for i, p := range e.Participants {
+		if err := validateMemoryParticipant(i, p); err != nil {
+			return err
+		}
+	}
+	for i, item := range e.DraftSummaryItems {
+		if err := validateRequiredCanonicalString(fmt.Sprintf("draft_summary_items[%d]", i), item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ValidateMemoryEventsForAppend(events []MemoryEvent) error {
+	seen := make(map[string]int, len(events))
+	for i, e := range events {
+		if err := ValidateMemoryEventForAppend(e); err != nil {
+			return fmt.Errorf("events[%d]: %w", i, err)
+		}
+		if prev, ok := seen[e.EventID]; ok {
+			return fmt.Errorf("events[%d].event_id duplicates events[%d].event_id", i, prev)
+		}
+		seen[e.EventID] = i
+	}
+	return nil
+}
+
+func validateMemoryParticipant(index int, p MemoryParticipant) error {
+	nicknameField := fmt.Sprintf("participants[%d].nickname", index)
+	protocolField := fmt.Sprintf("participants[%d].protocol", index)
+	idField := fmt.Sprintf("participants[%d].id", index)
+
+	if err := validateRequiredCanonicalString(nicknameField, p.Nickname); err != nil {
+		return err
+	}
+	if err := validateOptionalCanonicalString(protocolField, p.Protocol); err != nil {
+		return err
+	}
+
+	if p.Protocol == "" {
+		ok, err := isNumericZeroID(p.ID)
+		if err != nil {
+			return fmt.Errorf("%s: %w", idField, err)
+		}
+		if !ok {
+			return fmt.Errorf("participants[%d] agent-self marker requires id=0 when protocol is empty", index)
+		}
+		return nil
+	}
+
+	if err := validateParticipantID(idField, p.ID); err != nil {
+		return err
+	}
+	ok, err := isNumericZeroID(p.ID)
+	if err != nil {
+		return fmt.Errorf("%s: %w", idField, err)
+	}
+	if ok {
+		return fmt.Errorf("participants[%d].id=0 is reserved for agent-self marker when protocol is empty", index)
+	}
+	return nil
+}
+
+func validateParticipantID(field string, id any) error {
+	switch v := id.(type) {
+	case nil:
+		return fmt.Errorf("%s is required", field)
+	case string:
+		if err := validateRequiredCanonicalString(field, v); err != nil {
+			return err
+		}
+		return nil
+	case int:
+		return nil
+	case int8:
+		return nil
+	case int16:
+		return nil
+	case int32:
+		return nil
+	case int64:
+		return nil
+	case uint:
+		return nil
+	case uint8:
+		return nil
+	case uint16:
+		return nil
+	case uint32:
+		return nil
+	case uint64:
+		return nil
+	case float32:
+		if !isFiniteWholeNumber(float64(v)) {
+			return fmt.Errorf("%s must be integer-like number", field)
+		}
+		return nil
+	case float64:
+		if !isFiniteWholeNumber(v) {
+			return fmt.Errorf("%s must be integer-like number", field)
+		}
+		return nil
+	case json.Number:
+		if _, err := v.Int64(); err == nil {
+			return nil
+		}
+		f, err := strconv.ParseFloat(v.String(), 64)
+		if err != nil || !isFiniteWholeNumber(f) {
+			return fmt.Errorf("%s must be integer-like number", field)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s has unsupported type %T", field, id)
+	}
+}
+
+func isNumericZeroID(id any) (bool, error) {
+	switch v := id.(type) {
+	case int:
+		return v == 0, nil
+	case int8:
+		return v == 0, nil
+	case int16:
+		return v == 0, nil
+	case int32:
+		return v == 0, nil
+	case int64:
+		return v == 0, nil
+	case uint:
+		return v == 0, nil
+	case uint8:
+		return v == 0, nil
+	case uint16:
+		return v == 0, nil
+	case uint32:
+		return v == 0, nil
+	case uint64:
+		return v == 0, nil
+	case float32:
+		f := float64(v)
+		if !isFiniteWholeNumber(f) {
+			return false, fmt.Errorf("id must be integer-like number")
+		}
+		return f == 0, nil
+	case float64:
+		if !isFiniteWholeNumber(v) {
+			return false, fmt.Errorf("id must be integer-like number")
+		}
+		return v == 0, nil
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i == 0, nil
+		}
+		f, err := strconv.ParseFloat(v.String(), 64)
+		if err != nil || !isFiniteWholeNumber(f) {
+			return false, fmt.Errorf("id must be integer-like number")
+		}
+		return f == 0, nil
+	case string:
+		if strings.TrimSpace(v) != v {
+			return false, fmt.Errorf("id must not contain leading/trailing spaces")
+		}
+		return false, nil
+	case nil:
+		return false, fmt.Errorf("id is required")
+	default:
+		return false, fmt.Errorf("id has unsupported type %T", id)
+	}
+}
+
+func isFiniteWholeNumber(v float64) bool {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return false
+	}
+	return math.Trunc(v) == v
+}
+
+func validateRequiredCanonicalString(field, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%s must not contain leading/trailing spaces", field)
+	}
+	return nil
+}
+
+func validateOptionalCanonicalString(field, value string) error {
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%s must not contain leading/trailing spaces", field)
+	}
+	return nil
+}
