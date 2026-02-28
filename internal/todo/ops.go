@@ -55,10 +55,6 @@ func (s *Store) AddWithChatID(ctx context.Context, raw string, chatID string) (U
 	}, nil
 }
 
-func (s *Store) AddWithChannel(ctx context.Context, raw string, channel string) (UpdateResult, error) {
-	return s.AddWithChatID(ctx, raw, channel)
-}
-
 func (s *Store) Complete(ctx context.Context, raw string) (UpdateResult, error) {
 	query, err := normalizeCompleteQuery(raw)
 	if err != nil {

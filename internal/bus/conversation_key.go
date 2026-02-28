@@ -27,10 +27,6 @@ func BuildSlackChannelConversationKey(channelID string) (string, error) {
 	return BuildConversationKey(ChannelSlack, channelID)
 }
 
-func BuildDiscordChannelConversationKey(channelID string) (string, error) {
-	return BuildConversationKey(ChannelDiscord, channelID)
-}
-
 func isValidChannel(channel Channel) bool {
 	switch channel {
 	case ChannelTelegram, ChannelSlack, ChannelDiscord:

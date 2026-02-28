@@ -2,7 +2,6 @@ package skills
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -117,42 +116,6 @@ func Discover(opts DiscoverOptions) ([]Skill, error) {
 	})
 
 	return out, firstErr
-}
-
-func Load(skill Skill, maxBytes int64) (Skill, error) {
-	data, err := os.ReadFile(skill.SkillMD)
-	if err != nil {
-		return Skill{}, err
-	}
-	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		data = data[:maxBytes]
-	}
-	skill.Contents = string(data)
-	if fm, ok := ParseFrontmatter(skill.Contents); ok {
-		skill = applyFrontmatter(skill, fm)
-	}
-	return skill, nil
-}
-
-func LoadPreview(skill Skill, maxBytes int64) (Skill, error) {
-	f, err := os.Open(skill.SkillMD)
-	if err != nil {
-		return Skill{}, err
-	}
-	defer f.Close()
-
-	if maxBytes <= 0 {
-		maxBytes = 2048
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxBytes))
-	if err != nil {
-		return Skill{}, err
-	}
-	skill.Contents = string(data)
-	if fm, ok := ParseFrontmatter(skill.Contents); ok {
-		skill = applyFrontmatter(skill, fm)
-	}
-	return skill, nil
 }
 
 // LoadFrontmatter loads only metadata parsed from SKILL.md frontmatter.

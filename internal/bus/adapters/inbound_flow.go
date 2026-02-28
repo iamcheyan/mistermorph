@@ -55,13 +55,6 @@ func NewInboundFlow(opts InboundFlowOptions) (*InboundFlow, error) {
 	}, nil
 }
 
-func (f *InboundFlow) Channel() string {
-	if f == nil {
-		return ""
-	}
-	return f.channel
-}
-
 // PublishValidatedInbound applies the shared inbound path:
 // validate+publish via bus, inbox dedupe by (channel, platform_message_id), and persist seen record.
 func (f *InboundFlow) PublishValidatedInbound(ctx context.Context, platformMessageID string, msg busruntime.BusMessage) (bool, error) {

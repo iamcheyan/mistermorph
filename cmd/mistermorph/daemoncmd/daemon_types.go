@@ -20,7 +20,3 @@ type SubmitTaskRequest = daemonruntime.SubmitTaskRequest
 type SubmitTaskResponse = daemonruntime.SubmitTaskResponse
 
 type TaskInfo = daemonruntime.TaskInfo
-
-func ParseTaskStatus(raw string) (TaskStatus, bool) {
-	return daemonruntime.ParseTaskStatus(raw)
-}

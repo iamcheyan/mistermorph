@@ -35,16 +35,6 @@ func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger) {
 	)
 }
 
-// Backward-compatible wrappers for existing call sites.
-func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
-	ApplyPersonaIdentity(spec, log)
-}
-
-// Backward-compatible wrappers for existing call sites.
-func AppendSoulPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
-	ApplyPersonaIdentity(spec, log)
-}
-
 func identityPath() string {
 	return filepath.Join(statepaths.FileStateDir(), "IDENTITY.md")
 }

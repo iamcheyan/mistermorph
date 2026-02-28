@@ -54,27 +54,9 @@ func RuntimeValuesFromViper() RuntimeValues {
 	return RuntimeValuesFromReader(viper.GetViper())
 }
 
-func ProviderFromViper() string {
-	return strings.TrimSpace(RuntimeValuesFromViper().Provider)
-}
-
-func EndpointFromViper() string {
-	values := RuntimeValuesFromViper()
-	return EndpointForProviderWithValues(values.Provider, values)
-}
-
-func APIKeyFromViper() string {
-	values := RuntimeValuesFromViper()
-	return APIKeyForProviderWithValues(values.Provider, values)
-}
-
 func ModelFromViper() string {
 	values := RuntimeValuesFromViper()
 	return ModelForProviderWithValues(values.Provider, values)
-}
-
-func EndpointForProvider(provider string) string {
-	return EndpointForProviderWithValues(provider, RuntimeValuesFromViper())
 }
 
 func EndpointForProviderWithValues(provider string, values RuntimeValues) string {
@@ -91,10 +73,6 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 	}
 }
 
-func APIKeyForProvider(provider string) string {
-	return APIKeyForProviderWithValues(provider, RuntimeValuesFromViper())
-}
-
 func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 	provider = normalizeProvider(provider)
 	switch provider {
@@ -103,10 +81,6 @@ func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 	default:
 		return strings.TrimSpace(values.APIKey)
 	}
-}
-
-func ModelForProvider(provider string) string {
-	return ModelForProviderWithValues(provider, RuntimeValuesFromViper())
 }
 
 func ModelForProviderWithValues(provider string, values RuntimeValues) string {
@@ -120,10 +94,6 @@ func ModelForProviderWithValues(provider string, values RuntimeValues) string {
 	default:
 		return strings.TrimSpace(values.Model)
 	}
-}
-
-func ClientFromConfig(cfg llmconfig.ClientConfig) (llm.Client, error) {
-	return ClientFromConfigWithValues(cfg, RuntimeValuesFromViper())
 }
 
 func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues) (llm.Client, error) {

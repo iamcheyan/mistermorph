@@ -179,20 +179,6 @@ func (s *Service) GetContact(ctx context.Context, contactID string) (Contact, bo
 	return s.contactStore.GetContact(ctx, contactID)
 }
 
-func (s *Service) SetContactStatus(ctx context.Context, contactID string, status Status) (Contact, error) {
-	if s == nil || !s.ready() {
-		return Contact{}, fmt.Errorf("nil contacts service")
-	}
-	contactID = strings.TrimSpace(contactID)
-	if contactID == "" {
-		return Contact{}, fmt.Errorf("contact_id is required")
-	}
-	if err := s.ensureStore.Ensure(ctx); err != nil {
-		return Contact{}, err
-	}
-	return s.contactStore.SetContactStatus(ctx, contactID, status)
-}
-
 func (s *Service) SendDecision(ctx context.Context, now time.Time, decision ShareDecision, sender Sender) (ShareOutcome, error) {
 	if s == nil || !s.ready() {
 		return ShareOutcome{}, fmt.Errorf("nil contacts service")

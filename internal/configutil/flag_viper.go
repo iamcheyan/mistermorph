@@ -51,17 +51,6 @@ func FlagOrViperInt(cmd *cobra.Command, flagName, viperKey string) int {
 	return v
 }
 
-func FlagOrViperInt64(cmd *cobra.Command, flagName, viperKey string) int64 {
-	v, _ := cmd.Flags().GetInt64(flagName)
-	if cmd.Flags().Changed(flagName) {
-		return v
-	}
-	if viperKey != "" && viper.IsSet(viperKey) {
-		return viper.GetInt64(viperKey)
-	}
-	return v
-}
-
 func FlagOrViperDuration(cmd *cobra.Command, flagName, viperKey string) time.Duration {
 	v, _ := cmd.Flags().GetDuration(flagName)
 	if cmd.Flags().Changed(flagName) {
