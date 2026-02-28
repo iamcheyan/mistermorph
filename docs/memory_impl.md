@@ -148,19 +148,62 @@ Acceptance:
 
 ### Phase D: Shared Runtime Orchestrator
 
-- [ ] Create `internal/memoryruntime` with shared flow:
+- [x] Create `internal/memoryruntime` with shared flow:
   - `PrepareInjection(...)`
-  - `RecordAndProject(...)`
-- [ ] Define adapter interface for runtime-specific mapping:
-  - identity mapping
-  - write meta mapping
-  - draft context/history mapping
-  - request context (public/private)
+  - `Record(...)`
+  - `ProjectOnce(...)`
+- [x] Define adapter interface for runtime-specific mapping:
+  - `InjectionAdapter` for identity + request-context mapping
+  - `RecordAdapter` for runtime-to-record request mapping
 - [ ] Remove duplicated inline memory flow from channel runtime code paths.
 
 Acceptance:
 
-- [ ] Core flow logic exists in one place only.
+- [ ] Core flow logic exists in one place only (wiring migration pending).
+
+Current orchestrator sequences (Phase D skeleton):
+
+1) `PrepareInjection(...)`
+
+```text
+Caller            Orchestrator           Manager
+  |                    |                    |
+  | PrepareInjection   |                    |
+  |------------------->|                    |
+  |                    | BuildInjection     |
+  |                    |------------------->|
+  |                    |<-------------------|
+  |<-------------------|  snapshot string   |
+```
+
+2) `Record(...)` (WAL append only)
+
+```text
+Caller            Orchestrator            Journal
+  |                    |                    |
+  | Record(request)    |                    |
+  |------------------->|                    |
+  |                    | build MemoryEvent  |
+  |                    | Append(event)      |
+  |                    |------------------->|
+  |                    |<-------------------| offset(file,line)
+  |<-------------------|                    |
+```
+
+3) `ProjectOnce(limit)` (explicit projection trigger)
+
+```text
+Caller            Orchestrator           Projector           Journal/Manager
+  |                    |                    |                    |
+  | ProjectOnce(limit) |                    |                    |
+  |------------------->|                    |                    |
+  |                    | ProjectOnce(limit) |                    |
+  |                    |------------------->| replay from cp     |
+  |                    |                    |--> apply projection |
+  |                    |                    |--> save checkpoint  |
+  |                    |<-------------------| result/error        |
+  |<-------------------|                    |                    |
+```
 
 ### Phase E: Telegram Migration (Parity First)
 
