@@ -20,6 +20,8 @@ const (
 	memorySummariesPromptBlockTitle = "Memory Summaries"
 	groupUsernamesPromptBlockTitle  = "Group Usernames"
 	TelegramRuntimePromptBlockTitle = "Telegram Policies"
+	SlackRuntimePromptBlockTitle    = "Slack Policies"
+	slackMentionsPromptBlockTitle   = "Slack Mention Users"
 )
 
 //go:embed prompts/block_plan_create.md
@@ -28,9 +30,18 @@ var planCreateBlockTemplateSource string
 //go:embed prompts/telegram_block.md
 var telegramRuntimePromptBlockTemplateSource string
 
+//go:embed prompts/slack_block.md
+var slackRuntimePromptBlockTemplateSource string
+
 var telegramRuntimePromptBlockTemplate = prompttmpl.MustParse(
 	"telegram_runtime_block",
 	telegramRuntimePromptBlockTemplateSource,
+	template.FuncMap{},
+)
+
+var slackRuntimePromptBlockTemplate = prompttmpl.MustParse(
+	"slack_runtime_block",
+	slackRuntimePromptBlockTemplateSource,
 	template.FuncMap{},
 )
 
@@ -38,10 +49,11 @@ type telegramRuntimePromptBlockData struct {
 	IsGroup bool
 }
 
+type slackRuntimePromptBlockData struct {
+	IsGroup bool
+}
+
 func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Registry) {
-	if spec == nil || registry == nil {
-		return
-	}
 	if _, ok := registry.Get("plan_create"); !ok {
 		return
 	}
@@ -56,9 +68,6 @@ func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Regis
 }
 
 func AppendLocalToolNotesBlock(spec *agent.PromptSpec, log *slog.Logger) {
-	if spec == nil {
-		return
-	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -99,9 +108,6 @@ func AppendLocalToolNotesBlock(spec *agent.PromptSpec, log *slog.Logger) {
 }
 
 func AppendMemorySummariesBlock(spec *agent.PromptSpec, content string) {
-	if spec == nil {
-		return
-	}
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
@@ -113,9 +119,6 @@ func AppendMemorySummariesBlock(spec *agent.PromptSpec, content string) {
 }
 
 func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string) {
-	if spec == nil {
-		return
-	}
 	content, err := prompttmpl.Render(telegramRuntimePromptBlockTemplate, telegramRuntimePromptBlockData{
 		IsGroup: isGroup,
 	})
@@ -138,4 +141,27 @@ func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUs
 			Content: strings.Join(mentionUsers, "\n"),
 		})
 	}
+}
+
+func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string) {
+	content, err := prompttmpl.Render(slackRuntimePromptBlockTemplate, slackRuntimePromptBlockData{
+		IsGroup: isGroup,
+	})
+	if err == nil {
+		content = strings.TrimSpace(content)
+		if content != "" {
+			spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+				Title:   SlackRuntimePromptBlockTitle,
+				Content: content,
+			})
+		}
+	}
+
+	if !isGroup || len(mentionUsers) == 0 {
+		return
+	}
+	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+		Title:   slackMentionsPromptBlockTitle,
+		Content: strings.Join(mentionUsers, "\n"),
+	})
 }
