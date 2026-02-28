@@ -217,33 +217,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	})
 }
 
-func (e *Engine) loadedSkillNames() map[string]bool {
-	out := make(map[string]bool)
-	spec := e.spec
-	if len(spec.Blocks) == 0 {
-		return out
-	}
-	for _, blk := range spec.Blocks {
-		title := strings.TrimSpace(blk.Title)
-		if title == "" {
-			continue
-		}
-		name := title
-		id := ""
-		if i := strings.LastIndexByte(title, '('); i >= 0 && strings.HasSuffix(title, ")") {
-			name = strings.TrimSpace(title[:i])
-			id = strings.TrimSpace(strings.TrimSuffix(title[i+1:], ")"))
-		}
-		if strings.TrimSpace(name) != "" {
-			out[strings.ToLower(name)] = true
-		}
-		if strings.TrimSpace(id) != "" {
-			out[strings.ToLower(id)] = true
-		}
-	}
-	return out
-}
-
 func missingFiles(paths []string) []string {
 	if len(paths) == 0 {
 		return nil
@@ -272,19 +245,4 @@ func sortedMapKeys(m map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func isHeartbeatMeta(meta map[string]any) bool {
-	if len(meta) == 0 {
-		return false
-	}
-	if v, ok := meta["trigger"]; ok {
-		if s, ok := v.(string); ok && strings.TrimSpace(strings.ToLower(s)) == "heartbeat" {
-			return true
-		}
-	}
-	if _, ok := meta["heartbeat"]; ok {
-		return true
-	}
-	return false
 }

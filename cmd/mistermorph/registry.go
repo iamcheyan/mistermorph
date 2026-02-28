@@ -14,10 +14,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func registryFromViper() *tools.Registry {
-	return buildRegistryFromConfig(loadRegistryConfigFromViper(), slog.Default())
-}
-
 type registryConfig struct {
 	UserAgent                     string
 	SecretsEnabled                bool

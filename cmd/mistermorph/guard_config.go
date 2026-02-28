@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func guardFromViper(log *slog.Logger) *guard.Guard {
-	return buildGuardFromConfig(loadGuardConfigFromViper(), log)
-}
-
 type guardConfigSnapshot struct {
 	Enabled bool
 	Config  guard.Config

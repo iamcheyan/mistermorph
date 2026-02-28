@@ -162,10 +162,6 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	}
 }
 
-func toolsEmulationModeFromViper() (string, error) {
-	return toolsEmulationModeFromValue(RuntimeValuesFromViper().ToolsEmulationMode)
-}
-
 func toolsEmulationModeFromValue(raw string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(raw))
 	if mode == "" {

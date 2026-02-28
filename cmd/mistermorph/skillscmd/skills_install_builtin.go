@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1065,45 +1064,6 @@ func parseSkillNameFromFrontmatter(b []byte) string {
 		return strings.TrimSpace(v)
 	}
 	return ""
-}
-
-func sanitizeSkillDirName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return ""
-	}
-	// Prefer stable, simple directory names.
-	name = strings.ToLower(name)
-	var b strings.Builder
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune(r)
-		case r == ' ':
-			b.WriteByte('-')
-		default:
-			// drop
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return ""
-	}
-	// Cap length to something reasonable for a directory name.
-	if len(out) > 80 {
-		out = out[:80]
-		out = strings.TrimRight(out, "-")
-	}
-	// Avoid windows reserved device names (defensive).
-	switch out {
-	case "con", "prn", "aux", "nul":
-		out = out + "-" + strconv.FormatInt(time.Now().Unix(), 10)
-	}
-	return out
 }
 
 func validateSkillDirName(name string) (string, error) {

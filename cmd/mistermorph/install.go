@@ -326,10 +326,6 @@ func loadSoulTemplate() (string, error) {
 	return string(data), nil
 }
 
-func patchInitConfig(cfg string, dir string) string {
-	return patchInitConfigWithSetup(cfg, dir, nil)
-}
-
 func patchInitConfigWithSetup(cfg string, dir string, setup *installConfigSetup) string {
 	if strings.TrimSpace(cfg) == "" {
 		return cfg

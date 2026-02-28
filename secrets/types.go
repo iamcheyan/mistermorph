@@ -292,15 +292,6 @@ func stringInSliceFold(needle string, haystack []string) bool {
 	return false
 }
 
-func intInSlice(n int, haystack []int) bool {
-	for _, x := range haystack {
-		if x == n {
-			return true
-		}
-	}
-	return false
-}
-
 func parseURLPrefixRules(prefixes []string, profileID string) ([]URLPrefixRule, error) {
 	var out []URLPrefixRule
 	seen := make(map[string]bool, len(prefixes))

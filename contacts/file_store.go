@@ -1156,16 +1156,6 @@ func normalizeInt64Slice(input []int64) []int64 {
 	return out
 }
 
-func clamp(v float64, min float64, max float64) float64 {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
-}
-
 func busInboxRecordKey(channel string, platformMessageID string) (string, error) {
 	normalizedChannel, err := normalizeBusChannel(channel)
 	if err != nil {
