@@ -172,6 +172,11 @@ type slackOpenConnectionResponse struct {
 	URL   string `json:"url,omitempty"`
 }
 
+type slackReactionResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 func (api *slackAPI) openSocketURL(ctx context.Context) (string, error) {
 	if api == nil {
 		return "", fmt.Errorf("slack api is not initialized")
@@ -217,6 +222,50 @@ func (api *slackAPI) connectSocket(ctx context.Context) (*websocket.Conn, error)
 func (api *slackAPI) postMessage(ctx context.Context, channelID, text, threadTS string) error {
 	client := slackclient.New(api.http, api.baseURL, api.botToken)
 	return client.PostMessage(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) addReaction(ctx context.Context, channelID, messageTS, emoji string) error {
+	if api == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	channelID = strings.TrimSpace(channelID)
+	messageTS = strings.TrimSpace(messageTS)
+	emoji = strings.TrimSpace(emoji)
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if messageTS == "" {
+		return fmt.Errorf("message_ts is required")
+	}
+	if emoji == "" {
+		return fmt.Errorf("emoji is required")
+	}
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/reactions.add", map[string]any{
+		"channel":   channelID,
+		"timestamp": messageTS,
+		"name":      emoji,
+	})
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("slack reactions.add http %d", status)
+	}
+	var out slackReactionResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		if code == "already_reacted" {
+			return nil
+		}
+		return fmt.Errorf("slack reactions.add failed: %s", code)
+	}
+	return nil
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {

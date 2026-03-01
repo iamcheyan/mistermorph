@@ -372,20 +372,37 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					})
 				}
 				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, runErr := runSlackTask(
+				final, _, loadedSkills, reaction, runErr := runSlackTask(
 					runCtx,
 					d,
 					logger,
 					logOpts,
 					client,
 					reg,
+					api,
 					sharedGuard,
 					cfg,
 					model,
 					job,
 					h,
 					sticky,
+					allowedChannels,
 					taskRuntimeOpts,
+					func(ctx context.Context, text, correlationID string) error {
+						if ctx == nil {
+							ctx = context.Background()
+						}
+						_, err := publishSlackBusOutbound(
+							ctx,
+							inprocBus,
+							job.TeamID,
+							job.ChannelID,
+							text,
+							job.ThreadTS,
+							correlationID,
+						)
+						return err
+					},
 				)
 				cancel()
 
@@ -488,6 +505,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				}
 				cur := history[conversationKey]
 				cur = append(cur, newSlackInboundHistoryItem(job))
+				if reaction != nil {
+					note := "[reacted]"
+					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
+						note = "[reacted: :" + emoji + ":]"
+					}
+					cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
+				}
 				if outText != "" {
 					cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
 				}
@@ -853,6 +877,9 @@ func slackConversationPartsFromKey(conversationKey string) (string, string, erro
 
 func slackOutboundKind(correlationID string) string {
 	id := strings.ToLower(strings.TrimSpace(correlationID))
+	if strings.Contains(id, ":plan:") {
+		return "plan_progress"
+	}
 	if strings.Contains(id, ":error:") {
 		return "error"
 	}

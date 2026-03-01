@@ -55,6 +55,9 @@ func TestSlackOutboundEventFromBusMessage(t *testing.T) {
 }
 
 func TestSlackOutboundKind(t *testing.T) {
+	if got := slackOutboundKind("slack:plan:C:1"); got != "plan_progress" {
+		t.Fatalf("kind(plan) = %q, want plan_progress", got)
+	}
 	if got := slackOutboundKind("slack:error:C:1"); got != "error" {
 		t.Fatalf("kind(error) = %q, want error", got)
 	}

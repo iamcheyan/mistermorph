@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
 
 type runtimeTaskOptions struct {
@@ -39,17 +40,20 @@ func runSlackTask(
 	logOpts agent.LogOptions,
 	client llm.Client,
 	baseReg *tools.Registry,
+	api *slackAPI,
 	sharedGuard *guard.Guard,
 	cfg agent.Config,
 	model string,
 	job slackJob,
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
+	allowedChannelIDs map[string]bool,
 	runtimeOpts runtimeTaskOptions,
-) (*agent.Final, *agent.Context, []string, error) {
+	sendSlackText func(context.Context, string, string) error,
+) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
-		return nil, nil, nil, fmt.Errorf("empty slack task")
+		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
 	}
 	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
 	historyWithCurrent = append(historyWithCurrent, newSlackInboundHistoryItem(job))
@@ -57,20 +61,25 @@ func runSlackTask(
 		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelSlack, historyWithCurrent),
 	}, "", "  ")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("render slack history context: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("render slack history context: %w", err)
 	}
 	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
 
 	if baseReg == nil {
-		return nil, nil, nil, fmt.Errorf("base registry is nil")
+		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 	reg := buildSlackRegistry(baseReg, job.ChatType)
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
+	var reactTool *slacktools.ReactTool
+	if api != nil && strings.TrimSpace(job.ChannelID) != "" && strings.TrimSpace(job.MessageTS) != "" {
+		reactTool = slacktools.NewReactTool(newSlackToolAPI(api), job.ChannelID, job.MessageTS, allowedChannelIDs)
+		reg.Register(reactTool)
+	}
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
@@ -101,10 +110,31 @@ func runSlackTask(
 		reg,
 		cfg,
 		promptSpec,
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
-		agent.WithGuard(sharedGuard),
+		func() []agent.Option {
+			opts := []agent.Option{
+				agent.WithLogger(logger),
+				agent.WithLogOptions(logOpts),
+				agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
+				agent.WithGuard(sharedGuard),
+			}
+			if sendSlackText != nil {
+				planUpdateHook := func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+					if runCtx == nil || runCtx.Plan == nil {
+						return
+					}
+					msg := generateSlackPlanProgressMessage(runCtx.Plan, update)
+					if strings.TrimSpace(msg) == "" {
+						return
+					}
+					correlationID := fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS)
+					if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
+						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+					}
+				}
+				opts = append(opts, agent.WithPlanStepUpdate(planUpdateHook))
+			}
+			return opts
+		}()...,
 	)
 
 	meta := map[string]any{
@@ -123,7 +153,20 @@ func runSlackTask(
 		SkipTaskMessage: true,
 	})
 	if err != nil {
-		return final, runCtx, loadedSkills, err
+		return final, runCtx, loadedSkills, nil, err
+	}
+
+	var reaction *slacktools.Reaction
+	if reactTool != nil {
+		reaction = reactTool.LastReaction()
+		if reaction != nil && logger != nil {
+			logger.Info("slack_reaction_applied",
+				"channel_id", reaction.ChannelID,
+				"message_ts", reaction.MessageTS,
+				"emoji", reaction.Emoji,
+				"source", reaction.Source,
+			)
+		}
 	}
 
 	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
@@ -152,7 +195,7 @@ func runSlackTask(
 		}
 	}
 
-	return final, runCtx, loadedSkills, nil
+	return final, runCtx, loadedSkills, reaction, nil
 }
 
 func todoResolveContextForSlack(job slackJob) todo.AddResolveContext {
@@ -210,6 +253,44 @@ func newSlackOutboundAgentHistoryItem(job slackJob, output string, sentAt time.T
 		Sender:           slackSenderFromJob(job, true, botUserID),
 		Text:             strings.TrimSpace(output),
 	}
+}
+
+func newSlackOutboundReactionHistoryItem(job slackJob, note, emoji string, sentAt time.Time, botUserID string) chathistory.ChatHistoryItem {
+	item := newSlackOutboundAgentHistoryItem(job, note, sentAt, botUserID)
+	item.Kind = chathistory.KindOutboundReaction
+	if strings.TrimSpace(emoji) != "" {
+		item.Text = strings.TrimSpace(note)
+	}
+	return item
+}
+
+func generateSlackPlanProgressMessage(plan *agent.Plan, update agent.PlanStepUpdate) string {
+	if plan == nil || update.CompletedIndex < 0 {
+		return ""
+	}
+	return firstNonEmpty(
+		strings.TrimSpace(update.CompletedStep),
+		stepByIndex(plan, update.CompletedIndex),
+		strings.TrimSpace(update.StartedStep),
+		stepByIndex(plan, update.StartedIndex),
+	)
+}
+
+func stepByIndex(plan *agent.Plan, index int) string {
+	if plan == nil || index < 0 || index >= len(plan.Steps) {
+		return ""
+	}
+	return strings.TrimSpace(plan.Steps[index].Step)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.ChatHistorySender {

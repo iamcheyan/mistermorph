@@ -1,12 +1,19 @@
 package slackcmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/slackclient"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +36,10 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				return fmt.Errorf("missing slack.app_token (set via --slack-app-token or MISTER_MORPH_SLACK_APP_TOKEN)")
 			}
 
-			runOpts := channelopts.BuildSlackRunOptions(channelopts.SlackConfigFromViper(), channelopts.SlackInput{
+			cfg := channelopts.SlackConfigFromViper()
+			hbCfg := channelopts.HeartbeatConfigFromViper()
+			runtimeToolsConfig := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			runOpts := channelopts.BuildSlackRunOptions(cfg, channelopts.SlackInput{
 				BotToken:                      botToken,
 				AppToken:                      appToken,
 				AllowedTeamIDs:                configutil.FlagOrViperStringArray(cmd, "slack-allowed-team-id", "slack.allowed_team_ids"),
@@ -42,9 +52,9 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
-			deps := slackruntime.Dependencies(d)
-			deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
-			return slackruntime.Run(cmd.Context(), deps, runOpts)
+			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig)
+			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig)
+			return runSlackWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
 		},
 	}
 
@@ -61,4 +71,127 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_slack_YYYYMMDD_HHmmss.md.")
 
 	return cmd
+}
+
+func buildHeartbeatRuntime(
+	d Dependencies,
+	slackCfg channelopts.SlackConfig,
+	hbCfg channelopts.HeartbeatConfig,
+	botToken string,
+	allowedChannelIDs []string,
+	taskTimeout time.Duration,
+	baseURL string,
+	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
+	hbDeps := heartbeatruntime.Dependencies{
+		Logger:                 d.Logger,
+		LogOptions:             d.LogOptions,
+		CreateLLMClient:        d.CreateLLMClient,
+		LLMProvider:            d.LLMProvider,
+		LLMEndpointForProvider: d.LLMEndpointForProvider,
+		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
+		LLMModelForProvider:    d.LLMModelForProvider,
+		Registry:               d.Registry,
+		RuntimeToolsConfig:     runtimeToolsConfig,
+		Guard:                  d.Guard,
+		PromptSpec:             d.PromptSpec,
+		BuildHeartbeatTask:     d.BuildHeartbeatTask,
+		BuildHeartbeatMeta:     d.BuildHeartbeatMeta,
+	}
+	hbOpts := heartbeatruntime.RunOptions{
+		Interval:                    hbCfg.Interval,
+		TaskTimeout:                 taskTimeout,
+		RequestTimeout:              slackCfg.RequestTimeout,
+		AgentLimits:                 slackCfg.AgentLimits,
+		Source:                      "slack",
+		ChecklistPath:               statepaths.HeartbeatChecklistPath(),
+		MemoryEnabled:               slackCfg.MemoryEnabled,
+		MemoryShortTermDays:         slackCfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:      slackCfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:     slackCfg.MemoryInjectionMaxItems,
+		SecretsRequireSkillProfiles: slackCfg.SecretsRequireSkillProfiles,
+		Notifier:                    newSlackHeartbeatNotifier(botToken, baseURL, allowedChannelIDs),
+	}
+	return hbDeps, hbOpts
+}
+
+func buildSlackRuntimeDeps(
+	d Dependencies,
+	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+) slackruntime.Dependencies {
+	return slackruntime.Dependencies{
+		Logger:                 d.Logger,
+		LogOptions:             d.LogOptions,
+		CreateLLMClient:        d.CreateLLMClient,
+		LLMProvider:            d.LLMProvider,
+		LLMEndpointForProvider: d.LLMEndpointForProvider,
+		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
+		LLMModelForProvider:    d.LLMModelForProvider,
+		Registry:               d.Registry,
+		RuntimeToolsConfig:     runtimeToolsConfig,
+		Guard:                  d.Guard,
+		PromptSpec:             d.PromptSpec,
+	}
+}
+
+func runSlackWithOptionalHeartbeat(
+	ctx context.Context,
+	slackDeps slackruntime.Dependencies,
+	slackOpts slackruntime.RunOptions,
+	hbDeps heartbeatruntime.Dependencies,
+	hbOpts heartbeatruntime.RunOptions,
+	hbEnabled bool,
+) error {
+	if !hbEnabled || hbOpts.Interval <= 0 {
+		return slackruntime.Run(ctx, slackDeps, slackOpts)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- slackruntime.Run(runCtx, slackDeps, slackOpts)
+	}()
+	go func() {
+		errCh <- heartbeatruntime.Run(runCtx, hbDeps, hbOpts)
+	}()
+
+	var firstErr error
+	for i := 0; i < 2; i++ {
+		err := <-errCh
+		if err != nil && !errors.Is(err, context.Canceled) && firstErr == nil {
+			firstErr = err
+		}
+		cancel()
+	}
+	return firstErr
+}
+
+func newSlackHeartbeatNotifier(botToken, baseURL string, channelIDs []string) heartbeatruntime.Notifier {
+	filtered := make([]string, 0, len(channelIDs))
+	seen := make(map[string]bool, len(channelIDs))
+	for _, raw := range channelIDs {
+		channelID := strings.TrimSpace(raw)
+		if channelID == "" || seen[channelID] {
+			continue
+		}
+		seen[channelID] = true
+		filtered = append(filtered, channelID)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	client := slackclient.New(&http.Client{Timeout: 30 * time.Second}, baseURL, botToken)
+	return heartbeatruntime.NotifyFunc(func(ctx context.Context, text string) error {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return nil
+		}
+		for _, channelID := range filtered {
+			if err := client.PostMessage(ctx, channelID, text, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

@@ -132,3 +132,70 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 		}
 	})
 }
+
+func TestSlackAPIAddReaction(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/reactions.add" {
+				t.Fatalf("path = %q, want %q", r.URL.Path, "/reactions.add")
+			}
+			if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+				t.Fatalf("authorization = %q", got)
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if got := strings.TrimSpace(payload["channel"].(string)); got != "C123" {
+				t.Fatalf("channel = %q, want %q", got, "C123")
+			}
+			if got := strings.TrimSpace(payload["timestamp"].(string)); got != "1739667600.000100" {
+				t.Fatalf("timestamp = %q, want %q", got, "1739667600.000100")
+			}
+			if got := strings.TrimSpace(payload["name"].(string)); got != "thumbsup" {
+				t.Fatalf("name = %q, want %q", got, "thumbsup")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		if err := api.addReaction(context.Background(), "C123", "1739667600.000100", "thumbsup"); err != nil {
+			t.Fatalf("addReaction() error = %v", err)
+		}
+	})
+
+	t.Run("already_reacted treated as success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "already_reacted",
+			})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		if err := api.addReaction(context.Background(), "C123", "1739667600.000100", "thumbsup"); err != nil {
+			t.Fatalf("addReaction() error = %v", err)
+		}
+	})
+
+	t.Run("slack error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "invalid_name",
+			})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		err := api.addReaction(context.Background(), "C123", "1739667600.000100", "not-valid")
+		if err == nil {
+			t.Fatalf("expected error")
+		}
+		if !strings.Contains(err.Error(), "invalid_name") {
+			t.Fatalf("error = %v, want invalid_name", err)
+		}
+	})
+}
