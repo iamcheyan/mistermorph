@@ -1,0 +1,2 @@
+[[ Slack Mention Users ]]
+{{.UserIDsText}}

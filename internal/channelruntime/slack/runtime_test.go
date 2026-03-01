@@ -96,7 +96,7 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 		IsAppMention:    true,
 		IsThreadMessage: false,
 	}
-	dec, ok, err := decideSlackGroupTrigger(nil, nil, "", eventMention, "U999", "strict", 0, 0.6, 0.6, nil)
+	dec, ok, err := decideSlackGroupTrigger(nil, nil, "", eventMention, "U999", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(app_mention) error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 	eventIgnored := slackInboundEvent{
 		Text: "hello everyone",
 	}
-	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventIgnored, "U999", "strict", 0, 0.6, 0.6, nil)
+	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventIgnored, "U999", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(non_mention) error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 		Text:            "following up in thread",
 		IsThreadMessage: true,
 	}
-	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventThreadReply, "U999", "strict", 0, 0.6, 0.6, nil)
+	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventThreadReply, "U999", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(thread_reply_without_mention) error = %v", err)
 	}
