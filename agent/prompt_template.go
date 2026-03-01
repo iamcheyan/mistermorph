@@ -14,7 +14,6 @@ var systemPromptTemplateSource string
 var systemPromptTemplate = prompttmpl.MustParse("agent_system_prompt", systemPromptTemplateSource, nil)
 
 type systemPromptTemplateBlock struct {
-	Title   string
 	Content string
 }
 
@@ -73,16 +72,11 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 		})
 	}
 	for _, blk := range spec.Blocks {
-		title := strings.TrimSpace(blk.Title)
-		if title == "" {
-			title = "Context"
-		}
 		content := strings.TrimSpace(blk.Content)
 		if content == "" {
 			continue
 		}
 		data.Blocks = append(data.Blocks, systemPromptTemplateBlock{
-			Title:   title,
 			Content: content,
 		})
 	}

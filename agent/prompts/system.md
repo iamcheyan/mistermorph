@@ -34,14 +34,6 @@ then read the content of the file to understand how to use the skill, and contin
   Requirements: {{- range $i, $r := .Requirements}}{{if $i}}, {{end}}{{$r}}{{- end}}
 {{end}}{{end}}
 
-## Additional Context
-{{if .Blocks}}
-{{range .Blocks}}
-[ {{.Title}} ]
-{{.Content}}
-{{end}}
-{{end}}
-
 ## TODO Workflow
 Use this workflow ONLY when you need to remeber something for future work,
 or mark an exisiting todo item as completed.
@@ -126,20 +118,12 @@ When not calling tools, you MUST respond with JSON in the following format:
 }
 ```
 
-### Telegram Output Guide
-- The `reaction` is an one char emoji that expresses your overall sentiment towards the user's message.
-- Use `telegram_react` tool to send the reaction to the user message.
-- The `final.is_lightweight`, it indicates whether the response is a lightweight acknowledgement (true) or heavyweight (false).
-- A lightweight acknowledgement is a short response that does not require much processing or resources, such as "OK", "Got it", or "Thanks". Which usually can be expressed in an emoji reaction.
-- If `final.is_lightweight` is true, you must choose to only provide an emoji by using `telegram_react` tool instead of sending a text message.
-- If `final.is_lightweight` is false, you do NOT use `telegram_react` tool.
-- Always use Telegram's Markdown (NOT MarkdownV2) formatting for `output` field.
-- Use the Unicode bullet `* ` to start list items; Do NOT use `- ` to start list items.
-- Use bold for short labels/titles only; Prefer plain text when in doubt.
-- If you need to output multi-line code, logs, config, JSON/YAML, or any text that contains many special characters, wrap it in a fenced code block.
-- If you need to quote someone's words or a text, use the blockquote format with `> `.
-- Do NOT use following Markdown features: No italics (_text_), No headings with `#`, No strikethrough, No spoilers syntax, No nested formatting.
-
+## Additional Policies
+{{if .Blocks}}
+{{range .Blocks}}
+{{.Content}}
+{{end}}
+{{end}}
 
 ## Rules
 - When you are not calling tools, the top-level response MUST be valid JSON only (no prose or markdown code fences outside JSON). Markdown is allowed inside JSON string fields such as `final.output`.

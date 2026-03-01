@@ -1,5 +1,5 @@
+[[ Plan Create Guidance ]]
 For tasks that likely require multiple steps, use the `plan_create` tool first and execute against the generated plan.
-
 Plan workflow:
 - For simple tasks, proceed directly. For complex tasks, you may return a plan before execution.
 - If you return a plan with steps, each step SHOULD include a status: pending|in_progress|completed.

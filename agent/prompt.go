@@ -14,7 +14,6 @@ type PromptSpec struct {
 }
 
 type PromptBlock struct {
-	Title   string
 	Content string
 }
 

@@ -14,24 +14,50 @@ import (
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
-const (
-	planCreatePromptBlockTitle      = "Plan Create Guidance"
-	localToolNotesPromptBlockTitle  = "Local Scripts"
-	memorySummariesPromptBlockTitle = "Memory Summaries"
-	groupUsernamesPromptBlockTitle  = "Group Usernames"
-	TelegramRuntimePromptBlockTitle = "Telegram Policies"
-	SlackRuntimePromptBlockTitle    = "Slack Policies"
-	slackMentionsPromptBlockTitle   = "Slack Mention Users"
-)
-
 //go:embed prompts/block_plan_create.md
 var planCreateBlockTemplateSource string
 
-//go:embed prompts/telegram_block.md
+//go:embed prompts/block_local_tool_notes.md
+var localToolNotesBlockTemplateSource string
+
+//go:embed prompts/block_memory_summaries.md
+var memorySummariesBlockTemplateSource string
+
+//go:embed prompts/block_telegram_group_usernames.md
+var groupUsernamesBlockTemplateSource string
+
+//go:embed prompts/block_slack_mention_users.md
+var slackMentionUsersBlockTemplateSource string
+
+//go:embed prompts/block_telegram.md
 var telegramRuntimePromptBlockTemplateSource string
 
-//go:embed prompts/slack_block.md
+//go:embed prompts/block_slack.md
 var slackRuntimePromptBlockTemplateSource string
+
+var localToolNotesBlockTemplate = prompttmpl.MustParse(
+	"local_tool_notes_block",
+	localToolNotesBlockTemplateSource,
+	template.FuncMap{},
+)
+
+var memorySummariesBlockTemplate = prompttmpl.MustParse(
+	"memory_summaries_block",
+	memorySummariesBlockTemplateSource,
+	template.FuncMap{},
+)
+
+var groupUsernamesBlockTemplate = prompttmpl.MustParse(
+	"group_usernames_block",
+	groupUsernamesBlockTemplateSource,
+	template.FuncMap{},
+)
+
+var slackMentionUsersBlockTemplate = prompttmpl.MustParse(
+	"slack_mention_users_block",
+	slackMentionUsersBlockTemplateSource,
+	template.FuncMap{},
+)
 
 var telegramRuntimePromptBlockTemplate = prompttmpl.MustParse(
 	"telegram_runtime_block",
@@ -53,6 +79,22 @@ type slackRuntimePromptBlockData struct {
 	IsGroup bool
 }
 
+type localToolNotesPromptBlockData struct {
+	ScriptsNotes string
+}
+
+type memorySummariesPromptBlockData struct {
+	Content string
+}
+
+type groupUsernamesPromptBlockData struct {
+	UsernamesText string
+}
+
+type slackMentionUsersPromptBlockData struct {
+	UserIDsText string
+}
+
 func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Registry) {
 	if _, ok := registry.Get("plan_create"); !ok {
 		return
@@ -62,7 +104,6 @@ func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Regis
 		return
 	}
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title:   planCreatePromptBlockTitle,
 		Content: content,
 	})
 }
@@ -85,23 +126,19 @@ func AppendLocalToolNotesBlock(spec *agent.PromptSpec, log *slog.Logger) {
 	if content == "" {
 		content = "No local tool notes available."
 	}
-
-	content = "* The following are notes about the local scripts. Please read them carefully before using any local scripts.\n" +
-		"* You can use `python` or `bash` to create new scripts to satisfy specific needs.\n" +
-		"* Always put your scripts at `file_state_dir/`, and update the SCRIPTS.md in following format:" +
-		"* Use `bash` tool to run the scripts.\n" +
-		"```" + "\n" +
-		`- name: "get_weather"` + "\n" +
-		"  script: `file_state_dir/scripts/get_weather.sh`" + "\n" +
-		`  description: "Get the weather for a specified location."` + "\n" +
-		`  usage: "file_state_dir/scripts/get_weather.sh <location>"` + "\n" +
-		"```\n" +
-		">>> BEGIN OF SCRIPTS.md <<<\n" +
-		"\n" + content + "\n" +
-		">>> END OF SCRIPTS.md <<<"
+	content, err = prompttmpl.Render(localToolNotesBlockTemplate, localToolNotesPromptBlockData{
+		ScriptsNotes: content,
+	})
+	if err != nil {
+		log.Warn("prompt_local_tool_notes_render_failed", "path", path, "error", err.Error())
+		return
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
 
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title:   localToolNotesPromptBlockTitle,
 		Content: content,
 	})
 	log.Info("prompt_local_tool_notes_applied", "path", path, "size", len(content))
@@ -112,9 +149,18 @@ func AppendMemorySummariesBlock(spec *agent.PromptSpec, content string) {
 	if content == "" {
 		return
 	}
-	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title:   memorySummariesPromptBlockTitle,
+	rendered, err := prompttmpl.Render(memorySummariesBlockTemplate, memorySummariesPromptBlockData{
 		Content: content,
+	})
+	if err != nil {
+		return
+	}
+	rendered = strings.TrimSpace(rendered)
+	if rendered == "" {
+		return
+	}
+	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+		Content: rendered,
 	})
 }
 
@@ -126,7 +172,6 @@ func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUs
 		content = strings.TrimSpace(content)
 		if content != "" {
 			spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-				Title:   TelegramRuntimePromptBlockTitle,
 				Content: content,
 			})
 		}
@@ -136,9 +181,18 @@ func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUs
 		return
 	}
 	if len(mentionUsers) > 0 {
+		content, err := prompttmpl.Render(groupUsernamesBlockTemplate, groupUsernamesPromptBlockData{
+			UsernamesText: strings.Join(mentionUsers, "\n"),
+		})
+		if err != nil {
+			return
+		}
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
 		spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-			Title:   groupUsernamesPromptBlockTitle,
-			Content: strings.Join(mentionUsers, "\n"),
+			Content: content,
 		})
 	}
 }
@@ -151,7 +205,6 @@ func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers
 		content = strings.TrimSpace(content)
 		if content != "" {
 			spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-				Title:   SlackRuntimePromptBlockTitle,
 				Content: content,
 			})
 		}
@@ -160,8 +213,17 @@ func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers
 	if !isGroup || len(mentionUsers) == 0 {
 		return
 	}
+	content, err = prompttmpl.Render(slackMentionUsersBlockTemplate, slackMentionUsersPromptBlockData{
+		UserIDsText: strings.Join(mentionUsers, "\n"),
+	})
+	if err != nil {
+		return
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title:   slackMentionsPromptBlockTitle,
-		Content: strings.Join(mentionUsers, "\n"),
+		Content: content,
 	})
 }

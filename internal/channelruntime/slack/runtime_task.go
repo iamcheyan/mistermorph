@@ -75,8 +75,7 @@ func runSlackTask(
 	var reactTool *slacktools.ReactTool
 	if api != nil &&
 		strings.TrimSpace(job.ChannelID) != "" &&
-		strings.TrimSpace(job.MessageTS) != "" &&
-		len(availableEmojiNames) > 0 {
+		strings.TrimSpace(job.MessageTS) != "" {
 		reactTool = slacktools.NewReactTool(newSlackToolAPI(api), job.ChannelID, job.MessageTS, allowedChannelIDs, availableEmojiNames)
 		reg.Register(reactTool)
 	}

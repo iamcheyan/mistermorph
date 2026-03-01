@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
+	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
 
 type RunOptions struct {
@@ -770,6 +771,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				mu.Lock()
 				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 				mu.Unlock()
+				var addressingReactionTool *slacktools.ReactTool
+				if api != nil &&
+					strings.TrimSpace(event.ChannelID) != "" &&
+					strings.TrimSpace(event.MessageTS) != "" {
+					addressingReactionTool = slacktools.NewReactTool(newSlackToolAPI(api), event.ChannelID, event.MessageTS, allowedChannels, availableEmojiNames)
+				}
 				dec, accepted, err := decideSlackGroupTrigger(
 					context.Background(),
 					client,
@@ -781,7 +788,18 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					addressingConfidenceThreshold,
 					addressingInterjectThreshold,
 					historySnapshot,
+					addressingReactionTool,
 				)
+				if addressingReactionTool != nil {
+					if reaction := addressingReactionTool.LastReaction(); reaction != nil {
+						logger.Info("slack_group_addressing_reaction_applied",
+							"channel_id", reaction.ChannelID,
+							"message_ts", reaction.MessageTS,
+							"emoji", reaction.Emoji,
+							"source", reaction.Source,
+						)
+					}
+				}
 				if err != nil {
 					logger.Warn("slack_addressing_llm_error", "channel_id", event.ChannelID, "error", err.Error())
 					callErrorHook(context.Background(), logger, hooks, ErrorEvent{

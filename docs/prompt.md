@@ -62,7 +62,7 @@ This document tracks where prompts are defined, how they are composed at runtime
 - File: `cmd/mistermorph/telegramcmd/prompt_blocks.go`
 - Definition:
   - Injects `Telegram Runtime Rules` from `cmd/mistermorph/telegramcmd/prompts/telegram_block.md`
-  - Group-only guidance is template-gated (`{{if .IsGroup}}`) and can be accompanied by `[Group Usernames]` block
+  - Group-only guidance is template-gated (`{{if .IsGroup}}`) and can be accompanied by `[[ Telegram Group Usernames ]]` block
 
 ### 5.5) MAEP reply policy prompt mutation
 
