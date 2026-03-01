@@ -95,7 +95,7 @@ status: draft
   - 生成层决定“文本回复 vs reaction”。
 - [x] 更新文档
   - `docs/prompt.md`：补充 Telegram 群聊行为规则来源。
-  - `docs/feat/feat_20260205_telegram_reactions.md`：补充与 reaction 策略的关系。
+  - `docs/feat/feat_20260205_message_reactions.md`：补充与 reaction 策略的关系。
 
 ### B.3 验收标准
 
@@ -269,7 +269,7 @@ status: draft
 - [x] 群聊 reply policy 固定为 `humanlike`（不开放配置项）。
 - [x] 更新文档：
   - [x] `docs/prompt.md` 补充群聊行为规则注入点。
-  - [x] `docs/feat/feat_20260205_telegram_reactions.md` 补充与 reaction 的职责边界。
+  - [x] `docs/feat/feat_20260205_message_reactions.md` 补充与 reaction 的职责边界。
 - [x] 测试：
   - [x] 补充 `groupTriggerDecision` 触发路径测试。
   - [x] 补充“群聊规则只在群聊注入”的测试。

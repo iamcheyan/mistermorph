@@ -38,7 +38,7 @@ func NewReactTool(api API, defaultChatID int64, defaultMessageID int64, allowedI
 	}
 }
 
-func (t *ReactTool) Name() string { return "telegram_react" }
+func (t *ReactTool) Name() string { return "message_react" }
 
 func (t *ReactTool) Description() string {
 	return "Adds an emoji reaction to a Telegram message. Use when a light confirmation is sufficient; do not send an extra text reply when reaction alone is enough."
@@ -75,7 +75,7 @@ func (t *ReactTool) ParameterSchema() string {
 
 func (t *ReactTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	if t == nil || t.api == nil {
-		return "", fmt.Errorf("telegram_react is disabled")
+		return "", fmt.Errorf("message_react is disabled")
 	}
 
 	chatID := t.defaultChatID

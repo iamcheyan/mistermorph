@@ -52,14 +52,14 @@ These blocks are applied in the major runtime task flows:
 - Trigger entry: `groupTriggerDecision(...)`
 - Addressing classifier: `addressingDecisionViaLLM(...)`
 - Prompt rendering: `renderTelegramAddressingPrompts(...)`
-- Lightweight reaction path can use `telegram_react`.
+- Lightweight reaction path can use `message_react`.
 
 ### Slack addressing
 
 - Trigger entry: `decideSlackGroupTrigger(...)`
 - Addressing classifier: `slackAddressingDecisionViaLLM(...)`
 - Slack addressing prompt is currently assembled inline (not a separate template file).
-- Lightweight reaction path can use `slack_react`.
+- Lightweight reaction path can use `message_react`.
 
 ## Template Index
 

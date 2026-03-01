@@ -15,7 +15,7 @@ Code areas:
 There are three separate decisions:
 
 1. Trigger decision: should this group message enter the main agent run?
-2. Reaction execution: did `telegram_react` actually run successfully?
+2. Reaction execution: did `message_react` actually run successfully?
 3. Text publish decision: should runtime publish `final.output` as text?
 
 These are related, but not the same switch.
@@ -26,10 +26,10 @@ These are related, but not the same switch.
 Inbound group message
   -> prefilter (reply/mention guard)
   -> addressing LLM + grouptrigger.Decide(...)
-     -> may call telegram_react in pre-run
+     -> may call message_react in pre-run
      -> decide trigger yes/no
   -> if triggered: runTelegramTask (main run)
-     -> main run may call telegram_react again
+     -> main run may call message_react again
      -> final.is_lightweight decides whether text is published
 ```
 
@@ -83,9 +83,9 @@ Explicit signals include:
 
 If explicit match is true, trigger is accepted without LLM addressing threshold checks.
 
-### 3.3 Pre-run `telegram_react`
+### 3.3 Pre-run `message_react`
 
-Addressing stage can now receive `telegram_react` as a callable tool.
+Addressing stage can now receive `message_react` as a callable tool.
 Runtime creates a temporary `ReactTool` bound to the current inbound `chat_id` and `message_id`.
 
 If addressing LLM calls it successfully:
@@ -101,19 +101,19 @@ Important:
 
 ### 3.4 Pre-run Lightweight Fallback Rule (Current Implementation)
 
-Addressing pre-run (in shared `grouptrigger.DecideViaLLM(...)`) tracks whether `telegram_react` has been executed successfully in the tool-call loop.
+Addressing pre-run (in shared `grouptrigger.DecideViaLLM(...)`) tracks whether `message_react` has been executed successfully in the tool-call loop.
 
 After parsing addressing JSON, runtime applies this fallback:
 
 - only when `is_lightweight == true`
 - and `reaction` is non-empty
-- and no successful pre-run `telegram_react` call happened yet
+- and no successful pre-run `message_react` call happened yet
 
-then runtime executes one extra `telegram_react` with that `reaction` emoji.
+then runtime executes one extra `message_react` with that `reaction` emoji.
 
 Important edge case:
 
-- if model returns `is_lightweight == true` but omits `reaction` (or returns empty string), pre-run does **not** execute `telegram_react` fallback.
+- if model returns `is_lightweight == true` but omits `reaction` (or returns empty string), pre-run does **not** execute `message_react` fallback.
 - with `tool_choice=auto`, model may also choose not to emit a tool call.
 - so "lightweight=true but no pre-run reaction" is possible in current behavior.
 
@@ -134,12 +134,12 @@ It is not the final text publish switch.
 
 ## 4) Main Run (Generation Stage)
 
-Inside `runTelegramTask(...)`, runtime builds a fresh tool registry and registers `telegram_react` again (if API and `message_id` are available).
+Inside `runTelegramTask(...)`, runtime builds a fresh tool registry and registers `message_react` again (if API and `message_id` are available).
 
 After `agent.Engine.Run(...)`, runtime reads `reactTool.LastReaction()`:
 
 - `nil`: no successful main-run reaction
-- non-`nil`: successful main-run reaction, log `telegram_reaction_applied`, append outbound reaction history
+- non-`nil`: successful main-run reaction, log `message_reaction_applied`, append outbound reaction history
 
 This `LastReaction()` reflects only the main-run `ReactTool` instance.
 
@@ -176,7 +176,7 @@ Useful logs for debugging:
 - `telegram_group_ignored`
 - `telegram_group_trigger`
 - `telegram_group_addressing_reaction_applied`
-- `telegram_reaction_applied`
+- `message_reaction_applied`
 
 ## 8) Quick Behavior Matrix
 

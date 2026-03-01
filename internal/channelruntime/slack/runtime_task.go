@@ -163,7 +163,7 @@ func runSlackTask(
 	if reactTool != nil {
 		reaction = reactTool.LastReaction()
 		if reaction != nil && logger != nil {
-			logger.Info("slack_reaction_applied",
+			logger.Info("message_reaction_applied",
 				"channel_id", reaction.ChannelID,
 				"message_ts", reaction.MessageTS,
 				"emoji", reaction.Emoji,

@@ -28,7 +28,7 @@ func TestToolsCommand_IncludesRuntimeTools(t *testing.T) {
 		"plan_create",
 		"telegram_send_file",
 		"telegram_send_voice",
-		"telegram_react",
+		"message_react",
 	}
 	for _, want := range checks {
 		if !strings.Contains(got, want) {

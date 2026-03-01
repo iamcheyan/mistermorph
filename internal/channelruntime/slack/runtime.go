@@ -158,7 +158,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if emojiErr != nil {
 		logger.Warn("slack_emoji_catalog_load_failed",
 			"error", emojiErr.Error(),
-			"hint", "add bot scope emoji:read and reinstall app if slack_react should be enabled",
+			"hint", "add bot scope emoji:read and reinstall app if message_react should be enabled",
 		)
 	} else {
 		logger.Info("slack_emoji_catalog_loaded", "emoji_count", len(availableEmojiNames))

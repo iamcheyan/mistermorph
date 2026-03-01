@@ -176,7 +176,7 @@ Each `chat_history_context.messages[]` item is derived from `ChatHistoryItem`.
 ### 5.3 Reaction Decision (decided by main agent)
 | role | content |
 |---|---|
-| `system` | `defaultPrompt` (includes Telegram runtime guidance, e.g. prefer `telegram_react` for lightweight acknowledgement) |
+| `system` | `defaultPrompt` (includes Telegram runtime guidance, e.g. prefer `message_react` for lightweight acknowledgement) |
 | `user` | `chat_history_context` + current message `task` |
 
 ## 6) Code Change Scope
@@ -210,7 +210,7 @@ Each `chat_history_context.messages[]` item is derived from `ChatHistoryItem`.
   - In `talkative`, non-triggering inbound messages are still recorded
   - In `strict/smart`, non-triggering inbound messages are not recorded
   - Addressing LLM request includes `chat_history_context` and current speaker info
-  - Main agent can autonomously choose `telegram_react` under structured history context
+  - Main agent can autonomously choose `message_react` under structured history context
 
 ## 8) Risks and Compatibility
 - History format changes can shift prompt-token distribution for addressing/main-agent behavior; threshold regression should be monitored.

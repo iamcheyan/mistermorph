@@ -11,8 +11,8 @@ This document describes the built-in and runtime-injected tool parameters curren
 - `runtime-dependent` tools:
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
-  - `telegram_send_voice`, `telegram_send_file`, `telegram_react`: runtime-injected, depend on active Telegram API context/chat metadata.
-  - `slack_react`: runtime-injected in Slack runtime when API context (`channel_id`, `message_ts`) is available.
+  - `telegram_send_voice`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
+  - `message_react`: runtime-injected in both Telegram and Slack runtimes; params/context differ by channel.
 
 ### 2) ASCII architecture
 
@@ -52,7 +52,7 @@ Execution path split:
                     v
                SetTodoUpdateToolAddContext(...)
                + Telegram runtime tools (telegram_*)
-               + Slack runtime tool (`slack_react`, when runtime context and emoji catalog are available)
+               + Slack runtime tool (`message_react`, when runtime context and emoji catalog are available)
                     |
                     v
                buildLLMTools(...) -> Engine exposes tool schemas to LLM
@@ -68,7 +68,7 @@ Flow notes:
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
   - `telegram`/`slack`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
-  - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_file`, `telegram_react`.
+  - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_file`, `message_react`.
 - First-principles invariants:
   - correctness: task toolset matches chat/channel context.
   - isolation: `todo_update` context is task-scoped.
@@ -318,7 +318,7 @@ Constraints:
 - Only local-file sending is supported; inline text-to-speech is not supported.
 - Local files are limited to `file_cache_dir` and file-size caps (currently 20 MiB by default).
 
-## `telegram_react`
+## `message_react` (Telegram)
 
 Purpose: add emoji reactions to Telegram messages.
 
@@ -336,7 +336,7 @@ Constraints:
 - Available only in Telegram mode.
 - Requires `message_id` context in Telegram mode (or explicit `message_id` input).
 
-## `slack_react`
+## `message_react` (Slack)
 
 Purpose: add emoji reactions to Slack messages.
 

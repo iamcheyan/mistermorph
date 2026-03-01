@@ -23,9 +23,9 @@ status: draft
   - Slack inbound events are user-id centric: `internal/channelruntime/slack/socket_events.go`
   - Bus extensions already include `FromUsername` / `FromDisplayName`: `internal/bus/adapters/slack/inbound.go`
 
-- [x] 1. Emoji reaction parity (`slack_react`)
+- [x] 1. Emoji reaction parity (`message_react`)
 - Goal:
-  - Provide channel-tool reaction capability aligned with Telegram `telegram_react`.
+  - Provide channel-tool reaction capability aligned with Telegram `message_react`.
 - Current anchors:
   - Telegram reaction + lightweight path: `internal/channelruntime/telegram/trigger.go`, `tools/telegram/react_tool.go`
   - Slack reaction tool + runtime wiring: `tools/slack/react_tool.go`, `internal/channelruntime/slack/runtime_task.go`
@@ -76,15 +76,15 @@ status: draft
   - [ ] Add profile lookup + cache-hit tests under `internal/channelruntime/slack/*_test.go`.
   - [ ] Add nickname write/update cases under `contacts/*_test.go`.
 
-### 1. Emoji reaction parity (`slack_react`)
+### 1. Emoji reaction parity (`message_react`)
 
 - Task breakdown:
-  - [x] Add Slack channel tool: `slack_react` (at minimum `emoji` parameter).
+  - [x] Add Slack channel tool: `message_react` (at minimum `emoji` parameter).
   - [x] Add `reactions.add` call in Slack API layer.
   - [x] Inject tool in `runSlackTask(...)` with current `channel_id` + `message_ts` context.
   - [x] Record reaction outbound history (aligned with Telegram outbound-reaction semantics).
 - Acceptance criteria:
-  - [ ] When model calls `slack_react`, reaction is applied to target message.
+  - [ ] When model calls `message_react`, reaction is applied to target message.
   - [x] Invalid emoji / permission errors are safely returned without runtime crash.
   - [x] Reaction trail is visible in task history (for memory/audit).
 - Test suggestions:
@@ -139,7 +139,7 @@ status: draft
 ## 4) Suggested PR Split
 
 - [x] PR-1: Mainline 0 (bus identity enrichment)
-- [x] PR-2: Mainline 1 (emoji / `slack_react`)
+- [x] PR-2: Mainline 1 (emoji / `message_react`)
 - [x] PR-3: Mainline 2 (plan progress rendering)
 - [x] PR-4: Mainline 3 (Slack prompt block)
 - [x] PR-5: Mainline 4 (heartbeat integration)

@@ -74,7 +74,7 @@ Required `Bot Token Scopes`:
 Optional `Bot Token Scopes`:
 
 - `reactions:write` (required only if you want emoji reaction delivery)
-- `emoji:read` (required if you want `slack_react` to validate against workspace available emoji names)
+- `emoji:read` (required if you want `message_react` to validate against workspace available emoji names)
 
 Required `App-Level Token` scope:
 
@@ -132,7 +132,7 @@ go run ./cmd/mistermorph slack \
 - `slack users.info failed: missing_scope`
   - Bot token is missing `users:read`, or scope changed without reinstall/token refresh.
 - `slack_emoji_catalog_load_failed ... slack emoji.list failed: missing_scope`
-  - Bot token is missing `emoji:read`; `slack_react` will not be registered until emoji catalog can be loaded.
+  - Bot token is missing `emoji:read`; `message_react` will not be registered until emoji catalog can be loaded.
 - `slack apps.connections.open failed: not_allowed_token_type`
   - A non-`xapp` token was used, or `xapp` is missing `connections:write`.
 - Not receiving channel messages

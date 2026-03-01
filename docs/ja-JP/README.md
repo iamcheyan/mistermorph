@@ -162,11 +162,11 @@ Agent が利用できる主要ツール:
 - `web_search`: Web 検索（DuckDuckGo HTML）。
 - `plan_create`: 構造化された計画を生成。
 
-Telegram モードでのみ利用できるツール:
+チャネル実行時ツール:
 
-- `telegram_send_file`: Telegram にファイルを送信。
-- `telegram_send_voice`: Telegram に音声メッセージを送信。
-- `telegram_react`: Telegram で絵文字リアクションを追加。
+- `telegram_send_file`: Telegram にファイルを送信（Telegram のみ）。
+- `telegram_send_voice`: Telegram に音声メッセージを送信（Telegram のみ）。
+- `message_react`: メッセージに絵文字リアクションを追加（Telegram/Slack 実行時。パラメータはチャネルごとに異なる）。
 
 詳しくは [../tools.md](../tools.md) を参照してください。
 

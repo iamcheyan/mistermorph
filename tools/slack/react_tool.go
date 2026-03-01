@@ -54,7 +54,7 @@ func NewReactTool(api API, defaultChannelID, defaultMessageTS string, allowedCha
 	}
 }
 
-func (t *ReactTool) Name() string { return "slack_react" }
+func (t *ReactTool) Name() string { return "message_react" }
 
 func (t *ReactTool) Description() string {
 	return "Adds an emoji reaction to a Slack message. Prefer this for lightweight acknowledgements. " + t.emojiNameGuidance()
@@ -86,7 +86,7 @@ func (t *ReactTool) ParameterSchema() string {
 
 func (t *ReactTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	if t == nil || t.api == nil {
-		return "", fmt.Errorf("slack_react is disabled")
+		return "", fmt.Errorf("message_react is disabled")
 	}
 
 	channelID := strings.TrimSpace(t.defaultChannelID)

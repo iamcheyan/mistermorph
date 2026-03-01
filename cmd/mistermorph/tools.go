@@ -67,7 +67,7 @@ func runToolsCmd(cmd *cobra.Command, _ []string, registryFactory func() *tools.R
 		Description: "[telegram only] Sends a voice message from a local audio file under file_cache_dir.",
 	})
 	addToolPreview(telegramPreviews, toolPreview{
-		Name:        "telegram_react",
+		Name:        "message_react",
 		Description: "[telegram only] Adds an emoji reaction to a Telegram message.",
 	})
 

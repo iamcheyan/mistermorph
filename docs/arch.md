@@ -86,8 +86,8 @@ Agent / Plan tools:
 
 Telegram:
 
-- Group-addressing decision request (this path injects local `telegram_react` for the addressing loop when context allows, and does not expose runtime registry tools).
-  tools: `telegram_react` only when context allows; otherwise `none`
+- Group-addressing decision request (this path injects local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
+  tools: `message_react` only when context allows; otherwise `none`
   files: `telegram/runtime.go`, `telegram/trigger.go`, `telegram/trigger_addressing.go`
 - Init flow requests (question generation, profile fill, post-init greeting, SOUL polish, `/humanize`).
   tools: `none`

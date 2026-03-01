@@ -56,7 +56,7 @@ func TestDecideViaLLM_EnforcesLightweightReaction(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"🤨","reason":"x"}`},
 		},
 	}
-	tool := &stubDecisionTool{name: "telegram_react"}
+	tool := &stubDecisionTool{name: "message_react"}
 
 	got, ok, err := DecideViaLLM(context.Background(), LLMDecisionOptions{
 		Client:         client,
@@ -91,7 +91,7 @@ func TestDecideViaLLM_DoesNotDuplicateReactionAfterToolCall(t *testing.T) {
 				ToolCalls: []llm.ToolCall{
 					{
 						ID:        "tc_1",
-						Name:      "slack_react",
+						Name:      "message_react",
 						Arguments: map[string]any{"emoji": ":+1:"},
 					},
 				},
@@ -99,7 +99,7 @@ func TestDecideViaLLM_DoesNotDuplicateReactionAfterToolCall(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.4,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":":+1:","reason":"x"}`},
 		},
 	}
-	tool := &stubDecisionTool{name: "slack_react"}
+	tool := &stubDecisionTool{name: "message_react"}
 
 	_, ok, err := DecideViaLLM(context.Background(), LLMDecisionOptions{
 		Client:         client,

@@ -161,11 +161,11 @@ Agent 可用的核心工具：
 - `web_search`：网页搜索（DuckDuckGo HTML）。
 - `plan_create`：生成结构化计划。
 
-仅在 Telegram 模式可用的工具：
+频道运行时工具：
 
-- `telegram_send_file`：在 Telegram 发送文件。
-- `telegram_send_voice`：在 Telegram 发送语音消息。
-- `telegram_react`：在 Telegram 添加 emoji reaction。
+- `telegram_send_file`：在 Telegram 发送文件（仅 Telegram）。
+- `telegram_send_voice`：在 Telegram 发送语音消息（仅 Telegram）。
+- `message_react`：在消息上添加 emoji reaction（Telegram/Slack 运行时，参数随频道不同）。
 
 详细工具文档请见 [../tools.md](../tools.md)。
 

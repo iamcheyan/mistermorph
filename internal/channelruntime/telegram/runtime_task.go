@@ -163,7 +163,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	if reactTool != nil {
 		reaction = reactTool.LastReaction()
 		if reaction != nil && logger != nil {
-			logger.Info("telegram_reaction_applied",
+			logger.Info("message_reaction_applied",
 				"chat_id", reaction.ChatID,
 				"message_id", reaction.MessageID,
 				"emoji", reaction.Emoji,

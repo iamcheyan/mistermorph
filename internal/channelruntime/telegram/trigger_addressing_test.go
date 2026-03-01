@@ -58,7 +58,7 @@ func TestAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"🤨","reason":"x"}`},
 		},
 	}
-	tool := &stubAddressingTool{name: "telegram_react"}
+	tool := &stubAddressingTool{name: "message_react"}
 
 	got, ok, err := addressingDecisionViaLLM(context.Background(), client, "gpt-5.2", nil, "啧", nil, tool)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestAddressingDecisionViaLLM_EnforceLightweightReactionReturnsErrorOnToolFa
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"🚫","reason":"x"}`},
 		},
 	}
-	tool := &stubAddressingTool{name: "telegram_react", failOnEmoji: "🚫"}
+	tool := &stubAddressingTool{name: "message_react", failOnEmoji: "🚫"}
 
 	_, _, err := addressingDecisionViaLLM(context.Background(), client, "gpt-5.2", nil, "啧", nil, tool)
 	if err == nil {
@@ -101,7 +101,7 @@ func TestAddressingDecisionViaLLM_EmptyReactionKeepsLightweight(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"","reason":"x"}`},
 		},
 	}
-	tool := &stubAddressingTool{name: "telegram_react"}
+	tool := &stubAddressingTool{name: "message_react"}
 
 	got, ok, err := addressingDecisionViaLLM(context.Background(), client, "gpt-5.2", nil, "啧", nil, tool)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestAddressingDecisionViaLLM_NoReactionWhenNotLightweight(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":false,"interject":0.05,"impulse":0.1,"is_lightweight":false,"reason":"x"}`},
 		},
 	}
-	tool := &stubAddressingTool{name: "telegram_react"}
+	tool := &stubAddressingTool{name: "message_react"}
 
 	got, ok, err := addressingDecisionViaLLM(context.Background(), client, "gpt-5.2", nil, "啧", nil, tool)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestAddressingDecisionViaLLM_NoDuplicateReactionWhenModelAlreadyCalledTool(
 				ToolCalls: []llm.ToolCall{
 					{
 						ID:        "tc_1",
-						Name:      "telegram_react",
+						Name:      "message_react",
 						Arguments: map[string]any{"emoji": "🤨"},
 					},
 				},
@@ -156,7 +156,7 @@ func TestAddressingDecisionViaLLM_NoDuplicateReactionWhenModelAlreadyCalledTool(
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"🤨","reason":"x"}`},
 		},
 	}
-	tool := &stubAddressingTool{name: "telegram_react"}
+	tool := &stubAddressingTool{name: "message_react"}
 
 	got, ok, err := addressingDecisionViaLLM(context.Background(), client, "gpt-5.2", nil, "啧", nil, tool)
 	if err != nil {

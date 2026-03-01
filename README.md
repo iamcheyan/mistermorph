@@ -251,11 +251,11 @@ Core tools available to the agent:
 - `web_search`: web search (DuckDuckGo HTML).
 - `plan_create`: generate a structured plan.
 
-Tools only available in Telegram mode:
+Channel runtime tools:
 
-- `telegram_send_file`: send a file in Telegram.
-- `telegram_send_voice`: send a voice message in Telegram.
-- `telegram_react`: add an emoji reaction in Telegram.
+- `telegram_send_file`: send a file in Telegram (Telegram only).
+- `telegram_send_voice`: send a voice message in Telegram (Telegram only).
+- `message_react`: add an emoji reaction to a message (Telegram/Slack runtime; channel-specific params).
 
 Please see [`docs/tools.md`](docs/tools.md) for detailed tool documentation.
 
