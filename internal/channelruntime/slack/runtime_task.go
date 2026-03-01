@@ -222,16 +222,30 @@ func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.
 			DisplayRef: "slack-bot",
 		}
 	}
-	ref := strings.TrimSpace(job.UserID)
-	if ref != "" {
-		ref = "<@" + ref + ">"
+	mentionRef := strings.TrimSpace(job.UserID)
+	if mentionRef != "" {
+		mentionRef = "<@" + mentionRef + ">"
+	}
+	nickname := strings.TrimSpace(job.DisplayName)
+	if nickname == "" {
+		nickname = mentionRef
+	}
+	displayRef := mentionRef
+	if nickname != "" && mentionRef != "" && nickname != mentionRef {
+		displayRef = nickname + " (" + mentionRef + ")"
+	} else if nickname != "" {
+		displayRef = nickname
+	}
+	username := strings.TrimSpace(job.Username)
+	if username == "" {
+		username = strings.TrimSpace(job.UserID)
 	}
 	return chathistory.ChatHistorySender{
 		UserID:     strings.TrimSpace(job.UserID),
-		Username:   strings.TrimSpace(job.UserID),
-		Nickname:   ref,
+		Username:   username,
+		Nickname:   nickname,
 		IsBot:      false,
-		DisplayRef: ref,
+		DisplayRef: displayRef,
 	}
 }
 

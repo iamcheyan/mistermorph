@@ -59,6 +59,25 @@ type slackAuthTestResponse struct {
 	IsOwner bool   `json:"is_owner,omitempty"`
 }
 
+type slackUserIdentity struct {
+	UserID      string
+	Username    string
+	DisplayName string
+}
+
+type slackUserInfoResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	User  struct {
+		ID      string `json:"id,omitempty"`
+		Name    string `json:"name,omitempty"`
+		Profile struct {
+			DisplayName string `json:"display_name,omitempty"`
+			RealName    string `json:"real_name,omitempty"`
+		} `json:"profile,omitempty"`
+	} `json:"user,omitempty"`
+}
+
 func (api *slackAPI) authTest(ctx context.Context) (slackAuthTestResult, error) {
 	if api == nil {
 		return slackAuthTestResult{}, fmt.Errorf("slack api is not initialized")
@@ -89,6 +108,61 @@ func (api *slackAPI) authTest(ctx context.Context) (slackAuthTestResult, error) 
 		Team:    strings.TrimSpace(out.Team),
 		User:    strings.TrimSpace(out.User),
 		IsOwner: out.IsOwner,
+	}, nil
+}
+
+func (api *slackAPI) userIdentity(ctx context.Context, userID string) (slackUserIdentity, error) {
+	if api == nil {
+		return slackUserIdentity{}, fmt.Errorf("slack api is not initialized")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return slackUserIdentity{}, fmt.Errorf("slack user id is required")
+	}
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/users.info", map[string]any{
+		"user": userID,
+	})
+	if err != nil {
+		return slackUserIdentity{}, err
+	}
+	if status < 200 || status >= 300 {
+		return slackUserIdentity{}, fmt.Errorf("slack users.info http %d", status)
+	}
+	var out slackUserInfoResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return slackUserIdentity{}, err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return slackUserIdentity{}, fmt.Errorf("slack users.info failed: %s", code)
+	}
+
+	resolvedUserID := strings.TrimSpace(out.User.ID)
+	if resolvedUserID == "" {
+		resolvedUserID = userID
+	}
+
+	username := strings.TrimSpace(out.User.Name)
+	if username == "" {
+		username = resolvedUserID
+	}
+	displayName := strings.TrimSpace(out.User.Profile.DisplayName)
+	if displayName == "" {
+		displayName = strings.TrimSpace(out.User.Profile.RealName)
+	}
+	if displayName == "" {
+		displayName = username
+	}
+	if username == "" || displayName == "" {
+		return slackUserIdentity{}, fmt.Errorf("slack users.info returned incomplete identity")
+	}
+	return slackUserIdentity{
+		UserID:      resolvedUserID,
+		Username:    username,
+		DisplayName: displayName,
 	}, nil
 }
 

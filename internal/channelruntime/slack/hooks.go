@@ -19,6 +19,7 @@ const (
 	ErrorStagePublishOutbound   ErrorStage = "publish_outbound"
 	ErrorStagePublishErrorReply ErrorStage = "publish_error_reply"
 	ErrorStagePublishInbound    ErrorStage = "publish_inbound"
+	ErrorStageIdentityEnrich    ErrorStage = "identity_enrich"
 	ErrorStageDeliverOutbound   ErrorStage = "deliver_outbound"
 	ErrorStageSocketConnect     ErrorStage = "socket_connect"
 	ErrorStageSocketRead        ErrorStage = "socket_read"
@@ -33,6 +34,8 @@ type InboundEvent struct {
 	MessageTS       string
 	ThreadTS        string
 	UserID          string
+	Username        string
+	DisplayName     string
 	Text            string
 	MentionUsers    []string
 }

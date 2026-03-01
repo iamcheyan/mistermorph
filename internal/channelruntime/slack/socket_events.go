@@ -52,6 +52,8 @@ type slackInboundEvent struct {
 	MessageTS       string
 	ThreadTS        string
 	UserID          string
+	Username        string
+	DisplayName     string
 	Text            string
 	EventID         string
 	SentAt          time.Time

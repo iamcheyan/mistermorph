@@ -63,6 +63,8 @@ type slackJob struct {
 	MessageTS       string
 	ThreadTS        string
 	UserID          string
+	Username        string
+	DisplayName     string
 	Text            string
 	SentAt          time.Time
 	Version         uint64
@@ -75,6 +77,13 @@ type slackConversationWorker struct {
 }
 
 const slackStickySkillsCap = 16
+const slackUserIdentityCacheTTL = 6 * time.Hour
+
+type slackUserIdentityCacheEntry struct {
+	Username    string
+	DisplayName string
+	ExpiresAt   time.Time
+}
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
 	return runSlackLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
@@ -282,10 +291,59 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		mu                  sync.Mutex
 		history                          = make(map[string][]chathistory.ChatHistoryItem)
 		stickySkillsByConv               = make(map[string][]string)
+		userIdentityCache                = make(map[string]slackUserIdentityCacheEntry)
 		workers                          = make(map[string]*slackConversationWorker)
 		sharedGuard         *guard.Guard = depsutil.GuardFromCommon(d, logger)
 		enqueueSlackInbound func(context.Context, busruntime.BusMessage) error
 	)
+
+	resolveSlackUserIdentity := func(ctx context.Context, teamID, userID string) (string, string, error) {
+		teamID = strings.TrimSpace(teamID)
+		userID = strings.TrimSpace(userID)
+		if teamID == "" || userID == "" {
+			return "", "", fmt.Errorf("slack user identity requires team_id and user_id")
+		}
+		cacheKey := strings.ToUpper(teamID) + ":" + strings.ToUpper(userID)
+		now := time.Now().UTC()
+
+		mu.Lock()
+		if cached, ok := userIdentityCache[cacheKey]; ok && cached.ExpiresAt.After(now) {
+			mu.Unlock()
+			username := strings.TrimSpace(cached.Username)
+			displayName := strings.TrimSpace(cached.DisplayName)
+			if username != "" && displayName != "" {
+				return username, displayName, nil
+			}
+			return "", "", fmt.Errorf("slack user identity cache entry is incomplete")
+		}
+		mu.Unlock()
+
+		lookupCtx := ctx
+		if lookupCtx == nil {
+			lookupCtx = context.Background()
+		}
+		lookupCtx, cancel := context.WithTimeout(lookupCtx, 3*time.Second)
+		defer cancel()
+
+		identity, err := api.userIdentity(lookupCtx, userID)
+		if err != nil {
+			return "", "", err
+		}
+
+		username := strings.TrimSpace(identity.Username)
+		displayName := strings.TrimSpace(identity.DisplayName)
+		if username == "" || displayName == "" {
+			return "", "", fmt.Errorf("slack users.info returned empty username/display_name")
+		}
+		mu.Lock()
+		userIdentityCache[cacheKey] = slackUserIdentityCacheEntry{
+			Username:    username,
+			DisplayName: displayName,
+			ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
+		}
+		mu.Unlock()
+		return username, displayName, nil
+	}
 
 	getOrStartWorkerLocked := func(conversationKey string) *slackConversationWorker {
 		if w, ok := workers[conversationKey]; ok && w != nil {
@@ -465,6 +523,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			MessageTS:       inbound.MessageTS,
 			ThreadTS:        inbound.ThreadTS,
 			UserID:          inbound.UserID,
+			Username:        inbound.Username,
+			DisplayName:     inbound.DisplayName,
 			Text:            text,
 			SentAt:          inbound.SentAt,
 			Version:         v,
@@ -503,6 +563,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			MessageTS:       inbound.MessageTS,
 			ThreadTS:        inbound.ThreadTS,
 			UserID:          inbound.UserID,
+			Username:        inbound.Username,
+			DisplayName:     inbound.DisplayName,
 			Text:            text,
 			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
 		})
@@ -571,6 +633,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			MessageTS:       event.MessageTS,
 			ThreadTS:        event.ThreadTS,
 			UserID:          event.UserID,
+			Username:        event.Username,
+			DisplayName:     event.DisplayName,
 			Text:            event.Text,
 			SentAt:          event.SentAt,
 			MentionUsers:    append([]string(nil), event.MentionUsers...),
@@ -630,6 +694,27 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if err != nil {
 				return err
 			}
+			username, displayName, identityErr := resolveSlackUserIdentity(context.Background(), event.TeamID, event.UserID)
+			if identityErr != nil {
+				logger.Warn("slack_user_identity_enrichment_failed",
+					"conversation_key", conversationKey,
+					"team_id", event.TeamID,
+					"channel_id", event.ChannelID,
+					"user_id", event.UserID,
+					"error", identityErr.Error(),
+				)
+				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
+					Stage:           ErrorStageIdentityEnrich,
+					ConversationKey: conversationKey,
+					TeamID:          event.TeamID,
+					ChannelID:       event.ChannelID,
+					MessageTS:       event.MessageTS,
+					Err:             identityErr,
+				})
+				return nil
+			}
+			event.Username = username
+			event.DisplayName = displayName
 
 			isGroup := isSlackGroupChat(event.ChatType)
 			if isGroup {
@@ -676,6 +761,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				MessageTS:    event.MessageTS,
 				ThreadTS:     event.ThreadTS,
 				UserID:       event.UserID,
+				Username:     event.Username,
+				DisplayName:  event.DisplayName,
 				Text:         event.Text,
 				SentAt:       event.SentAt,
 				MentionUsers: append([]string(nil), event.MentionUsers...),
