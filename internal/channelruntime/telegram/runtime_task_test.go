@@ -179,7 +179,7 @@ func TestBuildTelegramHistoryMessageUnsupportedModelSkipsImageParts(t *testing.T
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg := buildTelegramHistoryMessage("history", "claude-3-7-sonnet", []string{imgPath}, nil)
+	msg := buildTelegramHistoryMessage("history", "qwen-max", []string{imgPath}, nil)
 	if len(msg.Parts) != 0 {
 		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
 	}
