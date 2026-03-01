@@ -2,11 +2,17 @@ package telegram
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/grouptrigger"
+	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -121,4 +127,64 @@ func shouldSkipGroupReplyWithoutBodyMention(msg *telegramMessage, text string, b
 	}
 	_, bodyMentioned := groupBodyMentionReason(msg, text, botUser, botID)
 	return !bodyMentioned
+}
+
+func addressingDecisionViaLLM(
+	ctx context.Context,
+	client llm.Client,
+	model string,
+	msg *telegramMessage,
+	text string,
+	history []chathistory.ChatHistoryItem,
+	addressingTool tools.Tool,
+) (grouptrigger.Addressing, bool, error) {
+	if ctx == nil || client == nil {
+		return grouptrigger.Addressing{}, false, nil
+	}
+	text = strings.TrimSpace(text)
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return grouptrigger.Addressing{}, false, fmt.Errorf("missing model for addressing_llm")
+	}
+
+	historyMessages := chathistory.BuildMessages(chathistory.ChannelTelegram, history)
+	currentMessage := map[string]any{
+		"text":   text,
+		"sender": map[string]any{},
+	}
+	sender := currentMessage["sender"].(map[string]any)
+	if msg != nil && msg.From != nil {
+		sender["id"] = msg.From.ID
+		sender["is_bot"] = msg.From.IsBot
+		sender["username"] = strings.TrimSpace(msg.From.Username)
+		sender["display_name"] = strings.TrimSpace(telegramDisplayName(msg.From))
+	}
+	if msg != nil && msg.Chat != nil {
+		sender["chat_id"] = msg.Chat.ID
+		sender["chat_type"] = strings.TrimSpace(msg.Chat.Type)
+	}
+	sys, user, err := grouptrigger.RenderAddressingPrompts(loadAddressingPersonaIdentity(), currentMessage, historyMessages)
+	if err != nil {
+		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
+	}
+	return grouptrigger.DecideViaLLM(llminspect.WithModelScene(ctx, "telegram.addressing_decision"), grouptrigger.LLMDecisionOptions{
+		Client:         client,
+		Model:          model,
+		SystemPrompt:   sys,
+		UserPrompt:     user,
+		AddressingTool: addressingTool,
+		MaxToolRounds:  3,
+	})
+}
+
+var silentPromptProfileLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+func loadAddressingPersonaIdentity() string {
+	spec := agent.PromptSpec{}
+	promptprofile.ApplyPersonaIdentity(&spec, silentPromptProfileLogger)
+	persona := strings.TrimSpace(spec.Identity)
+	if persona == "" {
+		return ""
+	}
+	return persona
 }
