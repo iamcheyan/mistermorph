@@ -35,6 +35,7 @@ func decideSlackGroupTrigger(
 	model string,
 	event slackInboundEvent,
 	botUserID string,
+	emojiList string,
 	mode string,
 	addressingLLMTimeout time.Duration,
 	addressingConfidenceThreshold float64,
@@ -52,7 +53,7 @@ func decideSlackGroupTrigger(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return slackAddressingDecisionViaLLM(addrCtx, client, model, event, history, addressingReactionTool)
+			return slackAddressingDecisionViaLLM(addrCtx, client, model, event, history, emojiList, addressingReactionTool)
 		},
 	})
 }
@@ -67,7 +68,7 @@ func slackExplicitMentionReason(event slackInboundEvent, botUserID string) (stri
 	return "", false
 }
 
-func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model string, event slackInboundEvent, history []chathistory.ChatHistoryItem, addressingTool tools.Tool) (grouptrigger.Addressing, bool, error) {
+func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model string, event slackInboundEvent, history []chathistory.ChatHistoryItem, emojiList string, addressingTool tools.Tool) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
 	}
@@ -87,7 +88,7 @@ func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model
 		"text":          event.Text,
 		"mention_users": append([]string(nil), event.MentionUsers...),
 	}
-	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(personaIdentity, currentMessage, historyMessages)
+	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(personaIdentity, emojiList, currentMessage, historyMessages)
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}

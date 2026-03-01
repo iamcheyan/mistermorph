@@ -42,6 +42,7 @@ const AddressingPersonaFallback = "You are MisterMorph, a general-purpose AI age
 
 type addressingSystemPromptData struct {
 	PersonaIdentity string
+	EmojiList       string
 }
 
 type addressingUserPromptData struct {
@@ -49,7 +50,7 @@ type addressingUserPromptData struct {
 	ChatHistoryMessages []chathistory.ChatHistoryItem
 }
 
-func RenderAddressingPrompts(personaIdentity string, currentMessage any, historyMessages []chathistory.ChatHistoryItem) (string, string, error) {
+func RenderAddressingPrompts(personaIdentity string, emojiList string, currentMessage any, historyMessages []chathistory.ChatHistoryItem) (string, string, error) {
 	personaIdentity = strings.TrimSpace(personaIdentity)
 	if personaIdentity == "" {
 		personaIdentity = AddressingPersonaFallback
@@ -57,6 +58,7 @@ func RenderAddressingPrompts(personaIdentity string, currentMessage any, history
 
 	systemPrompt, err := prompttmpl.Render(addressingSystemPromptTemplate, addressingSystemPromptData{
 		PersonaIdentity: personaIdentity,
+		EmojiList:       strings.TrimSpace(emojiList),
 	})
 	if err != nil {
 		return "", "", err

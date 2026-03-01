@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
 
 type telegramGroupTriggerDecision = grouptrigger.Decision
@@ -163,7 +164,7 @@ func addressingDecisionViaLLM(
 		sender["chat_id"] = msg.Chat.ID
 		sender["chat_type"] = strings.TrimSpace(msg.Chat.Type)
 	}
-	sys, user, err := grouptrigger.RenderAddressingPrompts(loadAddressingPersonaIdentity(), currentMessage, historyMessages)
+	sys, user, err := grouptrigger.RenderAddressingPrompts(loadAddressingPersonaIdentity(), strings.Join(telegramtools.StandardReactionEmojis(), ","), currentMessage, historyMessages)
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}

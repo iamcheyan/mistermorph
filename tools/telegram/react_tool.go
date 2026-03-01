@@ -20,6 +20,12 @@ var telegramStandardReactionEmojis = []string{
 	"👍", "👎", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "❤️‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇", "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷‍♂️", "🤷", "🤷‍♀️", "😡",
 }
 
+func StandardReactionEmojis() []string {
+	out := make([]string, len(telegramStandardReactionEmojis))
+	copy(out, telegramStandardReactionEmojis)
+	return out
+}
+
 func NewReactTool(api API, defaultChatID int64, defaultMessageID int64, allowedIDs map[int64]bool) *ReactTool {
 	emojiSet := make(map[string]bool, len(telegramStandardReactionEmojis))
 	for _, emoji := range telegramStandardReactionEmojis {

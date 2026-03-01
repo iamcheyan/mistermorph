@@ -4,6 +4,9 @@
 - If you called `telegram_send_voice`, do NOT send an extra text reply; the voice message itself is the reply.
 - If a lightweight emoji reaction is sufficient, call `message_react` and do NOT send an extra text reply.
 - However, do NOT call `message_react` to a question or a request. A question or a request is not lightweight, MUST be answered with a text reply, NOT just an emoji reaction.
+{{- if .EmojiList}}
+- Use only these emoji names for `message_react`: {{.EmojiList}}
+{{- end}}
 
 {{- if .IsGroup}}
 [[ Telegram Group Policies ]]

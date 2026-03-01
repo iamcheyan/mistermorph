@@ -2,6 +2,7 @@ package slack
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -96,7 +97,7 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 		IsAppMention:    true,
 		IsThreadMessage: false,
 	}
-	dec, ok, err := decideSlackGroupTrigger(nil, nil, "", eventMention, "U999", "strict", 0, 0.6, 0.6, nil, nil)
+	dec, ok, err := decideSlackGroupTrigger(nil, nil, "", eventMention, "U999", "", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(app_mention) error = %v", err)
 	}
@@ -110,7 +111,7 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 	eventIgnored := slackInboundEvent{
 		Text: "hello everyone",
 	}
-	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventIgnored, "U999", "strict", 0, 0.6, 0.6, nil, nil)
+	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventIgnored, "U999", "", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(non_mention) error = %v", err)
 	}
@@ -122,11 +123,37 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 		Text:            "following up in thread",
 		IsThreadMessage: true,
 	}
-	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventThreadReply, "U999", "strict", 0, 0.6, 0.6, nil, nil)
+	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventThreadReply, "U999", "", "strict", 0, 0.6, 0.6, nil, nil)
 	if err != nil {
 		t.Fatalf("decideSlackGroupTrigger(thread_reply_without_mention) error = %v", err)
 	}
 	if ok {
 		t.Fatalf("decideSlackGroupTrigger(thread_reply_without_mention) ok=true, want false")
+	}
+}
+
+func TestIntersectSlackCommonReactionEmojiNames(t *testing.T) {
+	t.Parallel()
+
+	got := intersectSlackCommonReactionEmojiNames([]string{
+		"thumbsup",
+		"+1",
+		"custom_emoji",
+		"WAVE",
+		"  chart_with_upwards_trend  ",
+		"",
+	})
+	want := []string{"+1", "wave", "chart_with_upwards_trend"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("intersectSlackCommonReactionEmojiNames() = %#v, want %#v", got, want)
+	}
+}
+
+func TestIntersectSlackCommonReactionEmojiNames_EmptyInput(t *testing.T) {
+	t.Parallel()
+
+	got := intersectSlackCommonReactionEmojiNames(nil)
+	if len(got) != 0 {
+		t.Fatalf("intersectSlackCommonReactionEmojiNames(nil) len = %d, want 0", len(got))
 	}
 }

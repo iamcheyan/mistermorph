@@ -87,7 +87,7 @@ func runSlackTask(
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendSlackRuntimeBlocks(&promptSpec, isSlackGroupChat(job.ChatType), job.MentionUsers)
+	promptprofile.AppendSlackRuntimeBlocks(&promptSpec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 
 	memSubjectID := slackMemorySubjectID(job)
 	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {

@@ -79,11 +79,45 @@ type slackConversationWorker struct {
 
 const slackStickySkillsCap = 16
 const slackUserIdentityCacheTTL = 6 * time.Hour
+const slackCommonReactionEmojiNamesCSV = "+1,-1,ok_hand,clap,pray,tada,muscle,handshake,white_check_mark,heavy_check_mark,x,100,eyes,warning,rotating_light,bangbang,exclamation,question,grey_question,grey_exclamation,triangular_flag_on_post,fire,hourglass_flowing_sand,hourglass,repeat,rewind,fast_forward,construction,hammer_and_wrench,wrench,gear,rocket,bug,mag,mag_right,memo,bookmark_tabs,link,paperclip,pushpin,bell,loudspeaker,computer,file_folder,wave,thinking_face,face_with_monocle,neutral_face,slightly_smiling_face,slightly_frowning_face,joy,sob,sweat_smile,grimacing,calendar,clock1,clock3,clock6,clock9,stopwatch,bar_chart,chart_with_upwards_trend,chart_with_downwards_trend,clipboard"
+
+var slackCommonReactionEmojiNameSet = buildSlackCommonReactionEmojiNameSet()
 
 type slackUserIdentityCacheEntry struct {
 	Username    string
 	DisplayName string
 	ExpiresAt   time.Time
+}
+
+func buildSlackCommonReactionEmojiNameSet() map[string]bool {
+	parts := strings.Split(slackCommonReactionEmojiNamesCSV, ",")
+	out := make(map[string]bool, len(parts))
+	for _, raw := range parts {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name == "" {
+			continue
+		}
+		out[name] = true
+	}
+	return out
+}
+
+func intersectSlackCommonReactionEmojiNames(available []string) []string {
+	if len(available) == 0 || len(slackCommonReactionEmojiNameSet) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(available))
+	for _, raw := range available {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name == "" {
+			continue
+		}
+		if !slackCommonReactionEmojiNameSet[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
@@ -161,8 +195,14 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			"hint", "add bot scope emoji:read and reinstall app if message_react should be enabled",
 		)
 	} else {
-		logger.Info("slack_emoji_catalog_loaded", "emoji_count", len(availableEmojiNames))
+		rawCount := len(availableEmojiNames)
+		availableEmojiNames = intersectSlackCommonReactionEmojiNames(availableEmojiNames)
+		logger.Info("slack_emoji_catalog_loaded",
+			"emoji_count", len(availableEmojiNames),
+			"emoji_count_raw", rawCount,
+		)
 	}
+	availableEmojiList := strings.Join(availableEmojiNames, ",")
 
 	slackDeliveryAdapter, err := slackbus.NewDeliveryAdapter(slackbus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts slackbus.SendTextOptions) error {
@@ -783,6 +823,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					model,
 					event,
 					botUserID,
+					availableEmojiList,
 					groupTriggerMode,
 					addressingLLMTimeout,
 					addressingConfidenceThreshold,
