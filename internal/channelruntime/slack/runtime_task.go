@@ -48,6 +48,7 @@ func runSlackTask(
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	allowedChannelIDs map[string]bool,
+	availableEmojiNames []string,
 	runtimeOpts runtimeTaskOptions,
 	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
@@ -72,8 +73,11 @@ func runSlackTask(
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 	var reactTool *slacktools.ReactTool
-	if api != nil && strings.TrimSpace(job.ChannelID) != "" && strings.TrimSpace(job.MessageTS) != "" {
-		reactTool = slacktools.NewReactTool(newSlackToolAPI(api), job.ChannelID, job.MessageTS, allowedChannelIDs)
+	if api != nil &&
+		strings.TrimSpace(job.ChannelID) != "" &&
+		strings.TrimSpace(job.MessageTS) != "" &&
+		len(availableEmojiNames) > 0 {
+		reactTool = slacktools.NewReactTool(newSlackToolAPI(api), job.ChannelID, job.MessageTS, allowedChannelIDs, availableEmojiNames)
 		reg.Register(reactTool)
 	}
 

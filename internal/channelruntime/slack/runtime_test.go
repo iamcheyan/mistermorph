@@ -117,4 +117,16 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 	if ok {
 		t.Fatalf("decideSlackGroupTrigger(non_mention) ok=true, want false")
 	}
+
+	eventThreadReply := slackInboundEvent{
+		Text:            "following up in thread",
+		IsThreadMessage: true,
+	}
+	_, ok, err = decideSlackGroupTrigger(nil, nil, "", eventThreadReply, "U999", "strict", 0, 0.6, 0.6, nil)
+	if err != nil {
+		t.Fatalf("decideSlackGroupTrigger(thread_reply_without_mention) error = %v", err)
+	}
+	if ok {
+		t.Fatalf("decideSlackGroupTrigger(thread_reply_without_mention) ok=true, want false")
+	}
 }

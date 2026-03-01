@@ -151,6 +151,17 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if len(allowedTeams) == 0 && strings.TrimSpace(auth.TeamID) != "" {
 		allowedTeams[strings.TrimSpace(auth.TeamID)] = true
 	}
+	emojiLookupCtx, cancelEmojiLookup := context.WithTimeout(ctx, 8*time.Second)
+	availableEmojiNames, emojiErr := api.listEmojiNames(emojiLookupCtx)
+	cancelEmojiLookup()
+	if emojiErr != nil {
+		logger.Warn("slack_emoji_catalog_load_failed",
+			"error", emojiErr.Error(),
+			"hint", "add bot scope emoji:read and reinstall app if slack_react should be enabled",
+		)
+	} else {
+		logger.Info("slack_emoji_catalog_loaded", "emoji_count", len(availableEmojiNames))
+	}
 
 	slackDeliveryAdapter, err := slackbus.NewDeliveryAdapter(slackbus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts slackbus.SendTextOptions) error {
@@ -387,6 +398,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					h,
 					sticky,
 					allowedChannels,
+					availableEmojiNames,
 					taskRuntimeOpts,
 					func(ctx context.Context, text, correlationID string) error {
 						if ctx == nil {
@@ -671,6 +683,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		"bot_user_id", botUserID,
 		"allowed_team_ids", len(allowedTeams),
 		"allowed_channel_ids", len(allowedChannels),
+		"emoji_catalog_size", len(availableEmojiNames),
 		"task_timeout", taskTimeout.String(),
 		"max_concurrency", maxConc,
 		"group_trigger_mode", groupTriggerMode,
@@ -708,6 +721,18 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if !ok {
 				return nil
 			}
+			logger.Info("slack_inbound_event",
+				"event_type", event.EventType,
+				"event_id", event.EventID,
+				"team_id", event.TeamID,
+				"channel_id", event.ChannelID,
+				"chat_type", event.ChatType,
+				"user_id", event.UserID,
+				"message_ts", event.MessageTS,
+				"thread_ts", event.ThreadTS,
+				"is_app_mention", event.IsAppMention,
+				"is_thread_message", event.IsThreadMessage,
+			)
 			if len(allowedTeams) > 0 && !allowedTeams[event.TeamID] {
 				return nil
 			}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -13,12 +15,16 @@ type ReactTool struct {
 	defaultChannelID  string
 	defaultMessageTS  string
 	allowedChannelIDs map[string]bool
+	availableEmojis   []string
+	availableEmojiSet map[string]bool
 	lastReaction      *Reaction
 }
 
 var slackEmojiNamePattern = regexp.MustCompile(`^[A-Za-z0-9_+\-]+$`)
 
-func NewReactTool(api API, defaultChannelID, defaultMessageTS string, allowedChannelIDs map[string]bool) *ReactTool {
+const slackEmojiPreviewLimit = 120
+
+func NewReactTool(api API, defaultChannelID, defaultMessageTS string, allowedChannelIDs map[string]bool, availableEmojiNames []string) *ReactTool {
 	allowed := make(map[string]bool, len(allowedChannelIDs))
 	for raw := range allowedChannelIDs {
 		channelID := strings.TrimSpace(raw)
@@ -27,18 +33,31 @@ func NewReactTool(api API, defaultChannelID, defaultMessageTS string, allowedCha
 		}
 		allowed[channelID] = true
 	}
+	emojiSet := make(map[string]bool, len(availableEmojiNames))
+	emojis := make([]string, 0, len(availableEmojiNames))
+	for _, raw := range availableEmojiNames {
+		name, err := normalizeSlackEmojiName(raw)
+		if err != nil || name == "" || emojiSet[name] {
+			continue
+		}
+		emojiSet[name] = true
+		emojis = append(emojis, name)
+	}
+	sort.Strings(emojis)
 	return &ReactTool{
 		api:               api,
 		defaultChannelID:  strings.TrimSpace(defaultChannelID),
 		defaultMessageTS:  strings.TrimSpace(defaultMessageTS),
 		allowedChannelIDs: allowed,
+		availableEmojis:   emojis,
+		availableEmojiSet: emojiSet,
 	}
 }
 
 func (t *ReactTool) Name() string { return "slack_react" }
 
 func (t *ReactTool) Description() string {
-	return "Adds an emoji reaction to a Slack message. Prefer this for lightweight acknowledgements."
+	return "Adds an emoji reaction to a Slack message. Prefer this for lightweight acknowledgements. " + t.emojiNameGuidance()
 }
 
 func (t *ReactTool) ParameterSchema() string {
@@ -56,7 +75,7 @@ func (t *ReactTool) ParameterSchema() string {
 			},
 			"emoji": map[string]any{
 				"type":        "string",
-				"description": "Emoji name, for example thumbsup or :thumbsup:.",
+				"description": t.emojiNameGuidance(),
 			},
 		},
 		"required": []string{"emoji"},
@@ -94,6 +113,9 @@ func (t *ReactTool) Execute(ctx context.Context, params map[string]any) (string,
 	if err != nil {
 		return "", err
 	}
+	if len(t.availableEmojiSet) > 0 && !t.availableEmojiSet[emoji] {
+		return "", fmt.Errorf("emoji name is not available in this Slack workspace: %s", rawEmoji)
+	}
 
 	if err := t.api.AddReaction(ctx, channelID, messageTS, emoji); err != nil {
 		return "", err
@@ -129,4 +151,20 @@ func normalizeSlackEmojiName(raw string) (string, error) {
 		return "", fmt.Errorf("emoji name is invalid: %s", raw)
 	}
 	return strings.ToLower(name), nil
+}
+
+func (t *ReactTool) emojiNameGuidance() string {
+	base := "Use Slack-style emoji name (not Unicode). Example: thumbsup or :thumbsup:."
+	if t == nil || len(t.availableEmojis) == 0 {
+		return base
+	}
+	limit := slackEmojiPreviewLimit
+	if limit <= 0 || limit > len(t.availableEmojis) {
+		limit = len(t.availableEmojis)
+	}
+	preview := strings.Join(t.availableEmojis[:limit], ", ")
+	if len(t.availableEmojis) > limit {
+		preview += ", ..."
+	}
+	return base + " Available emoji names (" + strconv.Itoa(len(t.availableEmojis)) + "): " + preview + "."
 }

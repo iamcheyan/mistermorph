@@ -46,6 +46,7 @@ type slackEvent struct {
 }
 
 type slackInboundEvent struct {
+	EventType       string
 	TeamID          string
 	ChannelID       string
 	ChatType        string
@@ -156,6 +157,7 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 	}
 
 	return slackInboundEvent{
+		EventType:       eventType,
 		TeamID:          teamID,
 		ChannelID:       channelID,
 		ChatType:        chatType,

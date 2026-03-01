@@ -43,6 +43,8 @@ then read the content of the file to understand how to use the skill, and contin
 {{end}}
 
 ## TODO Workflow
+Use this workflow ONLY when you need to remeber something for future work,
+or mark an exisiting todo item as completed.
 When ongoing tasks need tracking, maintain `TODO.md` and `TODO.DONE.md` under `file_state_dir`.
 Read TODO.md at the start of each run to get current tasks, and TODO.DONE.md for completed-task history.
 

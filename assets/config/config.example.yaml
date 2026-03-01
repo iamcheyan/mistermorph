@@ -307,7 +307,7 @@ slack:
   # Also used as heartbeat notification targets in `mistermorph slack`.
   allowed_channel_ids: []
   # Group trigger mode:
-  # - strict: only explicit triggers (app_mention/@bot mention/thread reply) in groups.
+  # - strict: only explicit triggers (app_mention/@bot mention) in groups.
   # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
   # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
   group_trigger_mode: "smart"

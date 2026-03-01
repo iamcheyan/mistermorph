@@ -162,6 +162,8 @@ Notes:
 - Requires both `xoxb` bot token and `xapp` app token.
 - Group trigger and addressing controls mirror Telegram style (`strict|smart|talkative` + confidence/interject thresholds).
 - By default it runs multiple conversations concurrently, but processes each `team_id:channel_id` conversation serially (`slack.max_concurrency` controls global concurrency).
+- `heartbeat.enabled=true` and `heartbeat.interval>0` will start heartbeat loop alongside Slack runtime.
+- Slack heartbeat notifications are delivered to `slack.allowed_channel_ids`; if this list is empty, heartbeat still runs but skips channel notifications.
 - See [`docs/slack.md`](docs/slack.md) for setup and thread behavior details.
 - See [`docs/bus.md`](docs/bus.md) for bus routing and ordering semantics.
 

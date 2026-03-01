@@ -54,9 +54,14 @@ The `access_token` in the JSON response (usually `xoxb-...`) is your bot token.
 4. Add scope: `connections:write`.
 5. Generate and copy the `xapp-...` token.
 
-## 5. Recommended Scopes (Phase A)
+## 5. Required Permissions (Current Runtime)
 
-For the current Slack Phase A in this repo (Socket Mode + text send/receive), use:
+Configure permissions in two places:
+
+- `OAuth & Permissions` -> `Bot Token Scopes` (for `xoxb-...`)
+- `Basic Information` -> `App-Level Tokens` (for `xapp-...`)
+
+Required `Bot Token Scopes`:
 
 - `app_mentions:read`
 - `channels:history`
@@ -64,6 +69,27 @@ For the current Slack Phase A in this repo (Socket Mode + text send/receive), us
 - `im:history`
 - `mpim:history`
 - `chat:write`
+- `users:read`
+
+Optional `Bot Token Scopes`:
+
+- `reactions:write` (required only if you want emoji reaction delivery)
+- `emoji:read` (required if you want `slack_react` to validate against workspace available emoji names)
+
+Required `App-Level Token` scope:
+
+- `connections:write` (on `xapp-...`)
+
+After adding or changing any scope:
+
+1. Click `Reinstall to Workspace`.
+2. Use the newest token values (`xoxb` / `xapp`).
+3. Restart `mistermorph slack`.
+
+If you see `missing_scope`, the usual cause is one of:
+
+- Scope was added but app was not reinstalled.
+- Runtime is still using an old token.
 
 ## 6. Configure Credentials
 
@@ -103,6 +129,10 @@ go run ./cmd/mistermorph slack \
   - Token was not provided, or env var names are incorrect.
 - `slack auth.test failed: invalid_auth`
   - `xoxb` is invalid/expired/mis-copied, or installed in the wrong workspace.
+- `slack users.info failed: missing_scope`
+  - Bot token is missing `users:read`, or scope changed without reinstall/token refresh.
+- `slack_emoji_catalog_load_failed ... slack emoji.list failed: missing_scope`
+  - Bot token is missing `emoji:read`; `slack_react` will not be registered until emoji catalog can be loaded.
 - `slack apps.connections.open failed: not_allowed_token_type`
   - A non-`xapp` token was used, or `xapp` is missing `connections:write`.
 - Not receiving channel messages
@@ -128,3 +158,15 @@ In the current implementation, Slack thread data is passed through fields in bus
   3. `MessageEnvelope.reply_to`
 - Bus ordering/sharding key is `conversation_key = slack:<team_id>:<channel_id>`.
   Thread is not part of sharding, so different threads in the same channel share the same serialized worker.
+
+## 11. Heartbeat Delivery
+
+`mistermorph slack` can run heartbeat together with Slack runtime when:
+
+- `heartbeat.enabled: true`
+- `heartbeat.interval > 0`
+
+Heartbeat notification messages are sent through Slack `chat.postMessage` to channels in `slack.allowed_channel_ids`.
+
+- If `slack.allowed_channel_ids` is empty, heartbeat still runs, but notification delivery is skipped.
+- If any target channel send fails, the notifier returns that error and heartbeat logs `heartbeat_notify_error`.

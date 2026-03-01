@@ -3,8 +3,11 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -17,11 +20,18 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
 			t.Fatalf("authorization = %q", got)
 		}
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode payload: %v", err)
+		if got := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.Contains(got, "application/x-www-form-urlencoded") {
+			t.Fatalf("content-type = %q", got)
 		}
-		if got := strings.TrimSpace(payload["user"].(string)); got != "U123" {
+		rawBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read payload: %v", err)
+		}
+		payload, err := url.ParseQuery(string(rawBody))
+		if err != nil {
+			t.Fatalf("parse payload: %v", err)
+		}
+		if got := strings.TrimSpace(payload.Get("user")); got != "U123" {
 			t.Fatalf("user = %q, want %q", got, "U123")
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -113,7 +123,7 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 		}
 	})
 
-	t.Run("slack api error", func(t *testing.T) {
+	t.Run("fallback to user id on user_not_found", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
@@ -123,12 +133,37 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 		defer server.Close()
 
 		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		identity, err := api.userIdentity(context.Background(), "U404")
+		if err != nil {
+			t.Fatalf("userIdentity() error = %v", err)
+		}
+		if identity.UserID != "U404" {
+			t.Fatalf("user id = %q, want %q", identity.UserID, "U404")
+		}
+		if identity.Username != "U404" {
+			t.Fatalf("username = %q, want %q", identity.Username, "U404")
+		}
+		if identity.DisplayName != "U404" {
+			t.Fatalf("display name = %q, want %q", identity.DisplayName, "U404")
+		}
+	})
+
+	t.Run("slack api error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "invalid_auth",
+			})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
 		_, err := api.userIdentity(context.Background(), "U404")
 		if err == nil {
 			t.Fatalf("expected error")
 		}
-		if !strings.Contains(err.Error(), "user_not_found") {
-			t.Fatalf("error = %v, want user_not_found", err)
+		if !strings.Contains(err.Error(), "invalid_auth") {
+			t.Fatalf("error = %v, want invalid_auth", err)
 		}
 	})
 }
@@ -198,4 +233,53 @@ func TestSlackAPIAddReaction(t *testing.T) {
 			t.Fatalf("error = %v, want invalid_name", err)
 		}
 	})
+}
+
+func TestSlackAPIListEmojiNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/emoji.list" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/emoji.list")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+			t.Fatalf("authorization = %q", got)
+		}
+		if got := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.Contains(got, "application/x-www-form-urlencoded") {
+			t.Fatalf("content-type = %q", got)
+		}
+		rawBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read payload: %v", err)
+		}
+		payload, err := url.ParseQuery(string(rawBody))
+		if err != nil {
+			t.Fatalf("parse payload: %v", err)
+		}
+		if got := strings.TrimSpace(payload.Get("include_categories")); got != "true" {
+			t.Fatalf("include_categories = %q, want %q", got, "true")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"emoji": map[string]any{
+				"party_parrot": "https://example.com/parrot.png",
+				"shipit":       "alias:party_parrot",
+			},
+			"categories": []map[string]any{
+				{
+					"name":        "Smileys & Emotion",
+					"emoji_names": []string{"thumbsup", "older_woman"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	names, err := api.listEmojiNames(context.Background())
+	if err != nil {
+		t.Fatalf("listEmojiNames() error = %v", err)
+	}
+	want := []string{"older_woman", "party_parrot", "shipit", "thumbsup"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("names = %#v, want %#v", names, want)
+	}
 }

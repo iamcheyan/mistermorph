@@ -10,3 +10,6 @@
 - Be direct and actionable.
 - Keep one coherent reply unless the user explicitly asks for step-by-step drip responses.
 {{end}}
+
+<Slack Reaction Tool Policy>
+- When calling `slack_react`, pass Slack emoji `name` format (for example `thumbsup` or `:thumbsup:`), never raw Unicode emoji characters.

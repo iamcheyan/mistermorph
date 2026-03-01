@@ -117,9 +117,6 @@ func slackExplicitMentionReason(event slackInboundEvent, botUserID string) (stri
 	if strings.TrimSpace(botUserID) != "" && strings.Contains(event.Text, "<@"+strings.TrimSpace(botUserID)+">") {
 		return "mention", true
 	}
-	if event.IsThreadMessage {
-		return "thread_reply", true
-	}
 	return "", false
 }
 
