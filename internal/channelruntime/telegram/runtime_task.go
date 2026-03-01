@@ -1,17 +1,23 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/nickalie/go-webpbin"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
@@ -42,6 +48,8 @@ const (
 	telegramLLMMaxImageBytes = int64(5 * 1024 * 1024)
 )
 
+var encodeImageToWebP = defaultEncodeImageToWebP
+
 func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, filesEnabled bool, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
 	if sendTelegramText == nil {
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
@@ -55,7 +63,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("render telegram history context: %w", err)
 	}
-	llmHistory := []llm.Message{buildTelegramHistoryMessage(string(historyRaw), model, job.ImagePaths, logger)}
+	historyMsg, err := buildTelegramHistoryMessage(string(historyRaw), model, job.ImagePaths, logger)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	llmHistory := []llm.Message{historyMsg}
 	if baseReg == nil {
 		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
@@ -258,32 +270,26 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) llm.Message {
+func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
 	msg := llm.Message{Role: "user", Content: content}
 	if !llm.ModelSupportsImageParts(model) {
-		return msg
+		return msg, nil
 	}
-	imageParts := loadTelegramImageParts(imagePaths, logger)
-	if len(imageParts) == 0 {
-		return msg
+	if len(imagePaths) == 0 {
+		return msg, nil
 	}
-	parts := make([]llm.Part, 0, 1+len(imageParts))
+	parts := make([]llm.Part, 0, 1+min(len(imagePaths), telegramLLMMaxImages))
 	if strings.TrimSpace(content) != "" {
 		parts = append(parts, llm.Part{Type: llm.PartTypeText, Text: content})
 	}
-	parts = append(parts, imageParts...)
-	msg.Parts = parts
-	return msg
-}
 
-func loadTelegramImageParts(imagePaths []string, logger *slog.Logger) []llm.Part {
-	if len(imagePaths) == 0 {
-		return nil
-	}
-
-	out := make([]llm.Part, 0, len(imagePaths))
+	enableWebPTranscode := llm.ModelSupportsWebPTranscode(model)
 	seen := make(map[string]bool, len(imagePaths))
+	imageCount := 0
 	for _, rawPath := range imagePaths {
+		if imageCount >= telegramLLMMaxImages {
+			break
+		}
 		path := strings.TrimSpace(rawPath)
 		if path == "" || seen[path] {
 			continue
@@ -301,11 +307,9 @@ func loadTelegramImageParts(imagePaths []string, logger *slog.Logger) []llm.Part
 			continue
 		}
 		if info.Size() > telegramLLMMaxImageBytes {
-			if logger != nil {
-				logger.Warn("telegram_image_part_skip_too_large", "path", path, "bytes", info.Size(), "max_bytes", telegramLLMMaxImageBytes)
-			}
-			continue
+			return llm.Message{}, fmt.Errorf("图片太大: %s (%d bytes > %d bytes)", filepath.Base(path), info.Size(), telegramLLMMaxImageBytes)
 		}
+
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			if logger != nil {
@@ -313,19 +317,28 @@ func loadTelegramImageParts(imagePaths []string, logger *slog.Logger) []llm.Part
 			}
 			continue
 		}
-		out = append(out, llm.Part{
+		mimeType := telegramImageMIMEType(path)
+		if enableWebPTranscode && !strings.EqualFold(mimeType, "image/webp") {
+			webpRaw, webpErr := encodeImageToWebP(raw)
+			if webpErr != nil {
+				return llm.Message{}, fmt.Errorf("图片转换失败: %s: %w", filepath.Base(path), webpErr)
+			}
+			raw = webpRaw
+			mimeType = "image/webp"
+		}
+
+		parts = append(parts, llm.Part{
 			Type:       llm.PartTypeImageBase64,
-			MIMEType:   telegramImageMIMEType(path),
+			MIMEType:   mimeType,
 			DataBase64: base64.StdEncoding.EncodeToString(raw),
 		})
-		if len(out) >= telegramLLMMaxImages {
-			break
-		}
+		imageCount++
 	}
-	if len(out) == 0 {
-		return nil
+	if imageCount == 0 {
+		return msg, nil
 	}
-	return out
+	msg.Parts = parts
+	return msg, nil
 }
 
 func telegramImageMIMEType(path string) string {
@@ -347,4 +360,16 @@ func telegramImageMIMEType(path string) string {
 		return "image/heif"
 	}
 	return "image/png"
+}
+
+func defaultEncodeImageToWebP(raw []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := webpbin.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

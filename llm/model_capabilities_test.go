@@ -35,3 +35,25 @@ func TestModelSupportsImageParts(t *testing.T) {
 		}
 	}
 }
+
+func TestModelSupportsWebPTranscode(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{model: "gpt-5.2", want: true},
+		{model: "openrouter/gpt-4.1", want: true},
+		{model: "gemini-2.5-pro", want: true},
+		{model: "google/gemini-2.0-flash", want: true},
+		{model: "claude-3-7-sonnet", want: true},
+		{model: "anthropic/claude-sonnet-4", want: true},
+		{model: "grok-4", want: false},
+		{model: "qwen-max", want: false},
+		{model: "", want: false},
+	}
+	for _, tc := range tests {
+		if got := ModelSupportsWebPTranscode(tc.model); got != tc.want {
+			t.Fatalf("ModelSupportsWebPTranscode(%q) = %v, want %v", tc.model, got, tc.want)
+		}
+	}
+}

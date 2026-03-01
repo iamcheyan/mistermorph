@@ -6,14 +6,14 @@ import (
 )
 
 func ModelSupportsImageParts(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
+	model = normalizeModelName(model)
 	if model == "" {
 		return false
 	}
-	if strings.HasPrefix(model, "gpt-") || strings.Contains(model, "/gpt-") {
+	if matchModelFamily(model, "gpt-") {
 		return true
 	}
-	if strings.HasPrefix(model, "gemini") || strings.Contains(model, "/gemini") {
+	if matchModelFamily(model, "gemini") {
 		return true
 	}
 	if claude3OrAbove(model) {
@@ -25,12 +25,29 @@ func ModelSupportsImageParts(model string) bool {
 	return false
 }
 
+func ModelSupportsWebPTranscode(model string) bool {
+	model = normalizeModelName(model)
+	if model == "" {
+		return false
+	}
+	if matchModelFamily(model, "gpt-") {
+		return true
+	}
+	if matchModelFamily(model, "gemini") {
+		return true
+	}
+	if matchModelFamily(model, "claude") {
+		return true
+	}
+	return false
+}
+
 func claude3OrAbove(model string) bool {
 	if major, ok := parseFamilyMajor(model, "claude"); ok && major >= 3 {
 		return true
 	}
-	if idx := strings.Index(model, "/claude"); idx >= 0 {
-		if major, ok := parseFamilyMajor(model[idx+1:], "claude"); ok && major >= 3 {
+	if sub, ok := modelAfterSlashFamily(model, "claude"); ok {
+		if major, ok := parseFamilyMajor(sub, "claude"); ok && major >= 3 {
 			return true
 		}
 	}
@@ -41,12 +58,31 @@ func grok4OrAbove(model string) bool {
 	if major, ok := parseGrokMajor(model); ok && major >= 4 {
 		return true
 	}
-	if idx := strings.Index(model, "/grok-"); idx >= 0 {
-		if major, ok := parseGrokMajor(model[idx+1:]); ok && major >= 4 {
+	if sub, ok := modelAfterSlashFamily(model, "grok-"); ok {
+		if major, ok := parseGrokMajor(sub); ok && major >= 4 {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeModelName(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
+}
+
+func matchModelFamily(model string, family string) bool {
+	if strings.HasPrefix(model, family) {
+		return true
+	}
+	return strings.Contains(model, "/"+family)
+}
+
+func modelAfterSlashFamily(model string, family string) (string, bool) {
+	idx := strings.Index(model, "/"+family)
+	if idx < 0 || idx+1 >= len(model) {
+		return "", false
+	}
+	return model[idx+1:], true
 }
 
 func parseFamilyMajor(model string, family string) (int, bool) {
