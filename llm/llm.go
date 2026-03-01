@@ -8,8 +8,23 @@ import (
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
+	Parts      []Part     `json:"parts,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+}
+
+const (
+	PartTypeText        = "text"
+	PartTypeImageURL    = "image_url"
+	PartTypeImageBase64 = "image_base64"
+)
+
+type Part struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	URL        string `json:"url,omitempty"`
+	DataBase64 string `json:"data_base64,omitempty"`
+	MIMEType   string `json:"mime_type,omitempty"`
 }
 
 type Tool struct {
@@ -36,6 +51,7 @@ type Usage struct {
 
 type Result struct {
 	Text      string
+	Parts     []Part
 	JSON      any
 	ToolCalls []ToolCall
 	Usage     Usage

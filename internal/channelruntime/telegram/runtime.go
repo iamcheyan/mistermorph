@@ -46,6 +46,7 @@ type telegramJob struct {
 	FromLastName     string
 	FromDisplayName  string
 	Text             string
+	ImagePaths       []string
 	Version          uint64
 	Meta             map[string]any
 	MentionUsers     []string
@@ -764,6 +765,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			"idempotency_key", msg.IdempotencyKey,
 			"conversation_key", msg.ConversationKey,
 			"text_len", len(text),
+			"image_count", len(inbound.ImagePaths),
 		)
 		job := telegramJob{
 			TaskID:           telegramTaskID(inbound.ChatID, inbound.MessageID),
@@ -778,6 +780,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			FromLastName:     inbound.FromLastName,
 			FromDisplayName:  inbound.FromDisplayName,
 			Text:             text,
+			ImagePaths:       append([]string(nil), inbound.ImagePaths...),
 			Version:          v,
 			MentionUsers:     append([]string(nil), inbound.MentionUsers...),
 		}
@@ -1193,6 +1196,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if len(downloaded) > 0 {
 				text = appendDownloadedFilesToTask(text, downloaded)
 			}
+			imagePaths := collectDownloadedImagePaths(downloaded, 3)
 			if msg.ReplyTo != nil {
 				quoted := buildReplyContext(msg.ReplyTo)
 				if quoted != "" {
@@ -1226,6 +1230,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				FromDisplayName:  fromDisplay,
 				Text:             text,
 				MentionUsers:     mentionUsers,
+				ImagePaths:       imagePaths,
 			})
 			if publishErr != nil {
 				logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", msg.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())

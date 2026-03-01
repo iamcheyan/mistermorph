@@ -57,6 +57,57 @@ func TestBuildChatOptionsPreserveToolCallIDAsIs(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{
+			{
+				Role: "user",
+				Parts: []llm.Part{
+					{Type: llm.PartTypeText, Text: "describe this"},
+					{Type: llm.PartTypeImageBase64, MIMEType: "image/png", DataBase64: "QUJD"},
+				},
+			},
+		},
+	}
+
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if len(built.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(built.Messages))
+	}
+	if got := len(built.Messages[0].Parts); got != 2 {
+		t.Fatalf("message parts length = %d, want 2", got)
+	}
+	if built.Messages[0].Parts[0].Type != uniaichat.PartTypeText || built.Messages[0].Parts[0].Text != "describe this" {
+		t.Fatalf("text part mismatch: %+v", built.Messages[0].Parts[0])
+	}
+	if built.Messages[0].Parts[1].Type != uniaichat.PartTypeImageBase64 || built.Messages[0].Parts[1].DataBase64 != "QUJD" {
+		t.Fatalf("image part mismatch: %+v", built.Messages[0].Parts[1])
+	}
+}
+
+func TestPartRoundTripBetweenLLMAndUniai(t *testing.T) {
+	src := []llm.Part{
+		{Type: llm.PartTypeText, Text: "hello"},
+		{Type: llm.PartTypeImageURL, URL: "https://example.com/a.png"},
+		{Type: llm.PartTypeImageBase64, MIMEType: "image/jpeg", DataBase64: "QUJD"},
+	}
+	toUniai := toUniaiPartsFromLLM(src)
+	back := toLLMParts(toUniai)
+
+	if len(back) != len(src) {
+		t.Fatalf("parts length mismatch: got %d want %d", len(back), len(src))
+	}
+	for i := range src {
+		if back[i] != src[i] {
+			t.Fatalf("part[%d] mismatch: got %+v want %+v", i, back[i], src[i])
+		}
+	}
+}
+
 func TestToolCallThoughtSignatureRoundTrip(t *testing.T) {
 	sig := "sig_abc"
 	origArgs := `{"path":"/tmp/a.txt","dup":1,"dup":2}`

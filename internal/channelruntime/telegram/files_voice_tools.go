@@ -164,6 +164,52 @@ func appendDownloadedFilesToTask(task string, files []telegramDownloadedFile) st
 	return strings.TrimSpace(b.String())
 }
 
+func collectDownloadedImagePaths(files []telegramDownloadedFile, max int) []string {
+	if len(files) == 0 || max == 0 {
+		return nil
+	}
+	if max < 0 {
+		max = 0
+	}
+	out := make([]string, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		if !isDownloadedImageFile(f) {
+			continue
+		}
+		path := strings.TrimSpace(f.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if max > 0 && len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+func isDownloadedImageFile(file telegramDownloadedFile) bool {
+	if strings.EqualFold(strings.TrimSpace(file.Kind), "photo") {
+		return true
+	}
+	mimeType := strings.ToLower(strings.TrimSpace(file.MimeType))
+	if strings.HasPrefix(mimeType, "image/") {
+		return true
+	}
+	name := strings.TrimSpace(file.Path)
+	if name == "" {
+		name = strings.TrimSpace(file.OriginalName)
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".heif":
+		return true
+	default:
+		return false
+	}
+}
+
 func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDir string, maxBytes int64, msg *telegramMessage, chatID int64) ([]telegramDownloadedFile, error) {
 	if api == nil {
 		return nil, fmt.Errorf("telegram api not available")

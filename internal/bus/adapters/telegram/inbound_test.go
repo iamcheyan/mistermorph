@@ -53,6 +53,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		FromDisplayName:  "Alice W",
 		Text:             "hello",
 		MentionUsers:     []string{"alice", "bob"},
+		ImagePaths:       []string{"/tmp/p1.jpg", "/tmp/p2.png"},
 	})
 	if err != nil {
 		t.Fatalf("HandleInboundMessage() error = %v", err)
@@ -74,6 +75,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.ReplyTo != "677" {
 			t.Fatalf("reply_to mismatch: got %q want %q", msg.Extensions.ReplyTo, "677")
+		}
+		if len(msg.Extensions.ImagePaths) != 2 {
+			t.Fatalf("image_paths length mismatch: got %d want 2", len(msg.Extensions.ImagePaths))
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -97,6 +101,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		FromDisplayName: "Alice W",
 		Text:            "hello",
 		MentionUsers:    []string{"alice", "bob"},
+		ImagePaths:      []string{"/tmp/p1.jpg"},
 	})
 	if err != nil {
 		t.Fatalf("HandleInboundMessage(second) error = %v", err)
@@ -139,6 +144,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			FromUserID:        9001,
 			FromUsername:      "neo",
 			MentionUsers:      []string{"neo", "morpheus"},
+			ImagePaths:        []string{"/tmp/p1.jpg", "/tmp/p2.jpg"},
 		},
 	}
 	inbound, err := InboundMessageFromBusMessage(msg)
@@ -162,5 +168,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.Text != "hello" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello")
+	}
+	if len(inbound.ImagePaths) != 2 {
+		t.Fatalf("image_paths length mismatch: got %d want 2", len(inbound.ImagePaths))
 	}
 }

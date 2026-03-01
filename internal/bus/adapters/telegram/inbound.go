@@ -32,6 +32,7 @@ type InboundMessage struct {
 	FromDisplayName  string
 	Text             string
 	MentionUsers     []string
+	ImagePaths       []string
 }
 
 type InboundAdapter struct {
@@ -125,6 +126,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imagePaths, err := normalizeImagePaths(msg.ImagePaths)
+	if err != nil {
+		return false, err
+	}
 
 	busMsg := busruntime.BusMessage{
 		ID:              "bus_" + uuid.NewString(),
@@ -148,6 +153,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			FromLastName:      strings.TrimSpace(msg.FromLastName),
 			FromDisplayName:   strings.TrimSpace(msg.FromDisplayName),
 			MentionUsers:      mentionUsers,
+			ImagePaths:        imagePaths,
 		},
 	}
 	platformMessageID := fmt.Sprintf("%d:%d", chatID, messageID)
@@ -192,6 +198,10 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imagePaths, err := normalizeImagePaths(msg.Extensions.ImagePaths)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 
 	return InboundMessage{
 		ChatID:           chatID,
@@ -206,6 +216,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		FromDisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
 		Text:             strings.TrimSpace(envelope.Text),
 		MentionUsers:     mentionUsers,
+		ImagePaths:       imagePaths,
 	}, nil
 }
 
@@ -251,6 +262,26 @@ func normalizeMentionUsers(items []string) ([]string, error) {
 			return nil, fmt.Errorf("mention user is required")
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+func normalizeImagePaths(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			return nil, fmt.Errorf("image path is required")
+		}
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
 	}
 	return out, nil
 }

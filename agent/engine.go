@@ -166,7 +166,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
 			continue
 		}
-		if strings.TrimSpace(m.Content) == "" {
+		if strings.TrimSpace(m.Content) == "" && len(m.Parts) == 0 {
 			continue
 		}
 		messages = append(messages, m)

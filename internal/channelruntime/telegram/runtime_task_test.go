@@ -2,6 +2,9 @@ package telegram
 
 import (
 	"context"
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -113,5 +116,74 @@ func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing
 	}
 	if msg != "检查日志" {
 		t.Fatalf("message = %q, want %q", msg, "检查日志")
+	}
+}
+
+func TestBuildTelegramHistoryMessageWithImageParts(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "x.jpg")
+	if err := os.WriteFile(imgPath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	msg := buildTelegramHistoryMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	if msg.Role != "user" {
+		t.Fatalf("role = %q, want user", msg.Role)
+	}
+	if msg.Content != "history" {
+		t.Fatalf("content = %q, want history", msg.Content)
+	}
+	if len(msg.Parts) != 2 {
+		t.Fatalf("parts len = %d, want 2", len(msg.Parts))
+	}
+	if msg.Parts[0].Type != "text" || msg.Parts[0].Text != "history" {
+		t.Fatalf("text part mismatch: %+v", msg.Parts[0])
+	}
+	if msg.Parts[1].Type != "image_base64" {
+		t.Fatalf("image part type = %q, want image_base64", msg.Parts[1].Type)
+	}
+	if msg.Parts[1].MIMEType != "image/jpeg" {
+		t.Fatalf("image part mime = %q, want image/jpeg", msg.Parts[1].MIMEType)
+	}
+	if msg.Parts[1].DataBase64 != base64.StdEncoding.EncodeToString([]byte("abc")) {
+		t.Fatalf("image part data mismatch")
+	}
+}
+
+func TestLoadTelegramImagePartsSkipsMissingAndCapsCount(t *testing.T) {
+	dir := t.TempDir()
+	paths := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
+		path := filepath.Join(dir, "img_"+string(rune('a'+i))+".png")
+		if err := os.WriteFile(path, []byte("ok"), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+		paths = append(paths, path)
+	}
+
+	parts := loadTelegramImageParts(append([]string{"/missing.png"}, paths...), nil)
+	if len(parts) != 3 {
+		t.Fatalf("parts len = %d, want 3", len(parts))
+	}
+	for i := range parts {
+		if parts[i].MIMEType != "image/png" {
+			t.Fatalf("parts[%d] mime = %q, want image/png", i, parts[i].MIMEType)
+		}
+	}
+}
+
+func TestBuildTelegramHistoryMessageUnsupportedModelSkipsImageParts(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "x.jpg")
+	if err := os.WriteFile(imgPath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	msg := buildTelegramHistoryMessage("history", "claude-3-7-sonnet", []string{imgPath}, nil)
+	if len(msg.Parts) != 0 {
+		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
+	}
+	if msg.Content != "history" {
+		t.Fatalf("content = %q, want history", msg.Content)
 	}
 }

@@ -133,6 +133,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 
 	return llm.Result{
 		Text:      resp.Text,
+		Parts:     toLLMParts(resp.Parts),
 		ToolCalls: toolCalls,
 		Usage: llm.Usage{
 			InputTokens:  resp.Usage.InputTokens,
@@ -151,6 +152,9 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
+		if len(m.Parts) > 0 {
+			msg.Parts = toUniaiPartsFromLLM(m.Parts)
+		}
 		if strings.TrimSpace(m.ToolCallID) != "" {
 			msg.ToolCallID = m.ToolCallID
 		}
@@ -300,6 +304,54 @@ func toLLMToolCalls(calls []uniaiapi.ToolCall) []llm.ToolCall {
 			Arguments:        params,
 			RawArguments:     call.Function.Arguments,
 			ThoughtSignature: call.ThoughtSignature,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func toLLMParts(parts []uniaiapi.Part) []llm.Part {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]llm.Part, 0, len(parts))
+	for _, part := range parts {
+		partType := strings.TrimSpace(part.Type)
+		if partType == "" {
+			continue
+		}
+		out = append(out, llm.Part{
+			Type:       partType,
+			Text:       part.Text,
+			URL:        part.URL,
+			DataBase64: part.DataBase64,
+			MIMEType:   part.MIMEType,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func toUniaiPartsFromLLM(parts []llm.Part) []uniaiapi.Part {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]uniaiapi.Part, 0, len(parts))
+	for _, part := range parts {
+		partType := strings.TrimSpace(part.Type)
+		if partType == "" {
+			continue
+		}
+		out = append(out, uniaiapi.Part{
+			Type:       partType,
+			Text:       part.Text,
+			URL:        part.URL,
+			DataBase64: part.DataBase64,
+			MIMEType:   part.MIMEType,
 		})
 	}
 	if len(out) == 0 {

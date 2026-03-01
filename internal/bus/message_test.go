@@ -190,6 +190,23 @@ func TestMessageValidate_RejectsInvalidSlackExtension(t *testing.T) {
 	}
 }
 
+func TestMessageValidate_AllowsImagePathsExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImagePaths = []string{"/tmp/a.png", "/tmp/b.jpg"}
+	if err := msg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestMessageValidate_RejectsInvalidImagePathExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImagePaths = []string{" /tmp/a.png"}
+	err := msg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "extensions.image_paths[0]") {
+		t.Fatalf("Validate() error = %v, want extensions.image_paths[0] error", err)
+	}
+}
+
 func validMessage(t *testing.T) BusMessage {
 	t.Helper()
 	payload, err := EncodeMessageEnvelope(TopicChatMessage, MessageEnvelope{
