@@ -304,6 +304,7 @@ slack:
   # Optional allowlist of workspace IDs. Empty means allow the bot home workspace.
   allowed_team_ids: []
   # Optional allowlist of channel IDs. Empty means allow all channels in allowed teams.
+  # Also used as heartbeat notification targets in `mistermorph slack`.
   allowed_channel_ids: []
   # Group trigger mode:
   # - strict: only explicit triggers (app_mention/@bot mention/thread reply) in groups.
@@ -324,6 +325,9 @@ heartbeat:
   # Enable heartbeats by default.
   enabled: true
   # Interval between heartbeats (use "0m" to disable without changing enabled).
+  # Delivery target is runtime-specific:
+  # - `mistermorph telegram`: `telegram.allowed_chat_ids`
+  # - `mistermorph slack`: `slack.allowed_channel_ids`
   interval: "30m"
 
 # Agent loop limits.
