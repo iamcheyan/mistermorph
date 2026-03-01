@@ -5,10 +5,10 @@ This document describes how Telegram runtime handles one inbound message.
 Code areas:
 - `internal/channelruntime/telegram/runtime.go`
 - `internal/channelruntime/telegram/trigger.go`
-- `internal/channelruntime/telegram/trigger_addressing.go`
 - `internal/channelruntime/telegram/runtime_task.go`
 - `tools/telegram/react_tool.go`
 - `internal/grouptrigger/decision.go`
+- `internal/grouptrigger/addressing_prompts.go`
 
 ## 1) Mental Model
 
@@ -101,7 +101,7 @@ Important:
 
 ### 3.4 Pre-run Lightweight Fallback Rule (Current Implementation)
 
-Addressing pre-run tracks whether `telegram_react` has been executed successfully in the tool-call loop.
+Addressing pre-run (in shared `grouptrigger.DecideViaLLM(...)`) tracks whether `telegram_react` has been executed successfully in the tool-call loop.
 
 After parsing addressing JSON, runtime applies this fallback:
 

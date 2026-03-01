@@ -12,6 +12,7 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
   - `telegram_send_voice`, `telegram_send_file`, `telegram_react`: runtime-injected, depend on active Telegram API context/chat metadata.
+  - `slack_react`: runtime-injected in Slack runtime when API context (`channel_id`, `message_ts`) is available.
 
 ### 2) ASCII architecture
 
@@ -50,7 +51,8 @@ Execution path split:
                     |
                     v
                SetTodoUpdateToolAddContext(...)
-               + Telegram-only runtime tools (telegram_*)
+               + Telegram runtime tools (telegram_*)
+               + Slack runtime tool (`slack_react`, when runtime context and emoji catalog are available)
                     |
                     v
                buildLLMTools(...) -> Engine exposes tool schemas to LLM
@@ -333,6 +335,26 @@ Constraints:
 
 - Available only in Telegram mode.
 - Requires `message_id` context in Telegram mode (or explicit `message_id` input).
+
+## `slack_react`
+
+Purpose: add emoji reactions to Slack messages.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `channel_id` | `string` | No | Current context channel | Target Slack `channel_id`. |
+| `message_ts` | `string` | No | Trigger message ts | Message timestamp (`ts`) to react to. |
+| `emoji` | `string` | Yes | None | Slack emoji name (for example `thumbsup` or `:thumbsup:`). |
+
+Constraints:
+
+- Available only in Slack mode.
+- Requires `channel_id` and `message_ts` context in Slack mode (or explicit params).
+- Emoji must be a valid Slack emoji name format (not raw Unicode emoji).
+- If emoji catalog is loaded, emoji name must exist in current workspace catalog.
+- Subject to `allowed_channel_ids` restriction when configured.
 
 ## Notes
 

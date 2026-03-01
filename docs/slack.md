@@ -170,3 +170,10 @@ Heartbeat notification messages are sent through Slack `chat.postMessage` to cha
 
 - If `slack.allowed_channel_ids` is empty, heartbeat still runs, but notification delivery is skipped.
 - If any target channel send fails, the notifier returns that error and heartbeat logs `heartbeat_notify_error`.
+
+## 12. Group Trigger Implementation Note
+
+Slack group-trigger addressing now shares the same prompt-rendering and LLM decision loop with Telegram via:
+
+- `internal/grouptrigger/addressing_prompts.go`
+- `internal/grouptrigger/decision.go`
