@@ -38,6 +38,7 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled      bool
 	MemoryInjectionMaxItems     int
 	SecretsRequireSkillProfiles bool
+	ImageRecognitionEnabled     bool
 	MemoryManager               *memory.Manager
 	MemoryOrchestrator          *memoryruntime.Orchestrator
 	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
@@ -63,7 +64,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("render telegram history context: %w", err)
 	}
-	historyMsg, err := buildTelegramHistoryMessage(string(historyRaw), model, job.ImagePaths, logger)
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !runtimeOpts.ImageRecognitionEnabled {
+		imagePaths = nil
+	}
+	historyMsg, err := buildTelegramHistoryMessage(string(historyRaw), model, imagePaths, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

@@ -83,6 +83,7 @@ func TestBuildTelegramRunOptionsTaskTimeoutFallback(t *testing.T) {
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
+			MultimodalImageSources:               []string{"telegram"},
 		},
 		TelegramInput{
 			BotToken:    "token",
@@ -145,5 +146,46 @@ func TestHeartbeatConfigFromReader(t *testing.T) {
 	}
 	if cfg.Interval != 15*time.Minute {
 		t.Fatalf("interval = %v, want 15m", cfg.Interval)
+	}
+}
+
+func TestTelegramConfigFromReaderImageSources(t *testing.T) {
+	cfg := TelegramConfigFromReader(stubConfigReader{
+		"multimodal.image.sources": []string{" telegram ", "slack"},
+	})
+	if len(cfg.MultimodalImageSources) != 2 {
+		t.Fatalf("MultimodalImageSources len = %d, want 2", len(cfg.MultimodalImageSources))
+	}
+}
+
+func TestBuildTelegramRunOptionsImageRecognitionEnabledBySource(t *testing.T) {
+	opts, err := BuildTelegramRunOptions(
+		TelegramConfig{
+			AllowedChatIDsRaw:      []string{"100"},
+			MultimodalImageSources: []string{" TeLeGrAm "},
+		},
+		TelegramInput{BotToken: "token"},
+	)
+	if err != nil {
+		t.Fatalf("BuildTelegramRunOptions() error = %v", err)
+	}
+	if !opts.ImageRecognitionEnabled {
+		t.Fatalf("ImageRecognitionEnabled = false, want true when telegram is in sources")
+	}
+}
+
+func TestBuildTelegramRunOptionsImageRecognitionDisabledWhenSourceMissing(t *testing.T) {
+	opts, err := BuildTelegramRunOptions(
+		TelegramConfig{
+			AllowedChatIDsRaw:      []string{"100"},
+			MultimodalImageSources: []string{"slack"},
+		},
+		TelegramInput{BotToken: "token"},
+	)
+	if err != nil {
+		t.Fatalf("BuildTelegramRunOptions() error = %v", err)
+	}
+	if opts.ImageRecognitionEnabled {
+		t.Fatalf("ImageRecognitionEnabled = true, want false when telegram is not in sources")
 	}
 }

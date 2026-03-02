@@ -46,6 +46,7 @@ type TelegramConfig struct {
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
 	SecretsRequireSkillProfiles          bool
+	MultimodalImageSources               []string
 }
 
 type TelegramInput struct {
@@ -96,6 +97,7 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
 		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
+		MultimodalImageSources:      append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -164,6 +166,7 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		fileCacheDir = strings.TrimSpace(cfg.FileCacheDir)
 	}
 	serverListen := normalizeServerListen(cfg.ServerListen)
+	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "telegram")
 
 	return telegramruntime.RunOptions{
 		BotToken:                      strings.TrimSpace(in.BotToken),
@@ -189,6 +192,7 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
+		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
@@ -374,4 +378,17 @@ func normalizeServerListen(listen string) string {
 		return "127.0.0.1:8787"
 	}
 	return listen
+}
+
+func sourceEnabled(sources []string, expected string) bool {
+	expected = strings.TrimSpace(strings.ToLower(expected))
+	if expected == "" {
+		return false
+	}
+	for _, source := range sources {
+		if strings.TrimSpace(strings.ToLower(source)) == expected {
+			return true
+		}
+	}
+	return false
 }

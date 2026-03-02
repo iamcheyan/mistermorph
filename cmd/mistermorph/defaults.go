@@ -40,6 +40,9 @@ func initViperDefaults() {
 	// Bus
 	viper.SetDefault("bus.max_inflight", 1024)
 
+	// Multimodal
+	viper.SetDefault("multimodal.image.sources", []string{"telegram"})
+
 	viper.SetDefault("contacts.dir_name", "contacts")
 	viper.SetDefault("contacts.proactive.max_turns_per_session", 6)
 	viper.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)

@@ -38,6 +38,14 @@ llm:
     account_id: ""
     api_token: ""
 
+# Multimodal input policy (cross-channel, cross-source).
+multimodal:
+  image:
+    # Enabled source whitelist.
+    # Supported values: telegram, slack, remote_download.
+    # Current runtime wiring: telegram.
+    sources: ["telegram"]
+
 logging:
   # debug|info|warn|error
   # - info: emits high-level progress (run_start, tool_call, tool_done, final)

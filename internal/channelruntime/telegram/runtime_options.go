@@ -32,6 +32,7 @@ type runtimeLoopOptions struct {
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
 	SecretsRequireSkillProfiles   bool
+	ImageRecognitionEnabled       bool
 	InspectPrompt                 bool
 	InspectRequest                bool
 }
@@ -62,6 +63,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles:   opts.SecretsRequireSkillProfiles,
+		ImageRecognitionEnabled:       opts.ImageRecognitionEnabled,
 		InspectPrompt:                 opts.InspectPrompt,
 		InspectRequest:                opts.InspectRequest,
 	}

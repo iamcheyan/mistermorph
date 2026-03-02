@@ -274,6 +274,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
+		ImageRecognitionEnabled:     opts.ImageRecognitionEnabled,
 		MemoryManager:               memManager,
 		MemoryOrchestrator:          memOrchestrator,
 		MemoryProjectionWorker:      memProjectionWorker,
