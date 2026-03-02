@@ -318,7 +318,13 @@ func buildTelegramHistoryMessage(content string, model string, imagePaths []stri
 			continue
 		}
 		mimeType := telegramImageMIMEType(path)
-		if enableWebPTranscode && !strings.EqualFold(mimeType, "image/webp") {
+		if !isTelegramSupportedUploadImageMIME(mimeType) {
+			if logger != nil {
+				logger.Warn("telegram_image_part_skip_unsupported_format", "path", path, "mime_type", mimeType)
+			}
+			continue
+		}
+		if enableWebPTranscode && shouldTelegramTranscodeToWebP(mimeType) {
 			webpRaw, webpErr := encodeImageToWebP(raw)
 			if webpErr != nil {
 				return llm.Message{}, fmt.Errorf("图片转换失败: %s: %w", filepath.Base(path), webpErr)
@@ -360,6 +366,26 @@ func telegramImageMIMEType(path string) string {
 		return "image/heif"
 	}
 	return "image/png"
+}
+
+func isTelegramSupportedUploadImageMIME(mimeType string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	switch mimeType {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldTelegramTranscodeToWebP(mimeType string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	switch mimeType {
+	case "image/jpeg", "image/png":
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultEncodeImageToWebP(raw []byte) ([]byte, error) {

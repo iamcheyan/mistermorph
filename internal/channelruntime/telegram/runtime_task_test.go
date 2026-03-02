@@ -282,3 +282,26 @@ func TestBuildTelegramHistoryMessageDoesNotForceWebPForUnsupportedModel(t *testi
 		t.Fatalf("data mismatch")
 	}
 }
+
+func TestBuildTelegramHistoryMessageSkipsUnsupportedImageFormats(t *testing.T) {
+	orig := encodeImageToWebP
+	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("unexpected"), nil }
+	t.Cleanup(func() { encodeImageToWebP = orig })
+
+	dir := t.TempDir()
+	gifPath := filepath.Join(dir, "x.gif")
+	if err := os.WriteFile(gifPath, []byte("gif-bytes"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	msg, err := buildTelegramHistoryMessage("history", "gpt-5.2", []string{gifPath}, nil)
+	if err != nil {
+		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+	}
+	if len(msg.Parts) != 0 {
+		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
+	}
+	if msg.Content != "history" {
+		t.Fatalf("content = %q, want history", msg.Content)
+	}
+}
