@@ -1162,7 +1162,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					)
 					text = strings.TrimSpace(rawText)
 					if strings.TrimSpace(text) == "" && !messageHasDownloadableFile(msg) && msg.ReplyTo == nil {
-						_ = api.sendMessageHTML(context.Background(), chatID, "usage: send text with a mention/reply", true)
+						// just ignore the unknown message
 						continue
 					}
 				} else {
