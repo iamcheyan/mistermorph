@@ -213,6 +213,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		tools:           buildLLMTools(e.registry),
 		planRequired:    planRequired,
 		requestedWrites: requestedWrites,
+		onStream:        opts.OnStream,
 		nextStep:        0,
 	})
 }

@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,13 +48,14 @@ type runtimeTaskOptions struct {
 const (
 	telegramLLMMaxImages     = 3
 	telegramLLMMaxImageBytes = int64(5 * 1024 * 1024)
+	telegramDraftStreamEvery = 1500 * time.Millisecond
 )
 
 var encodeImageToWebP = defaultEncodeImageToWebP
 
-func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, filesEnabled bool, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, filesEnabled bool, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, bool, error) {
 	if sendTelegramText == nil {
-		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
+		return nil, nil, nil, nil, false, fmt.Errorf("send telegram text callback is required")
 	}
 	task := job.Text
 	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
@@ -62,7 +64,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelTelegram, historyWithCurrent),
 	}, "", "  ")
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("render telegram history context: %w", err)
+		return nil, nil, nil, nil, false, fmt.Errorf("render telegram history context: %w", err)
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !runtimeOpts.ImageRecognitionEnabled {
@@ -70,11 +72,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 	historyMsg, err := buildTelegramHistoryMessage(string(historyRaw), model, imagePaths, logger)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, false, err
 	}
 	llmHistory := []llm.Message{historyMsg}
 	if baseReg == nil {
-		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
+		return nil, nil, nil, nil, false, fmt.Errorf("base registry is nil")
 	}
 
 	// Per-run registry.
@@ -104,7 +106,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, false, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
@@ -145,6 +147,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
+	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID)
 
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
@@ -178,10 +181,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		Model:           model,
 		History:         llmHistory,
 		Meta:            meta,
+		OnStream:        streamPublisher.OnStream,
 		SkipTaskMessage: true,
 	})
 	if err != nil {
-		return final, agentCtx, loadedSkills, nil, err
+		return final, agentCtx, loadedSkills, nil, false, err
 	}
 
 	var reaction *telegramtools.Reaction
@@ -198,6 +202,10 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 
 	publishText := shouldPublishTelegramText(final)
+	draftDelivered := false
+	if publishText {
+		draftDelivered = streamPublisher.Finalize(depsutil.FormatFinalOutput(final))
+	}
 	if shouldWriteMemory(publishText, runtimeOpts.MemoryOrchestrator, memSubjectID) {
 		if err := recordMemoryFromJob(ctx, logger, client, model, runtimeOpts.MemoryOrchestrator, runtimeOpts.MemoryManager, job, history, historyCap, final, requestTimeout); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -210,7 +218,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
 		}
 	}
-	return final, agentCtx, loadedSkills, reaction, nil
+	return final, agentCtx, loadedSkills, reaction, draftDelivered, nil
 }
 
 func shouldWriteMemory(publishText bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
@@ -273,6 +281,226 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+type telegramDraftStreamPublisher struct {
+	logger          *slog.Logger
+	api             *telegramAPI
+	chatID          int64
+	draftID         int64
+	extractor       telegramOutputStreamExtractor
+	lastSentText    string
+	lastPublishedAt time.Time
+	draftDisabled   bool
+	hasDraft        bool
+}
+
+func newTelegramDraftStreamPublisher(logger *slog.Logger, api *telegramAPI, chatID int64, messageID int64) *telegramDraftStreamPublisher {
+	draftID := int64(0)
+	if messageID > 0 {
+		draftID = messageID
+	}
+	return &telegramDraftStreamPublisher{
+		logger:  logger,
+		api:     api,
+		chatID:  chatID,
+		draftID: draftID,
+	}
+}
+
+func (p *telegramDraftStreamPublisher) OnStream(ev llm.StreamEvent) error {
+	if p == nil || p.api == nil || p.draftID <= 0 || p.draftDisabled {
+		return nil
+	}
+	changed := false
+	if delta := ev.Delta; delta != "" {
+		changed = p.extractor.Append(delta)
+	}
+	if !changed && !ev.Done {
+		return nil
+	}
+	p.publish(ev.Done)
+	if ev.Done {
+		p.extractor.Reset()
+	}
+	return nil
+}
+
+func (p *telegramDraftStreamPublisher) publish(force bool) {
+	if p == nil || p.api == nil || p.draftID <= 0 || p.draftDisabled {
+		return
+	}
+	text := p.extractor.Output()
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if text == p.lastSentText {
+		return
+	}
+	if !force && !p.lastPublishedAt.IsZero() && time.Since(p.lastPublishedAt) < telegramDraftStreamEvery {
+		return
+	}
+	if err := p.api.sendMessageDraftHTML(context.Background(), p.chatID, p.draftID, text, true); err != nil {
+		p.draftDisabled = true
+		if p.logger != nil {
+			p.logger.Warn("telegram_stream_publish_error",
+				"chat_id", p.chatID,
+				"draft_id", p.draftID,
+				"error", err.Error(),
+			)
+		}
+		return
+	}
+	p.hasDraft = true
+	p.lastSentText = text
+	p.lastPublishedAt = time.Now()
+}
+
+func (p *telegramDraftStreamPublisher) Finalize(text string) bool {
+	if p == nil || p.api == nil || p.draftID <= 0 || p.draftDisabled {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if text == p.lastSentText {
+		return p.hasDraft
+	}
+	if err := p.api.sendMessageDraftHTML(context.Background(), p.chatID, p.draftID, text, true); err != nil {
+		p.draftDisabled = true
+		if p.logger != nil {
+			p.logger.Warn("telegram_stream_finalize_error",
+				"chat_id", p.chatID,
+				"draft_id", p.draftID,
+				"error", err.Error(),
+			)
+		}
+		return false
+	}
+	p.hasDraft = true
+	p.lastSentText = text
+	p.lastPublishedAt = time.Now()
+	return true
+}
+
+type telegramOutputStreamExtractor struct {
+	raw    strings.Builder
+	output string
+}
+
+func (e *telegramOutputStreamExtractor) Append(delta string) bool {
+	if delta == "" {
+		return false
+	}
+	_, _ = e.raw.WriteString(delta)
+	out, _ := extractTelegramFinalOutputFromJSONStream(e.raw.String())
+	if out == e.output {
+		return false
+	}
+	e.output = out
+	return true
+}
+
+func (e *telegramOutputStreamExtractor) Output() string {
+	if e == nil {
+		return ""
+	}
+	return e.output
+}
+
+func (e *telegramOutputStreamExtractor) Reset() {
+	if e == nil {
+		return
+	}
+	e.raw.Reset()
+	e.output = ""
+}
+
+func extractTelegramFinalOutputFromJSONStream(raw string) (string, bool) {
+	keyStart := findOutputFieldStart(raw)
+	if keyStart < 0 {
+		return "", false
+	}
+	rest := raw[keyStart+len(`"output"`):]
+	colonIndex := strings.Index(rest, ":")
+	if colonIndex < 0 {
+		return "", false
+	}
+	value := strings.TrimLeft(rest[colonIndex+1:], " \n\r\t")
+	return decodeJSONStringPrefix(value)
+}
+
+func findOutputFieldStart(raw string) int {
+	offset := 0
+	for offset < len(raw) {
+		idx := strings.Index(raw[offset:], `"output"`)
+		if idx < 0 {
+			return -1
+		}
+		pos := offset + idx
+		if pos == 0 || raw[pos-1] != '\\' {
+			return pos
+		}
+		offset = pos + 1
+	}
+	return -1
+}
+
+func decodeJSONStringPrefix(raw string) (string, bool) {
+	if len(raw) == 0 || raw[0] != '"' {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 1; i < len(raw); i++ {
+		ch := raw[i]
+		if ch == '"' {
+			return b.String(), true
+		}
+		if ch == '\\' {
+			if i+1 >= len(raw) {
+				return b.String(), false
+			}
+			esc := raw[i+1]
+			switch esc {
+			case '"', '\\', '/':
+				b.WriteByte(esc)
+				i++
+			case 'b':
+				b.WriteByte('\b')
+				i++
+			case 'f':
+				b.WriteByte('\f')
+				i++
+			case 'n':
+				b.WriteByte('\n')
+				i++
+			case 'r':
+				b.WriteByte('\r')
+				i++
+			case 't':
+				b.WriteByte('\t')
+				i++
+			case 'u':
+				if i+6 > len(raw) {
+					return b.String(), false
+				}
+				u, err := strconv.ParseUint(raw[i+2:i+6], 16, 64)
+				if err != nil {
+					b.WriteString(raw[i : i+6])
+				} else {
+					b.WriteRune(rune(u))
+				}
+				i += 5
+			default:
+				b.WriteByte(esc)
+				i++
+			}
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String(), false
 }
 
 func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {

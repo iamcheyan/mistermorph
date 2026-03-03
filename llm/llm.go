@@ -49,6 +49,22 @@ type Usage struct {
 	Cost         float64 // USD
 }
 
+type StreamToolCallDelta struct {
+	Index     int
+	ID        string
+	Name      string
+	ArgsChunk string
+}
+
+type StreamEvent struct {
+	Delta         string
+	ToolCallDelta *StreamToolCallDelta
+	Usage         *Usage
+	Done          bool
+}
+
+type StreamHandler func(event StreamEvent) error
+
 type Result struct {
 	Text      string
 	Parts     []Part
@@ -64,6 +80,7 @@ type Request struct {
 	Tools      []Tool
 	ForceJSON  bool
 	Parameters map[string]any
+	OnStream   StreamHandler
 }
 
 type Client interface {

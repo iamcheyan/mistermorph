@@ -30,10 +30,53 @@ Inbound group message
      -> decide trigger yes/no
   -> if triggered: runTelegramTask (main run)
      -> main run may call message_react again
+     -> stream callback may update Telegram draft via sendMessageDraft
      -> final.is_lightweight decides whether text is published
 ```
 
-### 2.1 Pre Filter: `shouldSkipGroupReplyWithoutBodyMention`
+### 2.1 Runtime Delivery Path (ASCII)
+
+```text
+                           +-------------------------+
+                           | Telegram inbound update |
+                           +------------+------------+
+                                        |
+                           +------------v------------+
+                           | prefilter + grouptrigger|
+                           +------+-------------------+
+                                  |
+                     +------------+------------+
+                     | trigger no             | trigger yes
+                     |                        |
+             +-------v------+         +-------v------------------+
+             | ignore/end   |         | runTelegramTask          |
+             +--------------+         | agent.Engine + OnStream  |
+                                      +-----+--------------------+
+                                            |
+                        +-------------------+-------------------+
+                        |                                       |
+              +---------v-----------+                 +---------v-----------+
+              | stream delta/output |                 | final output        |
+              +---------+-----------+                 +---------+-----------+
+                        |                                       |
+          +-------------v-------------+             +-----------v-------------------+
+          | sendMessageDraft (direct) |             | try sendMessageDraft finalize |
+          +---------------------------+             +-----------+-------------------+
+                                                                |
+                                              +-----------------+-----------------+
+                                              |                                   |
+                                  +-----------v----------+          +-------------v-------------+
+                                  | success: done        |          | fail/unavailable:         |
+                                  | no outbound bus text |          | publish outbound bus text |
+                                  +----------------------+          +-------------+-------------+
+                                                                                  |
+                                                                      +-----------v-------------+
+                                                                      | telegram delivery       |
+                                                                      | adapter -> sendMessage  |
+                                                                      +-------------------------+
+```
+
+### 2.2 Pre Filter: `shouldSkipGroupReplyWithoutBodyMention`
 
 Before addressing LLM, runtime applies a prefilter in group chats:
 
@@ -156,6 +199,12 @@ Runtime function:
 
 Pre-run reaction does not change this rule.
 
+Text delivery path when `final.is_lightweight == false`:
+
+- runtime first attempts Telegram draft delivery (`sendMessageDraft`) in the main run stream/finalize path
+- if draft delivery succeeds, runtime does not publish a normal outbound bus text message for that final output
+- if draft delivery is unavailable or fails, runtime falls back to normal bus outbound text path (delivery adapter -> `sendMessage`)
+
 ## 6) Pre-Run vs Main-Run Reaction Interaction
 
 Pre-run and main-run use different `ReactTool` instances.
@@ -177,6 +226,8 @@ Useful logs for debugging:
 - `telegram_group_trigger`
 - `telegram_group_addressing_reaction_applied`
 - `message_reaction_applied`
+- `telegram_stream_publish_error`
+- `telegram_stream_finalize_error`
 
 ## 8) Quick Behavior Matrix
 
@@ -185,3 +236,12 @@ Useful logs for debugging:
 - pre-run reacted, main-run no reaction, `final.is_lightweight=true`: reaction only
 - pre-run no reaction, main-run reacted, `final.is_lightweight=true`: reaction only
 - pre-run no reaction, main-run no reaction, `addressing.is_lightweight=true`: possible when addressing JSON has empty/missing `reaction` and no pre-run tool call
+
+## 9) Telegram Draft Streaming and Bus Boundary
+
+- `sendMessageDraft` is Telegram runtime-local transport for incremental/final draft updates.
+- stream deltas are not encoded as outbound bus messages.
+- bus still carries canonical outbound events in Telegram runtime:
+  - plan progress
+  - error/file-download-error replies
+  - final text fallback path when draft delivery fails

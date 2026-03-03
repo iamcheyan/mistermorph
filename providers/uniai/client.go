@@ -104,13 +104,13 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		defer cancel()
 	}
 
-	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.debugFn)
+	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.debugFn, req.OnStream)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
 		c.emitChatError(err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.debugFn)
+		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.debugFn, req.OnStream)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
 			c.emitChatError(err, false, 2)
@@ -148,7 +148,7 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, debugFn func(label, payload string)) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, debugFn func(label, payload string), onStream llm.StreamHandler) []uniaiapi.ChatOption {
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
@@ -231,6 +231,30 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 
 	if debugFn != nil {
 		opts = append(opts, uniaiapi.WithDebugFn(debugFn))
+	}
+	if onStream != nil {
+		opts = append(opts, uniaiapi.WithOnStream(func(ev uniaiapi.StreamEvent) error {
+			streamEvent := llm.StreamEvent{
+				Delta: ev.Delta,
+				Done:  ev.Done,
+			}
+			if ev.ToolCallDelta != nil {
+				streamEvent.ToolCallDelta = &llm.StreamToolCallDelta{
+					Index:     ev.ToolCallDelta.Index,
+					ID:        ev.ToolCallDelta.ID,
+					Name:      ev.ToolCallDelta.Name,
+					ArgsChunk: ev.ToolCallDelta.ArgsChunk,
+				}
+			}
+			if ev.Usage != nil {
+				streamEvent.Usage = &llm.Usage{
+					InputTokens:  ev.Usage.InputTokens,
+					OutputTokens: ev.Usage.OutputTokens,
+					TotalTokens:  ev.Usage.TotalTokens,
+				}
+			}
+			return onStream(streamEvent)
+		}))
 	}
 
 	return opts

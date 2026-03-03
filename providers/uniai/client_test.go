@@ -17,7 +17,7 @@ func TestBuildChatOptionsReplaceMessages(t *testing.T) {
 
 	opts := append(
 		[]uniaiapi.ChatOption{uniaiapi.WithMessages(uniaiapi.User("old"))},
-		buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil)...,
+		buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, nil)...,
 	)
 
 	built, err := uniaichat.BuildRequest(opts...)
@@ -44,7 +44,7 @@ func TestBuildChatOptionsPreserveToolCallIDAsIs(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -70,7 +70,7 @@ func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -86,6 +86,57 @@ func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
 	}
 	if built.Messages[0].Parts[1].Type != uniaichat.PartTypeImageBase64 || built.Messages[0].Parts[1].DataBase64 != "QUJD" {
 		t.Fatalf("image part mismatch: %+v", built.Messages[0].Parts[1])
+	}
+}
+
+func TestBuildChatOptionsMapsOnStream(t *testing.T) {
+	called := false
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+	}
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, func(ev llm.StreamEvent) error {
+		called = true
+		if ev.Delta != "abc" {
+			t.Fatalf("delta = %q, want abc", ev.Delta)
+		}
+		if ev.ToolCallDelta == nil || ev.ToolCallDelta.Name != "message_react" {
+			t.Fatalf("tool_call_delta = %#v", ev.ToolCallDelta)
+		}
+		if !ev.Done {
+			t.Fatalf("done = false, want true")
+		}
+		if ev.Usage == nil || ev.Usage.TotalTokens != 9 {
+			t.Fatalf("usage = %#v", ev.Usage)
+		}
+		return nil
+	})
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OnStream == nil {
+		t.Fatalf("expected on_stream callback")
+	}
+	if err := built.Options.OnStream(uniaiapi.StreamEvent{
+		Delta: "abc",
+		ToolCallDelta: &uniaiapi.ToolCallDelta{
+			Index:     1,
+			ID:        "call_1",
+			Name:      "message_react",
+			ArgsChunk: "{\"emoji\":\"ok_hand\"}",
+		},
+		Usage: &uniaichat.Usage{
+			InputTokens:  4,
+			OutputTokens: 5,
+			TotalTokens:  9,
+		},
+		Done: true,
+	}); err != nil {
+		t.Fatalf("on_stream callback returned error: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected callback to be called")
 	}
 }
 

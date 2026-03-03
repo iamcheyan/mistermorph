@@ -24,6 +24,7 @@ type engineLoopState struct {
 	extraParams     map[string]any
 	tools           []llm.Tool
 	planRequired    bool
+	onStream        llm.StreamHandler
 	parseFailures   int
 	requestedWrites []string
 
@@ -94,6 +95,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				Tools:      st.tools,
 				ForceJSON:  true,
 				Parameters: st.extraParams,
+				OnStream:   st.onStream,
 			})
 			if err != nil {
 				log.Error("llm_call_error", "step", step, "error", err.Error())
@@ -419,7 +421,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		}
 	}
 
-	return e.forceConclusion(ctx, st.messages, st.model, st.agentCtx, st.extraParams, log)
+	return e.forceConclusion(ctx, st.messages, st.model, st.agentCtx, st.extraParams, st.onStream, log)
 }
 
 func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, stepStart time.Time, remaining []ToolCall, assistantTextAdded bool) (string, error, *Final, bool) {

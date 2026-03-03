@@ -42,7 +42,7 @@ func summarizeForceConclusionModelError(err error) string {
 	}
 }
 
-func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, model string, agentCtx *Context, extraParams map[string]any, log *slog.Logger) (*Final, *Context, error) {
+func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, model string, agentCtx *Context, extraParams map[string]any, onStream llm.StreamHandler, log *slog.Logger) (*Final, *Context, error) {
 	if log == nil {
 		log = e.log.With("model", model)
 	}
@@ -58,6 +58,7 @@ func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, mo
 		Messages:   messages,
 		ForceJSON:  true,
 		Parameters: extraParams,
+		OnStream:   onStream,
 	})
 	if err != nil {
 		log.Error("force_conclusion_llm_error", "error", err.Error())

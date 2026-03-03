@@ -105,7 +105,8 @@ Implemented channel adapters:
 - starts inproc bus
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - Telegram poll inbound path: Telegram inbound adapter -> bus -> handler -> worker queue
-- business outbound messages (task output, task failures, file-download failures, plan updates) are sent through bus outbound
+- business outbound messages via bus: task failures, file-download failures, plan updates, and normal text fallback path
+- Telegram draft streaming output (`sendMessageDraft`) is channel-local direct send inside Telegram runtime/task loop; stream deltas are not published to bus
 - operational/admin messages (for example `/help`, initialization/system notices) may still use direct send
 
 `mistermorph slack`:
@@ -207,10 +208,14 @@ business output / proactive sender
   -> caller records outbox state (pending/sent/failed)
 ```
 
+Telegram draft-stream note:
+- `sendMessageDraft` incremental updates are intentionally not modeled as outbound bus messages.
+- Bus carries canonical outbound messages (final fallback/error/plan progress), while Telegram draft-stream deltas stay runtime-local.
+
 ## 4) Design Evaluation (Current State)
 
 ### 4.1 Why this is reasonable now
-- Minimal viable path is complete: Telegram / Slack inbound/outbound paths are unified through bus.
+- Minimal viable path is complete: Telegram / Slack inbound paths are unified through bus; canonical outbound messages are bus-driven while Telegram draft-stream deltas are runtime-local.
 - Ordering is explicit and enforceable per `conversation_key`.
 - Backpressure is bounded and observable via typed error (`QUEUE_FULL`).
 - Idempotency is explicit via inbox/outbox keyed records.
@@ -230,7 +235,7 @@ business output / proactive sender
 - outbound bus migration in `contactsruntime sender`
 - Slack runtime bus path (`mistermorph slack`) with inbound publish and outbound delivery
 - main-path test coverage expansion
-- migration of Telegram business direct-send paths to bus outbound (admin paths excluded)
+- Telegram business outbound via bus for canonical events, with runtime-local direct draft streaming for incremental output
 - typed error code propagation in call-site logging
 
 ### 5.2 Verified test set

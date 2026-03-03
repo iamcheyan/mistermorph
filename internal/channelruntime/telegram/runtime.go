@@ -384,7 +384,8 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if err != nil {
 				return err
 			}
-			if telegramOutboundKind(correlationID) == "plan_progress" {
+			kind := telegramOutboundKind(correlationID)
+			if kind == "plan_progress" {
 				return sendPlanProgress(ctx, chatID, text, replyToMessageID, correlationID)
 			}
 			return api.sendMessageChunkedReply(ctx, chatID, text, replyToMessageID)
@@ -621,7 +622,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 
 				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, d, logger, logOpts, client, reg, api, filesEnabled, fileCacheDir, filesMaxBytes, sharedGuard, cfg, allowed, job, botUser, model, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
+				final, _, loadedSkills, reaction, draftDelivered, runErr := runTelegramTask(runCtx, d, logger, logOpts, client, reg, api, filesEnabled, fileCacheDir, filesMaxBytes, sharedGuard, cfg, allowed, job, botUser, model, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
 				cancel()
 
 				if runErr != nil {
@@ -675,22 +676,32 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					})
 				}
 				if publishText {
-					if workerCtx.Err() != nil {
-						return
-					}
-					replyTo := ""
-					if job.ReplyToMessageID > 0 {
-						replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
-					}
 					outCorrelationID := fmt.Sprintf("telegram:message:%d:%d", chatID, job.MessageID)
-					if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, outText, replyTo, outCorrelationID); err != nil {
-						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:     ErrorStagePublishOutbound,
-							ChatID:    chatID,
-							MessageID: job.MessageID,
-							Err:       err,
+					if draftDelivered {
+						callOutboundHook(workerCtx, logger, hooks, OutboundEvent{
+							ChatID:           chatID,
+							ReplyToMessageID: job.ReplyToMessageID,
+							Text:             outText,
+							CorrelationID:    outCorrelationID,
+							Kind:             "message",
 						})
+					} else {
+						if workerCtx.Err() != nil {
+							return
+						}
+						replyTo := ""
+						if job.ReplyToMessageID > 0 {
+							replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
+						}
+						if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, outText, replyTo, outCorrelationID); err != nil {
+							logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+							callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+								Stage:     ErrorStagePublishOutbound,
+								ChatID:    chatID,
+								MessageID: job.MessageID,
+								Err:       err,
+							})
+						}
 					}
 				}
 				mu.Lock()
