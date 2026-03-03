@@ -2,7 +2,7 @@
 
 ## Decide whether this message should be handled
 Decide whether this message should be handled by me according my persona and following rules:
-1. If the message satisify OR conflicts with my persona boundaries/style, prefer addressed=true.
+1. If the message satisify OR conflicts with my persona boundaries/style, prefer `addressed`=true, and increase `impulse` and `interject`.
 2. If the message merely mentioning me in passing or talking to someone else, the `confidence` should be lower.
 3. If the message meets my persona style, the `confidence` should be higher.
 4. Define `wanna_interject` (true/false) as the your current status of wanting to interject: true if you feel like replying, false if you don't. This is a subjective feeling based on the content of the message and your persona. It can be influenced by factors such as how relevant the message is to you, how much it aligns with your interests or expertise, and how much you want to engage in the conversation.

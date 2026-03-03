@@ -50,11 +50,14 @@ type addressingUserPromptData struct {
 	ChatHistoryMessages []chathistory.ChatHistoryItem
 }
 
+const addressingHistoryMaxItems = 3
+
 func RenderAddressingPrompts(personaIdentity string, emojiList string, currentMessage any, historyMessages []chathistory.ChatHistoryItem) (string, string, error) {
 	personaIdentity = strings.TrimSpace(personaIdentity)
 	if personaIdentity == "" {
 		personaIdentity = AddressingPersonaFallback
 	}
+	historyMessages = lastAddressingHistoryItems(historyMessages, addressingHistoryMaxItems)
 
 	systemPrompt, err := prompttmpl.Render(addressingSystemPromptTemplate, addressingSystemPromptData{
 		PersonaIdentity: personaIdentity,
@@ -71,4 +74,11 @@ func RenderAddressingPrompts(personaIdentity string, emojiList string, currentMe
 		return "", "", err
 	}
 	return systemPrompt, userPrompt, nil
+}
+
+func lastAddressingHistoryItems(items []chathistory.ChatHistoryItem, limit int) []chathistory.ChatHistoryItem {
+	if limit <= 0 || len(items) <= limit {
+		return append([]chathistory.ChatHistoryItem(nil), items...)
+	}
+	return append([]chathistory.ChatHistoryItem(nil), items[len(items)-limit:]...)
 }
