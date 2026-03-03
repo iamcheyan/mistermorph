@@ -168,7 +168,7 @@ func TestTelegramDraftStreamPublisherPublishesDraftUpdates(t *testing.T) {
 	defer srv.Close()
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, 42, 77)
+	p := newTelegramDraftStreamPublisher(nil, api, 42, 77, "private")
 	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"he`}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
@@ -189,7 +189,7 @@ func TestTelegramDraftStreamPublisherPublishesDraftUpdates(t *testing.T) {
 	}
 }
 
-func TestTelegramDraftStreamPublisherFinalize(t *testing.T) {
+func TestTelegramDraftStreamPublisherDisabledForGroupChat(t *testing.T) {
 	var calls []telegramSendMessageDraftRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessageDraft" {
@@ -207,15 +207,12 @@ func TestTelegramDraftStreamPublisherFinalize(t *testing.T) {
 	defer srv.Close()
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, 42, 88)
-	if ok := p.Finalize("hello"); !ok {
-		t.Fatalf("Finalize() = false, want true")
+	p := newTelegramDraftStreamPublisher(nil, api, -1003824466118, 236, "supergroup")
+	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"hello"}}`, Done: true}); err != nil {
+		t.Fatalf("OnStream() error = %v", err)
 	}
-	if ok := p.Finalize("hello"); !ok {
-		t.Fatalf("Finalize(same) = false, want true")
-	}
-	if len(calls) != 1 {
-		t.Fatalf("finalize calls = %d, want 1", len(calls))
+	if len(calls) != 0 {
+		t.Fatalf("draft calls = %d, want 0 for group chat", len(calls))
 	}
 }
 

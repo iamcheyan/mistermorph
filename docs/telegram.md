@@ -63,17 +63,17 @@ Inbound group message
           | sendMessageDraft (direct) |             | try sendMessageDraft finalize |
           +---------------------------+             +-----------+-------------------+
                                                                 |
-                                              +-----------------+-----------------+
-                                              |                                   |
-                                  +-----------v----------+          +-------------v-------------+
-                                  | success: done        |          | fail/unavailable:         |
-                                  | no outbound bus text |          | publish outbound bus text |
-                                  +----------------------+          +-------------+-------------+
-                                                                                  |
-                                                                      +-----------v-------------+
-                                                                      | telegram delivery       |
-                                                                      | adapter -> sendMessage  |
-                                                                      +-------------------------+
+                                              +------------------------+------------------------+
+                                              |                                                 |
+                                  +-----------v-----------+                        +------------v------------+
+                                  | success/fail          |                        | publish outbound bus    |
+                                  | (draft is stream UI)  |                        | final text              |
+                                  +-----------------------+                        +------------+------------+
+                                                                                               |
+                                                                                   +-----------v-------------+
+                                                                                   | telegram delivery       |
+                                                                                   | adapter -> sendMessage  |
+                                                                                   +-------------------------+
 ```
 
 ### 2.2 Pre Filter: `shouldSkipGroupReplyWithoutBodyMention`
@@ -201,9 +201,10 @@ Pre-run reaction does not change this rule.
 
 Text delivery path when `final.is_lightweight == false`:
 
-- runtime first attempts Telegram draft delivery (`sendMessageDraft`) in the main run stream/finalize path
-- if draft delivery succeeds, runtime does not publish a normal outbound bus text message for that final output
-- if draft delivery is unavailable or fails, runtime falls back to normal bus outbound text path (delivery adapter -> `sendMessage`)
+- runtime attempts Telegram draft delivery (`sendMessageDraft`) in the main run stream/finalize path for incremental UX
+- draft delivery is enabled for private chats only; group/supergroup skip draft path
+- runtime always publishes final text through normal bus outbound text path (delivery adapter -> `sendMessage`)
+- draft delivery success/failure does not replace the canonical final send path
 
 ## 6) Pre-Run vs Main-Run Reaction Interaction
 
@@ -227,7 +228,6 @@ Useful logs for debugging:
 - `telegram_group_addressing_reaction_applied`
 - `message_reaction_applied`
 - `telegram_stream_publish_error`
-- `telegram_stream_finalize_error`
 
 ## 8) Quick Behavior Matrix
 
@@ -240,8 +240,9 @@ Useful logs for debugging:
 ## 9) Telegram Draft Streaming and Bus Boundary
 
 - `sendMessageDraft` is Telegram runtime-local transport for incremental/final draft updates.
+- this API path is private-chat only in current Telegram Bot API semantics.
 - stream deltas are not encoded as outbound bus messages.
 - bus still carries canonical outbound events in Telegram runtime:
   - plan progress
   - error/file-download-error replies
-  - final text fallback path when draft delivery fails
+  - final text publish path

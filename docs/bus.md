@@ -105,8 +105,8 @@ Implemented channel adapters:
 - starts inproc bus
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - Telegram poll inbound path: Telegram inbound adapter -> bus -> handler -> worker queue
-- business outbound messages via bus: task failures, file-download failures, plan updates, and normal text fallback path
-- Telegram draft streaming output (`sendMessageDraft`) is channel-local direct send inside Telegram runtime/task loop; stream deltas are not published to bus
+- business outbound messages via bus: final text publish path, task failures, file-download failures, and plan updates
+- Telegram draft streaming output (`sendMessageDraft`, private-chat only) is channel-local direct send inside Telegram runtime/task loop; stream deltas are not published to bus
 - operational/admin messages (for example `/help`, initialization/system notices) may still use direct send
 
 `mistermorph slack`:
@@ -210,7 +210,7 @@ business output / proactive sender
 
 Telegram draft-stream note:
 - `sendMessageDraft` incremental updates are intentionally not modeled as outbound bus messages.
-- Bus carries canonical outbound messages (final fallback/error/plan progress), while Telegram draft-stream deltas stay runtime-local.
+- Bus carries canonical outbound messages (final text/error/plan progress), while Telegram draft-stream deltas stay runtime-local.
 
 ## 4) Design Evaluation (Current State)
 
