@@ -35,6 +35,9 @@ var telegramRuntimePromptBlockTemplateSource string
 //go:embed prompts/block_slack.md
 var slackRuntimePromptBlockTemplateSource string
 
+//go:embed prompts/block_line.md
+var lineRuntimePromptBlockTemplateSource string
+
 var localToolNotesBlockTemplate = prompttmpl.MustParse(
 	"local_tool_notes_block",
 	localToolNotesBlockTemplateSource,
@@ -71,6 +74,12 @@ var slackRuntimePromptBlockTemplate = prompttmpl.MustParse(
 	template.FuncMap{},
 )
 
+var lineRuntimePromptBlockTemplate = prompttmpl.MustParse(
+	"line_runtime_block",
+	lineRuntimePromptBlockTemplateSource,
+	template.FuncMap{},
+)
+
 type telegramRuntimePromptBlockData struct {
 	IsGroup   bool
 	EmojiList string
@@ -79,6 +88,10 @@ type telegramRuntimePromptBlockData struct {
 type slackRuntimePromptBlockData struct {
 	IsGroup   bool
 	EmojiList string
+}
+
+type lineRuntimePromptBlockData struct {
+	IsGroup bool
 }
 
 type localToolNotesPromptBlockData struct {
@@ -219,6 +232,22 @@ func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers
 	}
 	content, err = prompttmpl.Render(slackMentionUsersBlockTemplate, slackMentionUsersPromptBlockData{
 		UserIDsText: strings.Join(mentionUsers, "\n"),
+	})
+	if err != nil {
+		return
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
+	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+		Content: content,
+	})
+}
+
+func AppendLineRuntimeBlocks(spec *agent.PromptSpec, isGroup bool) {
+	content, err := prompttmpl.Render(lineRuntimePromptBlockTemplate, lineRuntimePromptBlockData{
+		IsGroup: isGroup,
 	})
 	if err != nil {
 		return
