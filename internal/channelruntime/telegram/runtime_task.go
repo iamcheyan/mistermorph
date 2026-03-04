@@ -147,7 +147,8 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
-	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID, job.ChatType)
+	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID, job.ChatType, model)
+	streamHandler := streamPublisher.StreamHandler()
 
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
@@ -181,7 +182,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		Model:           model,
 		History:         llmHistory,
 		Meta:            meta,
-		OnStream:        streamPublisher.OnStream,
+		OnStream:        streamHandler,
 		SkipTaskMessage: true,
 	})
 	if err != nil {
@@ -291,12 +292,16 @@ type telegramDraftStreamPublisher struct {
 	draftDisabled   bool
 }
 
-func newTelegramDraftStreamPublisher(logger *slog.Logger, api *telegramAPI, chatID int64, messageID int64, chatType string) *telegramDraftStreamPublisher {
+func newTelegramDraftStreamPublisher(logger *slog.Logger, api *telegramAPI, chatID int64, messageID int64, chatType string, model string) *telegramDraftStreamPublisher {
 	draftID := int64(0)
 	if messageID > 0 {
 		draftID = messageID
 	}
-	enabled := api != nil && draftID > 0 && chatID > 0 && strings.EqualFold(strings.TrimSpace(chatType), "private")
+	enabled := api != nil &&
+		draftID > 0 &&
+		chatID > 0 &&
+		strings.EqualFold(strings.TrimSpace(chatType), "private") &&
+		modelSupportsTelegramDraftStream(model)
 	return &telegramDraftStreamPublisher{
 		logger:  logger,
 		api:     api,
@@ -304,6 +309,29 @@ func newTelegramDraftStreamPublisher(logger *slog.Logger, api *telegramAPI, chat
 		draftID: draftID,
 		enabled: enabled,
 	}
+}
+
+func (p *telegramDraftStreamPublisher) StreamHandler() llm.StreamHandler {
+	if p == nil || !p.enabled {
+		return nil
+	}
+	return p.OnStream
+}
+
+func modelSupportsTelegramDraftStream(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	return modelHasPrefixOrNamespace(model, "gpt-") || modelHasPrefixOrNamespace(model, "gemini")
+}
+
+func modelHasPrefixOrNamespace(model string, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+	return strings.HasPrefix(model, token) || strings.Contains(model, "/"+token)
 }
 
 func (p *telegramDraftStreamPublisher) OnStream(ev llm.StreamEvent) error {

@@ -168,7 +168,7 @@ func TestTelegramDraftStreamPublisherPublishesDraftUpdates(t *testing.T) {
 	defer srv.Close()
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, 42, 77, "private")
+	p := newTelegramDraftStreamPublisher(nil, api, 42, 77, "private", "gpt-5.2")
 	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"he`}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
@@ -207,12 +207,19 @@ func TestTelegramDraftStreamPublisherDisabledForGroupChat(t *testing.T) {
 	defer srv.Close()
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, -1003824466118, 236, "supergroup")
+	p := newTelegramDraftStreamPublisher(nil, api, -1003824466118, 236, "supergroup", "gpt-5.2")
 	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"hello"}}`, Done: true}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
 	if len(calls) != 0 {
 		t.Fatalf("draft calls = %d, want 0 for group chat", len(calls))
+	}
+}
+
+func TestTelegramDraftStreamPublisherStreamHandlerDisabledForUnsupportedModel(t *testing.T) {
+	p := newTelegramDraftStreamPublisher(nil, nil, 42, 77, "private", "anthropic/claude-sonnet-4.6")
+	if p.StreamHandler() != nil {
+		t.Fatalf("StreamHandler() expected nil for unsupported model")
 	}
 }
 
