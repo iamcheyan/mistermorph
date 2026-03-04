@@ -189,3 +189,59 @@ func TestBuildTelegramRunOptionsImageRecognitionDisabledWhenSourceMissing(t *tes
 		t.Fatalf("ImageRecognitionEnabled = true, want false when telegram is not in sources")
 	}
 }
+
+func TestLineConfigFromReaderAllowedGroupIDs(t *testing.T) {
+	cfg := LineConfigFromReader(stubConfigReader{
+		"line.allowed_group_ids": []string{"g1", "g2"},
+	})
+	if len(cfg.AllowedGroupIDsRaw) != 2 {
+		t.Fatalf("AllowedGroupIDsRaw len = %d, want 2", len(cfg.AllowedGroupIDsRaw))
+	}
+}
+
+func TestBuildLineRunOptionsTaskTimeoutFallback(t *testing.T) {
+	opts := BuildLineRunOptions(
+		LineConfig{
+			AllowedGroupIDsRaw:                   []string{"groupA"},
+			TaskTimeout:                          0,
+			GlobalTaskTimeout:                    4 * time.Minute,
+			MaxConcurrency:                       3,
+			DefaultGroupTriggerMode:              "smart",
+			DefaultAddressingConfidenceThreshold: 0.6,
+			DefaultAddressingInterjectThreshold:  0.6,
+			AgentLimits:                          agent.Limits{ToolRepeatLimit: 7},
+			MultimodalImageSources:               []string{"line"},
+		},
+		LineInput{
+			ChannelAccessToken: "token",
+			ChannelSecret:      "secret",
+			TaskTimeout:        0,
+		},
+	)
+	if opts.TaskTimeout != 4*time.Minute {
+		t.Fatalf("task timeout = %v, want 4m", opts.TaskTimeout)
+	}
+	if len(opts.AllowedGroupIDs) != 1 || opts.AllowedGroupIDs[0] != "groupA" {
+		t.Fatalf("allowed groups = %#v, want [groupA]", opts.AllowedGroupIDs)
+	}
+	if opts.AgentLimits.ToolRepeatLimit != 7 {
+		t.Fatalf("agent tool repeat limit = %d, want 7", opts.AgentLimits.ToolRepeatLimit)
+	}
+	if !opts.ImageRecognitionEnabled {
+		t.Fatalf("ImageRecognitionEnabled = false, want true when line is in sources")
+	}
+}
+
+func TestBuildLineRunOptionsInputOverridesAndDedupesGroups(t *testing.T) {
+	opts := BuildLineRunOptions(
+		LineConfig{
+			AllowedGroupIDsRaw: []string{"groupA"},
+		},
+		LineInput{
+			AllowedGroupIDs: []string{" groupB ", "groupB", "groupC"},
+		},
+	)
+	if len(opts.AllowedGroupIDs) != 2 || opts.AllowedGroupIDs[0] != "groupB" || opts.AllowedGroupIDs[1] != "groupC" {
+		t.Fatalf("allowed groups = %#v, want [groupB groupC]", opts.AllowedGroupIDs)
+	}
+}

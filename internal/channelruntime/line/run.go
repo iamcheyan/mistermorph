@@ -1,0 +1,40 @@
+package line
+
+import (
+	"time"
+
+	"github.com/quailyquaily/mistermorph/agent"
+)
+
+// Hooks is intentionally minimal in the bootstrap phase.
+// Runtime callback shapes will be finalized with line runtime implementation.
+type Hooks struct{}
+
+type RunOptions struct {
+	ChannelAccessToken            string
+	ChannelSecret                 string
+	AllowedGroupIDs               []string
+	GroupTriggerMode              string
+	AddressingConfidenceThreshold float64
+	AddressingInterjectThreshold  float64
+	TaskTimeout                   time.Duration
+	MaxConcurrency                int
+	ServerListen                  string
+	ServerAuthToken               string
+	ServerMaxQueue                int
+	BaseURL                       string
+	WebhookListen                 string
+	WebhookPath                   string
+	BusMaxInFlight                int
+	RequestTimeout                time.Duration
+	AgentLimits                   agent.Limits
+	MemoryEnabled                 bool
+	MemoryShortTermDays           int
+	MemoryInjectionEnabled        bool
+	MemoryInjectionMaxItems       int
+	SecretsRequireSkillProfiles   bool
+	ImageRecognitionEnabled       bool
+	Hooks                         Hooks
+	InspectPrompt                 bool
+	InspectRequest                bool
+}

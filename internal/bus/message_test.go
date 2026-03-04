@@ -181,6 +181,15 @@ func TestMessageValidate_AllowsSlackExtensions(t *testing.T) {
 	}
 }
 
+func TestMessageValidate_AllowsLineChannel(t *testing.T) {
+	msg := validMessage(t)
+	msg.Channel = ChannelLine
+	msg.ConversationKey = "line:Cgroup123"
+	if err := msg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestMessageValidate_RejectsInvalidSlackExtension(t *testing.T) {
 	msg := validMessage(t)
 	msg.Extensions.TeamID = " T111"

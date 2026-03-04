@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	lineruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/line"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/spf13/viper"
@@ -372,6 +373,161 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 	}
 }
 
+type LineConfig struct {
+	AllowedGroupIDsRaw                   []string
+	DefaultGroupTriggerMode              string
+	DefaultAddressingConfidenceThreshold float64
+	DefaultAddressingInterjectThreshold  float64
+	TaskTimeout                          time.Duration
+	GlobalTaskTimeout                    time.Duration
+	MaxConcurrency                       int
+	ServerListen                         string
+	ServerAuthToken                      string
+	ServerMaxQueue                       int
+	BaseURL                              string
+	WebhookListen                        string
+	WebhookPath                          string
+	BusMaxInFlight                       int
+	RequestTimeout                       time.Duration
+	AgentLimits                          agent.Limits
+	MemoryEnabled                        bool
+	MemoryShortTermDays                  int
+	MemoryInjectionEnabled               bool
+	MemoryInjectionMaxItems              int
+	SecretsRequireSkillProfiles          bool
+	MultimodalImageSources               []string
+}
+
+type LineInput struct {
+	ChannelAccessToken            string
+	ChannelSecret                 string
+	AllowedGroupIDs               []string
+	GroupTriggerMode              string
+	AddressingConfidenceThreshold float64
+	AddressingInterjectThreshold  float64
+	TaskTimeout                   time.Duration
+	MaxConcurrency                int
+	BaseURL                       string
+	WebhookListen                 string
+	WebhookPath                   string
+	Hooks                         lineruntime.Hooks
+	InspectPrompt                 bool
+	InspectRequest                bool
+}
+
+func LineConfigFromReader(r ConfigReader) LineConfig {
+	if r == nil {
+		return LineConfig{}
+	}
+	return LineConfig{
+		AllowedGroupIDsRaw:                   append([]string(nil), r.GetStringSlice("line.allowed_group_ids")...),
+		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("line.group_trigger_mode")),
+		DefaultAddressingConfidenceThreshold: r.GetFloat64("line.addressing_confidence_threshold"),
+		DefaultAddressingInterjectThreshold:  r.GetFloat64("line.addressing_interject_threshold"),
+		TaskTimeout:                          r.GetDuration("line.task_timeout"),
+		GlobalTaskTimeout:                    r.GetDuration("timeout"),
+		MaxConcurrency:                       r.GetInt("line.max_concurrency"),
+		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
+		ServerMaxQueue:                       r.GetInt("server.max_queue"),
+		BaseURL:                              strings.TrimSpace(r.GetString("line.base_url")),
+		WebhookListen:                        strings.TrimSpace(r.GetString("line.webhook_listen")),
+		WebhookPath:                          strings.TrimSpace(r.GetString("line.webhook_path")),
+		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
+		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
+		AgentLimits: agent.Limits{
+			MaxSteps:        r.GetInt("max_steps"),
+			ParseRetries:    r.GetInt("parse_retries"),
+			MaxTokenBudget:  r.GetInt("max_token_budget"),
+			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
+		},
+		MemoryEnabled:               r.GetBool("memory.enabled"),
+		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
+		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
+		MultimodalImageSources:      append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
+	}
+}
+
+func LineConfigFromViper() LineConfig {
+	return LineConfigFromReader(viper.GetViper())
+}
+
+func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
+	allowedGroupIDs := normalizeTrimmedUniqueStrings(in.AllowedGroupIDs)
+	if len(allowedGroupIDs) == 0 {
+		allowedGroupIDs = normalizeTrimmedUniqueStrings(cfg.AllowedGroupIDsRaw)
+	}
+
+	groupTriggerMode := strings.TrimSpace(in.GroupTriggerMode)
+	if groupTriggerMode == "" {
+		groupTriggerMode = strings.TrimSpace(cfg.DefaultGroupTriggerMode)
+	}
+	addressingConfidenceThreshold := in.AddressingConfidenceThreshold
+	if addressingConfidenceThreshold <= 0 {
+		addressingConfidenceThreshold = cfg.DefaultAddressingConfidenceThreshold
+	}
+	addressingInterjectThreshold := in.AddressingInterjectThreshold
+	if addressingInterjectThreshold <= 0 {
+		addressingInterjectThreshold = cfg.DefaultAddressingInterjectThreshold
+	}
+	taskTimeout := in.TaskTimeout
+	if taskTimeout <= 0 {
+		taskTimeout = cfg.TaskTimeout
+	}
+	if taskTimeout <= 0 {
+		taskTimeout = cfg.GlobalTaskTimeout
+	}
+	maxConcurrency := in.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = cfg.MaxConcurrency
+	}
+	serverListen := normalizeServerListen(cfg.ServerListen)
+	baseURL := strings.TrimSpace(in.BaseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(cfg.BaseURL)
+	}
+	webhookListen := strings.TrimSpace(in.WebhookListen)
+	if webhookListen == "" {
+		webhookListen = strings.TrimSpace(cfg.WebhookListen)
+	}
+	webhookPath := strings.TrimSpace(in.WebhookPath)
+	if webhookPath == "" {
+		webhookPath = strings.TrimSpace(cfg.WebhookPath)
+	}
+	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "line")
+
+	return lineruntime.RunOptions{
+		ChannelAccessToken:            strings.TrimSpace(in.ChannelAccessToken),
+		ChannelSecret:                 strings.TrimSpace(in.ChannelSecret),
+		AllowedGroupIDs:               allowedGroupIDs,
+		GroupTriggerMode:              groupTriggerMode,
+		AddressingConfidenceThreshold: addressingConfidenceThreshold,
+		AddressingInterjectThreshold:  addressingInterjectThreshold,
+		TaskTimeout:                   taskTimeout,
+		MaxConcurrency:                maxConcurrency,
+		ServerListen:                  serverListen,
+		ServerAuthToken:               cfg.ServerAuthToken,
+		ServerMaxQueue:                cfg.ServerMaxQueue,
+		BaseURL:                       baseURL,
+		WebhookListen:                 webhookListen,
+		WebhookPath:                   webhookPath,
+		BusMaxInFlight:                cfg.BusMaxInFlight,
+		RequestTimeout:                cfg.RequestTimeout,
+		AgentLimits:                   cfg.AgentLimits,
+		MemoryEnabled:                 cfg.MemoryEnabled,
+		MemoryShortTermDays:           cfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
+		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
+		ImageRecognitionEnabled:       imageRecognitionEnabled,
+		Hooks:                         in.Hooks,
+		InspectPrompt:                 in.InspectPrompt,
+		InspectRequest:                in.InspectRequest,
+	}
+}
+
 func normalizeServerListen(listen string) string {
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
@@ -391,4 +547,27 @@ func sourceEnabled(sources []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeTrimmedUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -27,9 +27,13 @@ func BuildSlackChannelConversationKey(channelID string) (string, error) {
 	return BuildConversationKey(ChannelSlack, channelID)
 }
 
+func BuildLineGroupConversationKey(groupID string) (string, error) {
+	return BuildConversationKey(ChannelLine, groupID)
+}
+
 func isValidChannel(channel Channel) bool {
 	switch channel {
-	case ChannelTelegram, ChannelSlack, ChannelDiscord:
+	case ChannelTelegram, ChannelSlack, ChannelLine, ChannelDiscord:
 		return true
 	default:
 		return false
@@ -42,6 +46,8 @@ func conversationKeyPrefix(channel Channel) string {
 		return "tg"
 	case ChannelSlack:
 		return "slack"
+	case ChannelLine:
+		return "line"
 	case ChannelDiscord:
 		return "discord"
 	default:

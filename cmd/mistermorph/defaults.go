@@ -85,6 +85,19 @@ func initViperDefaults() {
 	viper.SetDefault("slack.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("slack.addressing_interject_threshold", 0.6)
 
+	// LINE (group-only in V1).
+	viper.SetDefault("line.base_url", "https://api.line.me")
+	viper.SetDefault("line.channel_access_token", "")
+	viper.SetDefault("line.channel_secret", "")
+	viper.SetDefault("line.webhook_listen", "127.0.0.1:18080")
+	viper.SetDefault("line.webhook_path", "/line/webhook")
+	viper.SetDefault("line.allowed_group_ids", []string{})
+	viper.SetDefault("line.task_timeout", 0*time.Second)
+	viper.SetDefault("line.max_concurrency", 3)
+	viper.SetDefault("line.group_trigger_mode", "smart")
+	viper.SetDefault("line.addressing_confidence_threshold", 0.6)
+	viper.SetDefault("line.addressing_interject_threshold", 0.6)
+
 	// Heartbeat
 	viper.SetDefault("heartbeat.enabled", true)
 	viper.SetDefault("heartbeat.interval", 30*time.Minute)

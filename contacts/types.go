@@ -23,6 +23,7 @@ const (
 const (
 	ChannelTelegram = channels.Telegram
 	ChannelSlack    = channels.Slack
+	ChannelLine     = channels.Line
 	ShareTopic      = "chat.message"
 )
 
