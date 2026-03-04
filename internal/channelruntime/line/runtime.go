@@ -152,6 +152,18 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	taskRuntimeOpts := runtimeTaskOptions{
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
 	}
+	addressingLLMTimeout := requestTimeout
+	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
+	addressingInterjectThreshold := opts.AddressingInterjectThreshold
+	botUserID := ""
+	botInfoCtx, cancelBotInfo := context.WithTimeout(ctx, 8*time.Second)
+	resolvedBotUserID, botInfoErr := api.botUserID(botInfoCtx)
+	cancelBotInfo()
+	if botInfoErr != nil {
+		logger.Warn("line_bot_info_load_failed", "error", botInfoErr.Error())
+	} else {
+		botUserID = strings.TrimSpace(resolvedBotUserID)
+	}
 
 	taskTimeout := opts.TaskTimeout
 	maxConcurrency := opts.MaxConcurrency
@@ -336,6 +348,64 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("line inbound text is required")
 		}
+		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
+			mu.Lock()
+			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
+			mu.Unlock()
+			dec, accepted, decErr := decideLineGroupTrigger(
+				context.Background(),
+				client,
+				model,
+				inbound,
+				botUserID,
+				groupTriggerMode,
+				addressingLLMTimeout,
+				addressingConfidenceThreshold,
+				addressingInterjectThreshold,
+				historySnapshot,
+				lineNoopAddressingReactionTool{},
+			)
+			if decErr != nil {
+				logger.Warn("line_addressing_llm_error",
+					"chat_id", inbound.ChatID,
+					"error", decErr.Error(),
+				)
+				return nil
+			}
+			if !accepted {
+				logger.Info("line_group_ignored",
+					"chat_id", inbound.ChatID,
+					"text_len", len(text),
+					"llm_attempted", dec.AddressingLLMAttempted,
+					"llm_ok", dec.AddressingLLMOK,
+					"llm_addressed", dec.Addressing.Addressed,
+					"confidence", dec.Addressing.Confidence,
+					"wanna_interject", dec.Addressing.WannaInterject,
+					"interject", dec.Addressing.Interject,
+					"impulse", dec.Addressing.Impulse,
+					"is_lightweight", dec.Addressing.IsLightweight,
+					"reason", dec.Reason,
+				)
+				if strings.EqualFold(groupTriggerMode, "talkative") {
+					mu.Lock()
+					cur := history[msg.ConversationKey]
+					cur = append(cur, newLineInboundHistoryItemFromInbound(inbound))
+					history[msg.ConversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
+					mu.Unlock()
+				}
+				return nil
+			}
+			logger.Info("line_group_trigger",
+				"chat_id", inbound.ChatID,
+				"reason", dec.Reason,
+				"llm_addressed", dec.Addressing.Addressed,
+				"confidence", dec.Addressing.Confidence,
+				"wanna_interject", dec.Addressing.WannaInterject,
+				"interject", dec.Addressing.Interject,
+				"impulse", dec.Addressing.Impulse,
+				"is_lightweight", dec.Addressing.IsLightweight,
+			)
+		}
 		mu.Lock()
 		w := getOrStartWorkerLocked(msg.ConversationKey)
 		version := w.Version
@@ -461,6 +531,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		"base_url", strings.TrimSpace(opts.BaseURL),
 		"webhook_listen", strings.TrimSpace(opts.WebhookListen),
 		"webhook_path", webhookPath,
+		"bot_user_id_present", strings.TrimSpace(botUserID) != "",
 		"allowed_group_ids", len(allowedGroups),
 		"task_timeout", taskTimeout.String(),
 		"max_concurrency", maxConcurrency,

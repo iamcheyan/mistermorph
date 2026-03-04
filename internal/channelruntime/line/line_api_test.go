@@ -81,6 +81,30 @@ func TestLineAPIPushMessage(t *testing.T) {
 	}
 }
 
+func TestLineAPIBotUserID(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/info" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/info")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer line-token" {
+			t.Fatalf("authorization = %q, want %q", got, "Bearer line-token")
+		}
+		_, _ = w.Write([]byte(`{"userId":"Ubot001"}`))
+	}))
+	defer srv.Close()
+
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	userID, err := api.botUserID(context.Background())
+	if err != nil {
+		t.Fatalf("botUserID() error = %v", err)
+	}
+	if userID != "Ubot001" {
+		t.Fatalf("bot user id = %q, want %q", userID, "Ubot001")
+	}
+}
+
 func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Parallel()
 

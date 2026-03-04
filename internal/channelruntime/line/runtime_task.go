@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
@@ -145,6 +146,24 @@ func newLineInboundHistoryItem(job lineJob) chathistory.ChatHistoryItem {
 		Sender:           lineSenderFromJob(job, false),
 		Text:             strings.TrimSpace(job.Text),
 	}
+}
+
+func lineJobFromInbound(inbound linebus.InboundMessage) lineJob {
+	return lineJob{
+		ChatID:       strings.TrimSpace(inbound.ChatID),
+		ChatType:     strings.TrimSpace(inbound.ChatType),
+		MessageID:    strings.TrimSpace(inbound.MessageID),
+		ReplyToken:   strings.TrimSpace(inbound.ReplyToken),
+		FromUserID:   strings.TrimSpace(inbound.FromUserID),
+		FromUsername: strings.TrimSpace(inbound.FromUsername),
+		DisplayName:  strings.TrimSpace(inbound.DisplayName),
+		Text:         strings.TrimSpace(inbound.Text),
+		SentAt:       inbound.SentAt.UTC(),
+	}
+}
+
+func newLineInboundHistoryItemFromInbound(inbound linebus.InboundMessage) chathistory.ChatHistoryItem {
+	return newLineInboundHistoryItem(lineJobFromInbound(inbound))
 }
 
 func newLineOutboundAgentHistoryItem(job lineJob, output string, sentAt time.Time) chathistory.ChatHistoryItem {

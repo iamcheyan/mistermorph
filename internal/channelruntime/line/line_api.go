@@ -39,6 +39,10 @@ type lineTextMessage struct {
 	Text string `json:"text"`
 }
 
+type lineBotInfoResponse struct {
+	UserID string `json:"userId,omitempty"`
+}
+
 type lineReplyRequest struct {
 	ReplyToken string            `json:"replyToken"`
 	Messages   []lineTextMessage `json:"messages"`
@@ -75,6 +79,37 @@ func (api *lineAPI) pushMessage(ctx context.Context, chatID string, text string)
 		To:       chatID,
 		Messages: []lineTextMessage{{Type: "text", Text: strings.TrimSpace(text)}},
 	})
+}
+
+func (api *lineAPI) botUserID(ctx context.Context) (string, error) {
+	if api == nil {
+		return "", fmt.Errorf("line api is not initialized")
+	}
+	url := api.baseURL + "/v2/bot/info"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+api.channelAccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", parseLineAPIError(resp.StatusCode, raw)
+	}
+	var out lineBotInfoResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	userID := strings.TrimSpace(out.UserID)
+	if userID == "" {
+		return "", fmt.Errorf("line bot info returned empty user id")
+	}
+	return userID, nil
 }
 
 type lineAPIError struct {
