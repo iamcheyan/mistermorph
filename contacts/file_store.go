@@ -549,7 +549,7 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 	case "":
 		channel := strings.ToLower(strings.TrimSpace(profile.Channel))
 		switch channel {
-		case "", ChannelTelegram, ChannelSlack, "discord":
+		case "", ChannelTelegram, ChannelSlack, ChannelLine, "discord":
 			contact.Kind = KindHuman
 		default:
 			contact.Kind = KindAgent
@@ -811,7 +811,6 @@ func hasContactID(items []Contact, contactID string) bool {
 	return false
 }
 
-
 func (s *FileStore) loadBusInboxLocked() ([]BusInboxRecord, error) {
 	var file busInboxFile
 	ok, err := fsstore.ReadJSONStrict(s.busInboxPath(), &file)
@@ -1014,7 +1013,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 func normalizeContactChannel(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case ChannelTelegram, ChannelSlack, "discord":
+	case ChannelTelegram, ChannelSlack, ChannelLine, "discord":
 		return value
 	default:
 		return ""
