@@ -84,6 +84,21 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	if err != nil {
 		return err
 	}
+	baseURL := strings.TrimSpace(opts.BaseURL)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	api := newLineAPI(httpClient, baseURL, opts.ChannelAccessToken)
+	lineDeliveryAdapter, err := linebus.NewDeliveryAdapter(linebus.DeliveryAdapterOptions{
+		SendText: func(ctx context.Context, target any, text string, opts linebus.SendTextOptions) error {
+			deliverTarget, ok := target.(linebus.DeliveryTarget)
+			if !ok {
+				return fmt.Errorf("line target is invalid")
+			}
+			return sendLineText(ctx, api, logger, deliverTarget.ChatID, text, opts.ReplyToken)
+		},
+	})
+	if err != nil {
+		return err
+	}
 
 	taskTimeout := opts.TaskTimeout
 	maxConcurrency := opts.MaxConcurrency
@@ -282,7 +297,11 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if msg.Channel != busruntime.ChannelLine {
 				return fmt.Errorf("unsupported outbound channel: %s", msg.Channel)
 			}
-			return fmt.Errorf("line outbound delivery is not implemented")
+			if lineDeliveryAdapter == nil {
+				return fmt.Errorf("line delivery adapter is not initialized")
+			}
+			_, _, err := lineDeliveryAdapter.Deliver(ctx, msg)
+			return err
 		default:
 			return fmt.Errorf("unsupported direction: %s", msg.Direction)
 		}

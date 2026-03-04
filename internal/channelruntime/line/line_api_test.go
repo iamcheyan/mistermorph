@@ -1,0 +1,211 @@
+package line
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestLineAPIReplyMessage(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/message/reply" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/reply")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer line-token" {
+			t.Fatalf("authorization = %q, want %q", got, "Bearer line-token")
+		}
+		if got := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.Contains(got, "application/json") {
+			t.Fatalf("content-type = %q", got)
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var payload lineReplyRequest
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.ReplyToken != "rtok_123" {
+			t.Fatalf("reply_token = %q, want %q", payload.ReplyToken, "rtok_123")
+		}
+		if len(payload.Messages) != 1 || payload.Messages[0].Type != "text" || payload.Messages[0].Text != "hello line" {
+			t.Fatalf("messages = %#v, want single text message", payload.Messages)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	if err := api.replyMessage(context.Background(), "rtok_123", "hello line"); err != nil {
+		t.Fatalf("replyMessage() error = %v", err)
+	}
+}
+
+func TestLineAPIPushMessage(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/message/push" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/push")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer line-token" {
+			t.Fatalf("authorization = %q, want %q", got, "Bearer line-token")
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var payload linePushRequest
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.To != "Cgroup123" {
+			t.Fatalf("to = %q, want %q", payload.To, "Cgroup123")
+		}
+		if len(payload.Messages) != 1 || payload.Messages[0].Type != "text" || payload.Messages[0].Text != "hello line" {
+			t.Fatalf("messages = %#v, want single text message", payload.Messages)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	if err := api.pushMessage(context.Background(), "Cgroup123", "hello line"); err != nil {
+		t.Fatalf("pushMessage() error = %v", err)
+	}
+}
+
+func TestSendLineTextFallbackPolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reply success", func(t *testing.T) {
+		replyCalls := 0
+		pushCalls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v2/bot/message/reply":
+				replyCalls++
+				w.WriteHeader(http.StatusOK)
+			case "/v2/bot/message/push":
+				pushCalls++
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer srv.Close()
+
+		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_ok")
+		if err != nil {
+			t.Fatalf("sendLineText() error = %v", err)
+		}
+		if replyCalls != 1 {
+			t.Fatalf("reply calls = %d, want 1", replyCalls)
+		}
+		if pushCalls != 0 {
+			t.Fatalf("push calls = %d, want 0", pushCalls)
+		}
+	})
+
+	t.Run("fallback to push on reply token error", func(t *testing.T) {
+		replyCalls := 0
+		pushCalls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v2/bot/message/reply":
+				replyCalls++
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"Invalid reply token"}`))
+			case "/v2/bot/message/push":
+				pushCalls++
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer srv.Close()
+
+		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_expired")
+		if err != nil {
+			t.Fatalf("sendLineText() error = %v", err)
+		}
+		if replyCalls != 1 {
+			t.Fatalf("reply calls = %d, want 1", replyCalls)
+		}
+		if pushCalls != 1 {
+			t.Fatalf("push calls = %d, want 1", pushCalls)
+		}
+	})
+
+	t.Run("do not fallback on non-token reply error", func(t *testing.T) {
+		replyCalls := 0
+		pushCalls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v2/bot/message/reply":
+				replyCalls++
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"The property, 'messages', in the request body is invalid"}`))
+			case "/v2/bot/message/push":
+				pushCalls++
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer srv.Close()
+
+		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_bad_payload")
+		if err == nil {
+			t.Fatalf("sendLineText() expected error")
+		}
+		if !strings.Contains(err.Error(), "messages") {
+			t.Fatalf("sendLineText() error = %v, want messages-related error", err)
+		}
+		if replyCalls != 1 {
+			t.Fatalf("reply calls = %d, want 1", replyCalls)
+		}
+		if pushCalls != 0 {
+			t.Fatalf("push calls = %d, want 0", pushCalls)
+		}
+	})
+
+	t.Run("push directly when reply token missing", func(t *testing.T) {
+		replyCalls := 0
+		pushCalls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v2/bot/message/reply":
+				replyCalls++
+				w.WriteHeader(http.StatusOK)
+			case "/v2/bot/message/push":
+				pushCalls++
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer srv.Close()
+
+		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "")
+		if err != nil {
+			t.Fatalf("sendLineText() error = %v", err)
+		}
+		if replyCalls != 0 {
+			t.Fatalf("reply calls = %d, want 0", replyCalls)
+		}
+		if pushCalls != 1 {
+			t.Fatalf("push calls = %d, want 1", pushCalls)
+		}
+	})
+}
