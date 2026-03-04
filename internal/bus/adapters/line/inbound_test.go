@@ -42,7 +42,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 	}
 
 	accepted, err := adapter.HandleInboundMessage(context.Background(), InboundMessage{
-		GroupID:      "Cgroup123",
+		ChatID:       "Cgroup123",
 		MessageID:    "m_1001",
 		ReplyToken:   "rtok_abc",
 		ChatType:     "group",
@@ -69,8 +69,8 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		if msg.ConversationKey != "line:Cgroup123" {
 			t.Fatalf("conversation_key mismatch: got %q want %q", msg.ConversationKey, "line:Cgroup123")
 		}
-		if msg.ParticipantKey != "user:U123" {
-			t.Fatalf("participant_key mismatch: got %q want %q", msg.ParticipantKey, "user:U123")
+		if msg.ParticipantKey != "U123" {
+			t.Fatalf("participant_key mismatch: got %q want %q", msg.ParticipantKey, "U123")
 		}
 		if msg.Extensions.ChatType != "group" {
 			t.Fatalf("chat_type mismatch: got %q want %q", msg.Extensions.ChatType, "group")
@@ -90,7 +90,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 	}
 
 	accepted, err = adapter.HandleInboundMessage(context.Background(), InboundMessage{
-		GroupID:    "Cgroup123",
+		ChatID:     "Cgroup123",
 		MessageID:  "m_1001",
 		ChatType:   "group",
 		FromUserID: "U123",
@@ -121,7 +121,7 @@ func TestInboundAdapterRejectsUnsupportedChatType(t *testing.T) {
 	}
 
 	_, err = adapter.HandleInboundMessage(context.Background(), InboundMessage{
-		GroupID:    "Rroom123",
+		ChatID:     "Rroom123",
 		MessageID:  "m_1002",
 		ChatType:   "room",
 		FromUserID: "U123",
@@ -145,16 +145,16 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
 	}
-	conversationKey, err := busruntime.BuildLineGroupConversationKey("Cgroup123")
+	conversationKey, err := busruntime.BuildLineConversationKey("Cgroup123")
 	if err != nil {
-		t.Fatalf("BuildLineGroupConversationKey() error = %v", err)
+		t.Fatalf("BuildLineConversationKey() error = %v", err)
 	}
 	msg := busruntime.BusMessage{
 		Direction:       busruntime.DirectionInbound,
 		Channel:         busruntime.ChannelLine,
 		Topic:           busruntime.TopicChatMessage,
 		ConversationKey: conversationKey,
-		ParticipantKey:  "user:U123",
+		ParticipantKey:  "U123",
 		IdempotencyKey:  "msg:line_Cgroup123_m_1001",
 		CorrelationID:   "line:Cgroup123:m_1001",
 		PayloadBase64:   payloadBase64,
@@ -177,8 +177,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InboundMessageFromBusMessage() error = %v", err)
 	}
-	if inbound.GroupID != "Cgroup123" {
-		t.Fatalf("group_id mismatch: got %q want %q", inbound.GroupID, "Cgroup123")
+	if inbound.ChatID != "Cgroup123" {
+		t.Fatalf("chat_id mismatch: got %q want %q", inbound.ChatID, "Cgroup123")
 	}
 	if inbound.MessageID != "m_1001" {
 		t.Fatalf("message_id mismatch: got %q want %q", inbound.MessageID, "m_1001")
@@ -194,5 +194,59 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths length mismatch: got %d want 2", len(inbound.ImagePaths))
+	}
+}
+
+func TestInboundAdapterHandleInboundPrivateMessage(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	bus, err := busruntime.NewInproc(busruntime.InprocOptions{MaxInFlight: 4, Logger: logger})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+	defer bus.Close()
+
+	store := contacts.NewFileStore(t.TempDir())
+	adapter, err := NewInboundAdapter(InboundAdapterOptions{Bus: bus, Store: store})
+	if err != nil {
+		t.Fatalf("NewInboundAdapter() error = %v", err)
+	}
+
+	delivered := make(chan busruntime.BusMessage, 1)
+	if err := bus.Subscribe(busruntime.TopicChatMessage, func(ctx context.Context, msg busruntime.BusMessage) error {
+		delivered <- msg
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	accepted, err := adapter.HandleInboundMessage(context.Background(), InboundMessage{
+		ChatID:     "Uprivate001",
+		MessageID:  "m_2001",
+		ChatType:   "private",
+		FromUserID: "Uprivate001",
+		Text:       "hello private",
+	})
+	if err != nil {
+		t.Fatalf("HandleInboundMessage() error = %v", err)
+	}
+	if !accepted {
+		t.Fatalf("HandleInboundMessage() accepted=false, want true")
+	}
+
+	select {
+	case msg := <-delivered:
+		if msg.ConversationKey != "line:Uprivate001" {
+			t.Fatalf("conversation_key mismatch: got %q want %q", msg.ConversationKey, "line:Uprivate001")
+		}
+		if msg.Extensions.ChatType != "private" {
+			t.Fatalf("chat_type mismatch: got %q want %q", msg.Extensions.ChatType, "private")
+		}
+		if msg.ParticipantKey != "Uprivate001" {
+			t.Fatalf("participant_key mismatch: got %q want %q", msg.ParticipantKey, "Uprivate001")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("message not delivered")
 	}
 }

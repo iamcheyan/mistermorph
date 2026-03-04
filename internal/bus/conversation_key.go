@@ -27,8 +27,12 @@ func BuildSlackChannelConversationKey(channelID string) (string, error) {
 	return BuildConversationKey(ChannelSlack, channelID)
 }
 
+func BuildLineConversationKey(chatID string) (string, error) {
+	return BuildConversationKey(ChannelLine, chatID)
+}
+
 func BuildLineGroupConversationKey(groupID string) (string, error) {
-	return BuildConversationKey(ChannelLine, groupID)
+	return BuildLineConversationKey(groupID)
 }
 
 func isValidChannel(channel Channel) bool {

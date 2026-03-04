@@ -44,9 +44,9 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
 	}
-	conversationKey, err := busruntime.BuildLineGroupConversationKey("Cgroup123")
+	conversationKey, err := busruntime.BuildLineConversationKey("Cgroup123")
 	if err != nil {
-		t.Fatalf("BuildLineGroupConversationKey() error = %v", err)
+		t.Fatalf("BuildLineConversationKey() error = %v", err)
 	}
 	msg := busruntime.BusMessage{
 		Direction:       busruntime.DirectionOutbound,
@@ -74,8 +74,8 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("send calls mismatch: got %d want 1", calls)
 	}
-	if gotTarget.GroupID != "Cgroup123" {
-		t.Fatalf("group_id mismatch: got %q want %q", gotTarget.GroupID, "Cgroup123")
+	if gotTarget.ChatID != "Cgroup123" {
+		t.Fatalf("chat_id mismatch: got %q want %q", gotTarget.ChatID, "Cgroup123")
 	}
 	if gotText != "hello line" {
 		t.Fatalf("text mismatch: got %q want %q", gotText, "hello line")
@@ -122,7 +122,7 @@ func TestDeliveryAdapterRejectsInvalidConversationKey(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Deliver() expected error for invalid conversation key")
 	}
-	if !strings.Contains(err.Error(), "line group id is required") {
+	if !strings.Contains(err.Error(), "line chat id is required") {
 		t.Fatalf("Deliver() error mismatch: got %q", err.Error())
 	}
 	if accepted {

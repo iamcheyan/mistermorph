@@ -15,7 +15,7 @@ type SendTextOptions struct {
 }
 
 type DeliveryTarget struct {
-	GroupID string
+	ChatID string
 }
 
 type DeliveryAdapterOptions struct {
@@ -66,9 +66,9 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 }
 
 func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	groupID, err := groupIDFromConversationKey(msg.ConversationKey)
+	chatID, err := chatIDFromConversationKey(msg.ConversationKey)
 	if err != nil {
 		return nil, err
 	}
-	return DeliveryTarget{GroupID: groupID}, nil
+	return DeliveryTarget{ChatID: chatID}, nil
 }

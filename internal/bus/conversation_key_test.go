@@ -13,9 +13,9 @@ func TestBuildConversationKey(t *testing.T) {
 }
 
 func TestBuildConversationKeyLine(t *testing.T) {
-	key, err := BuildConversationKey(ChannelLine, "Cgroup123")
+	key, err := BuildLineConversationKey("Cgroup123")
 	if err != nil {
-		t.Fatalf("BuildConversationKey() error = %v", err)
+		t.Fatalf("BuildLineConversationKey() error = %v", err)
 	}
 	if key != "line:Cgroup123" {
 		t.Fatalf("conversation key mismatch: got %q", key)

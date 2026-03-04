@@ -18,10 +18,10 @@ type InboundAdapterOptions struct {
 	Now   func() time.Time
 }
 
-// InboundMessage is the normalized line group-message event for bus ingress.
-// V1 is intentionally group-only.
+// InboundMessage is the normalized line message event for bus ingress.
+// V1 supports group and private chats.
 type InboundMessage struct {
-	GroupID      string
+	ChatID       string
 	MessageID    string
 	ReplyToken   string
 	SentAt       time.Time
@@ -64,20 +64,17 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if ctx == nil {
 		return false, fmt.Errorf("context is required")
 	}
-	groupID := strings.TrimSpace(msg.GroupID)
-	if groupID == "" {
-		return false, fmt.Errorf("group_id is required")
+	chatID := strings.TrimSpace(msg.ChatID)
+	if chatID == "" {
+		return false, fmt.Errorf("chat_id is required")
 	}
 	messageID := strings.TrimSpace(msg.MessageID)
 	if messageID == "" {
 		return false, fmt.Errorf("message_id is required")
 	}
-	chatType := strings.ToLower(strings.TrimSpace(msg.ChatType))
-	if chatType == "" {
-		return false, fmt.Errorf("chat_type is required")
-	}
-	if chatType != "group" {
-		return false, fmt.Errorf("line chat_type %q is not supported in v1", chatType)
+	chatType, err := normalizeLineChatType(msg.ChatType)
+	if err != nil {
+		return false, err
 	}
 	fromUserID := strings.TrimSpace(msg.FromUserID)
 	if fromUserID == "" {
@@ -107,7 +104,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 		return false, err
 	}
 	sessionID := sessionUUID.String()
-	envelopeMessageID := lineEnvelopeMessageID(groupID, messageID)
+	envelopeMessageID := lineEnvelopeMessageID(chatID, messageID)
 	payloadBase64, err := busruntime.EncodeMessageEnvelope(busruntime.TopicChatMessage, busruntime.MessageEnvelope{
 		MessageID: envelopeMessageID,
 		Text:      text,
@@ -119,11 +116,11 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 		return false, err
 	}
 
-	conversationKey, err := busruntime.BuildLineGroupConversationKey(groupID)
+	conversationKey, err := busruntime.BuildLineConversationKey(chatID)
 	if err != nil {
 		return false, err
 	}
-	platformMessageID := linePlatformMessageID(groupID, messageID)
+	platformMessageID := linePlatformMessageID(chatID, messageID)
 
 	busMsg := busruntime.BusMessage{
 		ID:              "bus_" + uuid.NewString(),
@@ -131,7 +128,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 		Channel:         busruntime.ChannelLine,
 		Topic:           busruntime.TopicChatMessage,
 		ConversationKey: conversationKey,
-		ParticipantKey:  lineParticipantKey(fromUserID),
+		ParticipantKey:  fromUserID,
 		IdempotencyKey:  idempotency.MessageEnvelopeKey(envelopeMessageID),
 		CorrelationID:   "line:" + platformMessageID,
 		PayloadBase64:   payloadBase64,
@@ -143,7 +140,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			ChatType:          chatType,
 			FromUsername:      strings.TrimSpace(msg.FromUsername),
 			FromDisplayName:   strings.TrimSpace(msg.DisplayName),
-			ChannelID:         groupID,
+			ChannelID:         chatID,
 			FromUserRef:       fromUserID,
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
@@ -160,15 +157,15 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if msg.Channel != busruntime.ChannelLine {
 		return InboundMessage{}, fmt.Errorf("channel must be line")
 	}
-	groupID, err := groupIDFromConversationKey(msg.ConversationKey)
+	chatID, err := chatIDFromConversationKey(msg.ConversationKey)
 	if err != nil {
 		return InboundMessage{}, err
 	}
-	pmGroupID, messageID, err := parseLinePlatformMessageID(msg.Extensions.PlatformMessageID)
+	pmChatID, messageID, err := parseLinePlatformMessageID(msg.Extensions.PlatformMessageID)
 	if err != nil {
 		return InboundMessage{}, err
 	}
-	if pmGroupID != groupID {
+	if pmChatID != chatID {
 		return InboundMessage{}, fmt.Errorf("platform_message_id does not match conversation_key")
 	}
 	env, err := msg.Envelope()
@@ -179,16 +176,13 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, fmt.Errorf("sent_at is invalid")
 	}
-	chatType := strings.ToLower(strings.TrimSpace(msg.Extensions.ChatType))
-	if chatType == "" {
-		return InboundMessage{}, fmt.Errorf("chat_type is required")
-	}
-	if chatType != "group" {
-		return InboundMessage{}, fmt.Errorf("line chat_type %q is not supported in v1", chatType)
+	chatType, err := normalizeLineChatType(msg.Extensions.ChatType)
+	if err != nil {
+		return InboundMessage{}, err
 	}
 	fromUserID := strings.TrimSpace(msg.Extensions.FromUserRef)
 	if fromUserID == "" {
-		fromUserID = lineUserIDFromParticipantKey(msg.ParticipantKey)
+		fromUserID = strings.TrimSpace(msg.ParticipantKey)
 	}
 	if fromUserID == "" {
 		return InboundMessage{}, fmt.Errorf("from_user_id is required")
@@ -208,7 +202,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	}
 
 	return InboundMessage{
-		GroupID:      groupID,
+		ChatID:       chatID,
 		MessageID:    messageID,
 		ReplyToken:   replyToken,
 		SentAt:       sentAt.UTC(),
@@ -223,28 +217,12 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	}, nil
 }
 
-func lineEnvelopeMessageID(groupID, messageID string) string {
-	return "line:" + linePlatformMessageID(groupID, messageID)
+func lineEnvelopeMessageID(chatID, messageID string) string {
+	return "line:" + linePlatformMessageID(chatID, messageID)
 }
 
-func linePlatformMessageID(groupID, messageID string) string {
-	return strings.TrimSpace(groupID) + ":" + strings.TrimSpace(messageID)
-}
-
-func lineParticipantKey(userID string) string {
-	return "user:" + strings.TrimSpace(userID)
-}
-
-func lineUserIDFromParticipantKey(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	const prefix = "user:"
-	if !strings.HasPrefix(raw, prefix) {
-		return ""
-	}
-	return strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+func linePlatformMessageID(chatID, messageID string) string {
+	return strings.TrimSpace(chatID) + ":" + strings.TrimSpace(messageID)
 }
 
 func parseLinePlatformMessageID(platformMessageID string) (string, string, error) {
@@ -256,12 +234,12 @@ func parseLinePlatformMessageID(platformMessageID string) (string, string, error
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("platform_message_id is invalid")
 	}
-	groupID := strings.TrimSpace(parts[0])
+	chatID := strings.TrimSpace(parts[0])
 	messageID := strings.TrimSpace(parts[1])
-	if groupID == "" || messageID == "" {
+	if chatID == "" || messageID == "" {
 		return "", "", fmt.Errorf("platform_message_id is invalid")
 	}
-	return groupID, messageID, nil
+	return chatID, messageID, nil
 }
 
 func normalizeMentionUsers(items []string) ([]string, error) {
@@ -299,14 +277,28 @@ func normalizeImagePaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-func groupIDFromConversationKey(conversationKey string) (string, error) {
+func chatIDFromConversationKey(conversationKey string) (string, error) {
 	const prefix = "line:"
 	if !strings.HasPrefix(conversationKey, prefix) {
 		return "", fmt.Errorf("line conversation key is invalid")
 	}
-	groupID := strings.TrimSpace(strings.TrimPrefix(conversationKey, prefix))
-	if groupID == "" {
-		return "", fmt.Errorf("line group id is required")
+	chatID := strings.TrimSpace(strings.TrimPrefix(conversationKey, prefix))
+	if chatID == "" {
+		return "", fmt.Errorf("line chat id is required")
 	}
-	return groupID, nil
+	return chatID, nil
+}
+
+func normalizeLineChatType(raw string) (string, error) {
+	chatType := strings.ToLower(strings.TrimSpace(raw))
+	switch chatType {
+	case "group", "private":
+		return chatType, nil
+	case "user":
+		return "private", nil
+	case "":
+		return "", fmt.Errorf("chat_type is required")
+	default:
+		return "", fmt.Errorf("line chat_type %q is not supported", chatType)
+	}
 }
