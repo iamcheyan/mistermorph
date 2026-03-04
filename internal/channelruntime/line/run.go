@@ -1,6 +1,7 @@
 package line
 
 import (
+	"context"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -37,4 +38,8 @@ type RunOptions struct {
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
+}
+
+func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
+	return runLineLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
 }

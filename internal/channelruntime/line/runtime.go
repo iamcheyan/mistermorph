@@ -1,0 +1,379 @@
+package line
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/contacts"
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
+)
+
+type Dependencies = depsutil.CommonDependencies
+
+type lineJob struct {
+	TaskID          string
+	ConversationKey string
+	ChatID          string
+	ChatType        string
+	MessageID       string
+	ReplyToken      string
+	FromUserID      string
+	FromUsername    string
+	DisplayName     string
+	Text            string
+	SentAt          time.Time
+	Version         uint64
+	MentionUsers    []string
+	EventID         string
+}
+
+type lineConversationWorker struct {
+	Jobs    chan lineJob
+	Version uint64
+}
+
+func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(opts.ChannelAccessToken) == "" {
+		return fmt.Errorf("missing line.channel_access_token (set via --line-channel-access-token or MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN)")
+	}
+	channelSecret := strings.TrimSpace(opts.ChannelSecret)
+	if channelSecret == "" {
+		return fmt.Errorf("missing line.channel_secret (set via --line-channel-secret or MISTER_MORPH_LINE_CHANNEL_SECRET)")
+	}
+
+	logger, err := depsutil.LoggerFromCommon(d)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+
+	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
+		MaxInFlight: opts.BusMaxInFlight,
+		Logger:      logger,
+		Component:   "line",
+	})
+	if err != nil {
+		return err
+	}
+	defer inprocBus.Close()
+
+	contactsStore := contacts.NewFileStore(statepaths.ContactsDir())
+	if err := contactsStore.Ensure(context.Background()); err != nil {
+		return err
+	}
+	contactsSvc := contacts.NewService(contactsStore)
+	lineInboundAdapter, err := linebus.NewInboundAdapter(linebus.InboundAdapterOptions{
+		Bus:   inprocBus,
+		Store: contactsStore,
+	})
+	if err != nil {
+		return err
+	}
+
+	taskTimeout := opts.TaskTimeout
+	maxConcurrency := opts.MaxConcurrency
+	sem := make(chan struct{}, maxConcurrency)
+	workersCtx, stopWorkers := context.WithCancel(ctx)
+	defer stopWorkers()
+	allowedGroups := toAllowlist(opts.AllowedGroupIDs)
+
+	serverListen := strings.TrimSpace(opts.ServerListen)
+	if serverListen != "" {
+		if strings.TrimSpace(opts.ServerAuthToken) == "" {
+			logger.Warn("line_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
+		}
+		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
+			Listen: serverListen,
+			Routes: daemonruntime.RoutesOptions{
+				Mode:       "line",
+				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
+				TaskReader: daemonStore,
+				Overview: func(ctx context.Context) (map[string]any, error) {
+					return map[string]any{
+						"llm": map[string]any{
+							"provider": depsutil.ProviderFromCommon(d),
+							"model":    depsutil.ModelFromCommon(d),
+						},
+						"channel": map[string]any{
+							"configured":          true,
+							"telegram_configured": false,
+							"slack_configured":    false,
+							"line_configured":     true,
+							"running":             "line",
+							"telegram_running":    false,
+							"slack_running":       false,
+							"line_running":        true,
+						},
+					}, nil
+				},
+				HealthEnabled: true,
+			},
+		})
+		if err != nil {
+			logger.Warn("line_daemon_server_start_error", "addr", serverListen, "error", err.Error())
+		}
+	}
+
+	var (
+		mu                 sync.Mutex
+		workers            = make(map[string]*lineConversationWorker)
+		enqueueLineInbound func(context.Context, busruntime.BusMessage) error
+	)
+	getOrStartWorkerLocked := func(conversationKey string) *lineConversationWorker {
+		if w, ok := workers[conversationKey]; ok && w != nil {
+			return w
+		}
+		w := &lineConversationWorker{Jobs: make(chan lineJob, 16)}
+		workers[conversationKey] = w
+		runtimeworker.Start(runtimeworker.StartOptions[lineJob]{
+			Ctx:  workersCtx,
+			Sem:  sem,
+			Jobs: w.Jobs,
+			Handle: func(workerCtx context.Context, job lineJob) {
+				mu.Lock()
+				curVersion := w.Version
+				mu.Unlock()
+				if job.Version != curVersion {
+					return
+				}
+				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+					startedAt := time.Now().UTC()
+					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+						info.Status = daemonruntime.TaskRunning
+						info.StartedAt = &startedAt
+					})
+				}
+				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+				runErr := runLineTask(runCtx, job)
+				cancel()
+				if runErr != nil {
+					if workerCtx.Err() != nil {
+						return
+					}
+					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+						finishedAt := time.Now().UTC()
+						daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+							info.Status = daemonruntime.TaskFailed
+							info.Error = strings.TrimSpace(runErr.Error())
+							info.FinishedAt = &finishedAt
+						})
+					}
+					logger.Warn("line_task_error",
+						"chat_id", job.ChatID,
+						"message_id", job.MessageID,
+						"error", runErr.Error(),
+					)
+					return
+				}
+				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+					finishedAt := time.Now().UTC()
+					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+						info.Status = daemonruntime.TaskDone
+						info.Error = ""
+						info.FinishedAt = &finishedAt
+						info.Result = map[string]any{
+							"output": "",
+							"note":   "line runLineTask is not implemented in PR3",
+						}
+					})
+				}
+			},
+		})
+		return w
+	}
+	enqueueLineInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
+		if ctx == nil {
+			ctx = workersCtx
+		}
+		inbound, err := linebus.InboundMessageFromBusMessage(msg)
+		if err != nil {
+			return err
+		}
+		text := strings.TrimSpace(inbound.Text)
+		if text == "" {
+			return fmt.Errorf("line inbound text is required")
+		}
+		mu.Lock()
+		w := getOrStartWorkerLocked(msg.ConversationKey)
+		version := w.Version
+		mu.Unlock()
+
+		job := lineJob{
+			TaskID:          lineTaskID(inbound.ChatID, inbound.MessageID),
+			ConversationKey: msg.ConversationKey,
+			ChatID:          inbound.ChatID,
+			ChatType:        inbound.ChatType,
+			MessageID:       inbound.MessageID,
+			ReplyToken:      inbound.ReplyToken,
+			FromUserID:      inbound.FromUserID,
+			FromUsername:    inbound.FromUsername,
+			DisplayName:     inbound.DisplayName,
+			Text:            text,
+			SentAt:          inbound.SentAt,
+			Version:         version,
+			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
+			EventID:         inbound.EventID,
+		}
+		if err := runtimeworker.Enqueue(ctx, workersCtx, w.Jobs, job); err != nil {
+			return err
+		}
+		if daemonStore != nil {
+			createdAt := inbound.SentAt.UTC()
+			if createdAt.IsZero() {
+				createdAt = time.Now().UTC()
+			}
+			daemonStore.Upsert(daemonruntime.TaskInfo{
+				ID:        job.TaskID,
+				Status:    daemonruntime.TaskQueued,
+				Task:      daemonruntime.TruncateUTF8(text, 2000),
+				Model:     strings.TrimSpace(depsutil.ModelFromCommon(d)),
+				Timeout:   taskTimeout.String(),
+				CreatedAt: createdAt,
+				Result: map[string]any{
+					"source":            "line",
+					"line_chat_id":      inbound.ChatID,
+					"line_message_id":   inbound.MessageID,
+					"line_chat_type":    inbound.ChatType,
+					"line_from_user_id": inbound.FromUserID,
+				},
+			})
+		}
+		logger.Info("line_task_enqueued",
+			"channel", msg.Channel,
+			"topic", msg.Topic,
+			"chat_id", inbound.ChatID,
+			"chat_type", inbound.ChatType,
+			"idempotency_key", msg.IdempotencyKey,
+			"conversation_key", msg.ConversationKey,
+			"text_len", len(text),
+		)
+		return nil
+	}
+
+	busHandler := func(ctx context.Context, msg busruntime.BusMessage) error {
+		switch msg.Direction {
+		case busruntime.DirectionInbound:
+			if msg.Channel != busruntime.ChannelLine {
+				return fmt.Errorf("unsupported inbound channel: %s", msg.Channel)
+			}
+			if err := contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
+				logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
+			}
+			if enqueueLineInbound == nil {
+				return fmt.Errorf("line inbound handler is not initialized")
+			}
+			return enqueueLineInbound(ctx, msg)
+		case busruntime.DirectionOutbound:
+			if msg.Channel != busruntime.ChannelLine {
+				return fmt.Errorf("unsupported outbound channel: %s", msg.Channel)
+			}
+			return fmt.Errorf("line outbound delivery is not implemented")
+		default:
+			return fmt.Errorf("unsupported direction: %s", msg.Direction)
+		}
+	}
+	for _, topic := range busruntime.AllTopics() {
+		if err := inprocBus.Subscribe(topic, busHandler); err != nil {
+			return err
+		}
+	}
+
+	webhookPath := normalizeWebhookPath(opts.WebhookPath)
+	webhookMux := http.NewServeMux()
+	webhookMux.Handle(webhookPath, newLineWebhookHandler(lineWebhookHandlerOptions{
+		ChannelSecret: channelSecret,
+		Inbound:       lineInboundAdapter,
+		AllowedGroups: allowedGroups,
+		Logger:        logger,
+	}))
+	webhookServer := &http.Server{
+		Addr:              strings.TrimSpace(opts.WebhookListen),
+		Handler:           webhookMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	webhookErrCh := make(chan error, 1)
+	go func() {
+		err := webhookServer.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			webhookErrCh <- err
+			return
+		}
+		webhookErrCh <- nil
+	}()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = webhookServer.Shutdown(shutdownCtx)
+	}()
+
+	logger.Info("line_start",
+		"base_url", strings.TrimSpace(opts.BaseURL),
+		"webhook_listen", strings.TrimSpace(opts.WebhookListen),
+		"webhook_path", webhookPath,
+		"allowed_group_ids", len(allowedGroups),
+		"task_timeout", taskTimeout.String(),
+		"max_concurrency", maxConcurrency,
+		"group_trigger_mode", strings.TrimSpace(opts.GroupTriggerMode),
+		"addressing_confidence_threshold", opts.AddressingConfidenceThreshold,
+		"addressing_interject_threshold", opts.AddressingInterjectThreshold,
+	)
+
+	select {
+	case err := <-webhookErrCh:
+		if err != nil {
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		logger.Info("line_stop", "reason", "context_canceled")
+		return nil
+	}
+}
+
+func runLineTask(ctx context.Context, job lineJob) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		_ = job
+		return nil
+	}
+}
+
+func toAllowlist(items []string) map[string]bool {
+	out := make(map[string]bool)
+	for _, raw := range items {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			continue
+		}
+		out[item] = true
+	}
+	return out
+}
+
+func lineTaskID(chatID, messageID string) string {
+	return daemonruntime.BuildTaskID("li", chatID, messageID)
+}

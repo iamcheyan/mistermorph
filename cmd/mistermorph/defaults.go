@@ -85,7 +85,7 @@ func initViperDefaults() {
 	viper.SetDefault("slack.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("slack.addressing_interject_threshold", 0.6)
 
-	// LINE (group-only in V1).
+	// LINE.
 	viper.SetDefault("line.base_url", "https://api.line.me")
 	viper.SetDefault("line.channel_access_token", "")
 	viper.SetDefault("line.channel_secret", "")
