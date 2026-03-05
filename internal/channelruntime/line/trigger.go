@@ -119,19 +119,3 @@ func loadLineAddressingPersonaIdentity() string {
 	promptprofile.ApplyPersonaIdentity(&spec, slog.Default())
 	return strings.TrimSpace(spec.Identity)
 }
-
-type lineNoopAddressingReactionTool struct{}
-
-func (lineNoopAddressingReactionTool) Name() string { return "message_react" }
-
-func (lineNoopAddressingReactionTool) Description() string {
-	return "No-op reaction tool for LINE addressing decision stage."
-}
-
-func (lineNoopAddressingReactionTool) ParameterSchema() string {
-	return `{"type":"object","properties":{"emoji":{"type":"string"}},"required":["emoji"]}`
-}
-
-func (lineNoopAddressingReactionTool) Execute(_ context.Context, _ map[string]any) (string, error) {
-	return "ok", nil
-}

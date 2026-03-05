@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	linetools "github.com/quailyquaily/mistermorph/tools/line"
 )
 
 type runtimeTaskOptions struct {
@@ -36,6 +37,7 @@ func runLineTask(
 	logOpts agent.LogOptions,
 	client llm.Client,
 	baseReg *tools.Registry,
+	api *lineAPI,
 	sharedGuard *guard.Guard,
 	cfg agent.Config,
 	model string,
@@ -43,10 +45,10 @@ func runLineTask(
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
-) (*agent.Final, *agent.Context, []string, error) {
+) (*agent.Final, *agent.Context, []string, *linetools.Reaction, error) {
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
-		return nil, nil, nil, fmt.Errorf("empty line task")
+		return nil, nil, nil, nil, fmt.Errorf("empty line task")
 	}
 	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
 	historyWithCurrent = append(historyWithCurrent, newLineInboundHistoryItem(job))
@@ -54,20 +56,29 @@ func runLineTask(
 		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelLine, historyWithCurrent),
 	}, "", "  ")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("render line history context: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("render line history context: %w", err)
 	}
 	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
 
 	if baseReg == nil {
-		return nil, nil, nil, fmt.Errorf("base registry is nil")
+		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 	reg := buildLineRegistry(baseReg, job.ChatType)
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
+	var reactTool *linetools.ReactTool
+	if api != nil &&
+		strings.TrimSpace(job.ChatID) != "" &&
+		strings.TrimSpace(job.MessageID) != "" {
+		reactTool = linetools.NewReactTool(newLineToolAPI(api), job.ChatID, job.MessageID, map[string]bool{
+			job.ChatID: true,
+		})
+		reg.Register(reactTool)
+	}
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
@@ -99,9 +110,22 @@ func runLineTask(
 		SkipTaskMessage: true,
 	})
 	if err != nil {
-		return final, runCtx, loadedSkills, err
+		return final, runCtx, loadedSkills, nil, err
 	}
-	return final, runCtx, loadedSkills, nil
+
+	var reaction *linetools.Reaction
+	if reactTool != nil {
+		reaction = reactTool.LastReaction()
+		if reaction != nil && logger != nil {
+			logger.Info("message_reaction_applied",
+				"chat_id", reaction.ChatID,
+				"message_id", reaction.MessageID,
+				"emoji", reaction.Emoji,
+				"source", reaction.Source,
+			)
+		}
+	}
+	return final, runCtx, loadedSkills, reaction, nil
 }
 
 func todoResolveContextForLine(job lineJob) todo.AddResolveContext {
@@ -177,6 +201,15 @@ func newLineOutboundAgentHistoryItem(job lineJob, output string, sentAt time.Tim
 		Sender:           lineSenderFromJob(job, true),
 		Text:             strings.TrimSpace(output),
 	}
+}
+
+func newLineOutboundReactionHistoryItem(job lineJob, note, emoji string, sentAt time.Time) chathistory.ChatHistoryItem {
+	item := newLineOutboundAgentHistoryItem(job, note, sentAt)
+	item.Kind = chathistory.KindOutboundReaction
+	if strings.TrimSpace(emoji) != "" {
+		item.Text = strings.TrimSpace(note)
+	}
+	return item
 }
 
 func lineSenderFromJob(job lineJob, isBot bool) chathistory.ChatHistorySender {
@@ -330,4 +363,11 @@ func buildLineRegistry(baseReg *tools.Registry, chatType string) *tools.Registry
 		reg.Register(t)
 	}
 	return reg
+}
+
+func shouldPublishLineText(final *agent.Final) bool {
+	if final == nil {
+		return true
+	}
+	return !final.IsLightweight
 }

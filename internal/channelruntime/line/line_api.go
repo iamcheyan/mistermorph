@@ -53,6 +53,11 @@ type linePushRequest struct {
 	Messages []lineTextMessage `json:"messages"`
 }
 
+type lineReactionRequest struct {
+	MessageID string `json:"messageId"`
+	Emoji     string `json:"emoji"`
+}
+
 func (api *lineAPI) replyMessage(ctx context.Context, replyToken string, text string) error {
 	if api == nil {
 		return fmt.Errorf("line api is not initialized")
@@ -110,6 +115,25 @@ func (api *lineAPI) botUserID(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("line bot info returned empty user id")
 	}
 	return userID, nil
+}
+
+func (api *lineAPI) addReaction(ctx context.Context, chatID string, messageID string, emoji string) error {
+	if api == nil {
+		return fmt.Errorf("line api is not initialized")
+	}
+	_ = strings.TrimSpace(chatID) // reserved for future policy checks
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return fmt.Errorf("line message id is required")
+	}
+	emoji = strings.TrimSpace(emoji)
+	if emoji == "" {
+		return fmt.Errorf("line emoji is required")
+	}
+	return api.postJSON(ctx, "/v2/bot/message/reaction", lineReactionRequest{
+		MessageID: messageID,
+		Emoji:     emoji,
+	})
 }
 
 type lineAPIError struct {

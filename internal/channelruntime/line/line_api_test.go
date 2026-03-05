@@ -105,6 +105,40 @@ func TestLineAPIBotUserID(t *testing.T) {
 	}
 }
 
+func TestLineAPIAddReaction(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/message/reaction" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/reaction")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer line-token" {
+			t.Fatalf("authorization = %q, want %q", got, "Bearer line-token")
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var payload lineReactionRequest
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.MessageID != "m_1001" {
+			t.Fatalf("message_id = %q, want %q", payload.MessageID, "m_1001")
+		}
+		if payload.Emoji != "👍" {
+			t.Fatalf("emoji = %q, want %q", payload.Emoji, "👍")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	if err := api.addReaction(context.Background(), "Cgroup123", "m_1001", "👍"); err != nil {
+		t.Fatalf("addReaction() error = %v", err)
+	}
+}
+
 func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Parallel()
 

@@ -328,7 +328,7 @@ slack:
   # Max number of conversations processed concurrently.
   max_concurrency: 3
 
-# LINE bot mode (`mistermorph line`, webhook, group-only in V1).
+# LINE bot mode (`mistermorph line`, webhook, group + private in V1).
 line:
   # LINE Messaging API base URL (override for mock/testing only).
   base_url: "https://api.line.me"
@@ -353,7 +353,7 @@ line:
   addressing_interject_threshold: 0.6
   # Per-message agent timeout (0 uses top-level timeout).
   task_timeout: "0s"
-  # Max number of groups processed concurrently.
+  # Max number of conversations processed concurrently.
   max_concurrency: 3
 
 # Heartbeat (periodic awareness/checkpoint).

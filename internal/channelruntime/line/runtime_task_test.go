@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 )
 
@@ -94,5 +95,19 @@ func TestTodoResolveContextForLine(t *testing.T) {
 	}
 	if ctx.UserInputRaw != "ping @U1" {
 		t.Fatalf("user_input_raw = %q, want %q", ctx.UserInputRaw, "ping @U1")
+	}
+}
+
+func TestShouldPublishLineText(t *testing.T) {
+	t.Parallel()
+
+	if !shouldPublishLineText(nil) {
+		t.Fatalf("shouldPublishLineText(nil) = false, want true")
+	}
+	if !shouldPublishLineText(&agent.Final{IsLightweight: false}) {
+		t.Fatalf("shouldPublishLineText(heavy) = false, want true")
+	}
+	if shouldPublishLineText(&agent.Final{IsLightweight: true}) {
+		t.Fatalf("shouldPublishLineText(lightweight) = true, want false")
 	}
 }
