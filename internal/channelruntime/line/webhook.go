@@ -23,9 +23,7 @@ type lineWebhookHandlerOptions struct {
 	Inbound                 *linebus.InboundAdapter
 	AllowedGroups           map[string]bool
 	Logger                  *slog.Logger
-	API                     *lineAPI
 	ImageRecognitionEnabled bool
-	ImageCacheDir           string
 }
 
 type lineWebhookPayload struct {
@@ -67,9 +65,7 @@ type lineWebhookMentionee struct {
 }
 
 type inboundMessageFromWebhookEventOptions struct {
-	API                     *lineAPI
 	ImageRecognitionEnabled bool
-	ImageCacheDir           string
 }
 
 func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
@@ -104,9 +100,7 @@ func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 		}
 		for _, event := range payload.Events {
 			inbound, ok, normalizeErr := inboundMessageFromWebhookEventWithOptions(r.Context(), event, allowedGroups, inboundMessageFromWebhookEventOptions{
-				API:                     opts.API,
 				ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
-				ImageCacheDir:           opts.ImageCacheDir,
 			})
 			if normalizeErr != nil {
 				logLineWebhookWarn(opts.Logger, "line_webhook_event_invalid",
@@ -210,11 +204,7 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 		if !opts.ImageRecognitionEnabled {
 			return linebus.InboundMessage{}, false, nil
 		}
-		path, err := downloadLineImageToCache(ctx, opts.API, opts.ImageCacheDir, messageID, lineLLMMaxImageBytes)
-		if err != nil {
-			return linebus.InboundMessage{}, false, err
-		}
-		imagePaths = []string{path}
+		imagePaths = nil
 		text = "Please process the uploaded image."
 	default:
 		return linebus.InboundMessage{}, false, nil
@@ -232,6 +222,7 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 		Text:         text,
 		MentionUsers: collectLineMentionUsers(event.Message.Mention),
 		ImagePaths:   imagePaths,
+		ImagePending: msgType == "image",
 		EventID:      strings.TrimSpace(event.WebhookEventID),
 	}, true, nil
 }

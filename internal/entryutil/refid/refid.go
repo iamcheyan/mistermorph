@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Protocol names are alphanumeric only (letters/digits).
-var protocolPattern = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+// Protocol names allow lowercase letters/digits/underscore.
+var protocolPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // Parse parses a generic reference id in "protocol:id" form.
 func Parse(raw string) (protocol string, id string, ok bool) {
@@ -49,22 +49,20 @@ func Normalize(raw string) (string, bool) {
 	return protocol + ":" + id, true
 }
 
-// ParseTelegramChatIDHint parses "tg:<int64>" or plain "<int64>" chat hints.
+// ParseTelegramChatIDHint parses "tg:<int64>" chat hints.
 // Empty input returns (0, false, nil).
 func ParseTelegramChatIDHint(raw string) (int64, bool, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return 0, false, nil
 	}
-	if protocol, id, ok := Parse(value); ok {
-		if protocol != "tg" {
-			return 0, false, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
-		}
-		value = id
+	if !strings.HasPrefix(strings.ToLower(value), "tg:") {
+		return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
 	}
+	value = strings.TrimSpace(value[len("tg:"):])
 	chatID, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || chatID == 0 {
-		return 0, false, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+		return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
 	}
 	return chatID, true, nil
 }

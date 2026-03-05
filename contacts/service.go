@@ -572,6 +572,5 @@ func resolveChannelFromChatIDHint(chatID string) (string, bool, error) {
 			return "", true, fmt.Errorf("invalid chat_id: %s", value)
 		}
 	}
-	_, _, err := refid.ParseTelegramChatIDHint(value)
-	return ChannelTelegram, true, err
+	return "", true, fmt.Errorf("invalid chat_id: %s", value)
 }

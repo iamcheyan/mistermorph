@@ -32,6 +32,7 @@ type InboundMessage struct {
 	Text         string
 	MentionUsers []string
 	ImagePaths   []string
+	ImagePending bool
 	EventID      string
 }
 
@@ -145,6 +146,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImagePending:      msg.ImagePending,
 		},
 	}
 	return a.flow.PublishValidatedInbound(ctx, platformMessageID, busMsg)
@@ -213,6 +215,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		Text:         strings.TrimSpace(env.Text),
 		MentionUsers: mentionUsers,
 		ImagePaths:   imagePaths,
+		ImagePending: msg.Extensions.ImagePending,
 		EventID:      strings.TrimSpace(msg.Extensions.EventID),
 	}, nil
 }

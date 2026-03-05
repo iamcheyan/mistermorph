@@ -26,6 +26,9 @@ func TestIsValid(t *testing.T) {
 	if !IsValid("peer:12D3KooWPeer") {
 		t.Fatalf("IsValid(custom protocol) should be true")
 	}
+	if !IsValid("line_user:U123") {
+		t.Fatalf("IsValid(protocol with underscore) should be true")
+	}
 	if IsValid("peer-v2:12D3KooWPeer") {
 		t.Fatalf("IsValid(protocol with punctuation) should be false")
 	}
@@ -39,17 +42,17 @@ func TestParseTelegramChatIDHint(t *testing.T) {
 	if err != nil || !hasHint || chatID != -1001981343441 {
 		t.Fatalf("ParseTelegramChatIDHint(tg) mismatch: chat_id=%d has_hint=%v err=%v", chatID, hasHint, err)
 	}
-	chatID, hasHint, err = ParseTelegramChatIDHint("12345")
-	if err != nil || !hasHint || chatID != 12345 {
-		t.Fatalf("ParseTelegramChatIDHint(raw) mismatch: chat_id=%d has_hint=%v err=%v", chatID, hasHint, err)
+	_, hasHint, err = ParseTelegramChatIDHint("12345")
+	if err == nil || !hasHint {
+		t.Fatalf("ParseTelegramChatIDHint(raw) expected has_hint=true error, has_hint=%v err=%v", hasHint, err)
 	}
 	_, hasHint, err = ParseTelegramChatIDHint("")
 	if err != nil || hasHint {
 		t.Fatalf("ParseTelegramChatIDHint(empty) mismatch: has_hint=%v err=%v", hasHint, err)
 	}
-	_, _, err = ParseTelegramChatIDHint("slack:T001:C002")
-	if err == nil {
-		t.Fatalf("ParseTelegramChatIDHint(non tg) expected error")
+	_, hasHint, err = ParseTelegramChatIDHint("slack:T001:C002")
+	if err == nil || !hasHint {
+		t.Fatalf("ParseTelegramChatIDHint(non tg) expected has_hint=true error")
 	}
 }
 

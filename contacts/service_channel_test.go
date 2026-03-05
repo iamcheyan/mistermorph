@@ -61,3 +61,18 @@ func TestResolveDecisionChannel_InvalidProtocolHint(t *testing.T) {
 		t.Fatalf("ResolveDecisionChannel() error mismatch: got %q", err.Error())
 	}
 }
+
+func TestResolveDecisionChannel_MissingProtocolHint(t *testing.T) {
+	_, err := ResolveDecisionChannel(Contact{
+		ContactID: "contact:test",
+		Channel:   ChannelTelegram,
+	}, ShareDecision{
+		ChatID: "-1001981343441",
+	})
+	if err == nil {
+		t.Fatalf("ResolveDecisionChannel() expected error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "invalid chat_id") {
+		t.Fatalf("ResolveDecisionChannel() error mismatch: got %q", err.Error())
+	}
+}

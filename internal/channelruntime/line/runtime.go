@@ -52,6 +52,8 @@ type lineConversationWorker struct {
 	Version uint64
 }
 
+const lineImageDownloadTimeout = 20 * time.Second
+
 func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -455,6 +457,40 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
+		if inbound.ImagePending && opts.ImageRecognitionEnabled {
+			if api == nil {
+				logger.Warn("line_image_download_skip", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "reason", "api_not_initialized")
+				return nil
+			}
+			imageCtx := ctx
+			if imageCtx == nil {
+				imageCtx = workersCtx
+			}
+			imageCtx, cancelImage := context.WithTimeout(imageCtx, lineImageDownloadTimeout)
+			path, imageErr := downloadLineImageToCache(imageCtx, api, lineImageCacheDir, inbound.MessageID, lineLLMMaxImageBytes)
+			cancelImage()
+			if imageErr != nil {
+				logger.Warn("line_image_download_error",
+					"chat_id", inbound.ChatID,
+					"message_id", inbound.MessageID,
+					"error", imageErr.Error(),
+				)
+				errorText := "error: failed to fetch image content"
+				errorCorrelationID := fmt.Sprintf("line:image_error:%s:%s", inbound.ChatID, inbound.MessageID)
+				_, publishErr := publishLineBusOutbound(workersCtx, inprocBus, inbound.ChatID, errorText, inbound.ReplyToken, errorCorrelationID)
+				if publishErr != nil {
+					logger.Warn("line_bus_publish_error",
+						"channel", busruntime.ChannelLine,
+						"chat_id", inbound.ChatID,
+						"bus_error_code", string(busruntime.ErrorCodeOf(publishErr)),
+						"error", publishErr.Error(),
+					)
+				}
+				return nil
+			}
+			inbound.ImagePaths = []string{path}
+			inbound.ImagePending = false
+		}
 		mu.Lock()
 		w := getOrStartWorkerLocked(msg.ConversationKey)
 		version := w.Version
@@ -553,9 +589,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		Inbound:                 lineInboundAdapter,
 		AllowedGroups:           allowedGroups,
 		Logger:                  logger,
-		API:                     api,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
-		ImageCacheDir:           lineImageCacheDir,
 	}))
 	webhookServer := &http.Server{
 		Addr:              strings.TrimSpace(opts.WebhookListen),

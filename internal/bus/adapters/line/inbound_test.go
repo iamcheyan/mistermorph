@@ -52,6 +52,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		Text:         "hello line",
 		MentionUsers: []string{"alice", "bob"},
 		ImagePaths:   []string{"/tmp/p1.jpg", "/tmp/p2.png"},
+		ImagePending: true,
 		EventID:      "ev_001",
 	})
 	if err != nil {
@@ -77,6 +78,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.ReplyTo != "rtok_abc" {
 			t.Fatalf("reply_to mismatch: got %q want %q", msg.Extensions.ReplyTo, "rtok_abc")
+		}
+		if !msg.Extensions.ImagePending {
+			t.Fatalf("image_pending mismatch: got false want true")
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -170,6 +174,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			EventID:           "ev_001",
 			MentionUsers:      []string{"alice", "bob"},
 			ImagePaths:        []string{"/tmp/p1.jpg", "/tmp/p2.jpg"},
+			ImagePending:      true,
 		},
 	}
 
@@ -194,6 +199,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths length mismatch: got %d want 2", len(inbound.ImagePaths))
+	}
+	if !inbound.ImagePending {
+		t.Fatalf("image_pending mismatch: got false want true")
 	}
 }
 

@@ -40,6 +40,7 @@ type MessageExtensions struct {
 	EventID           string   `json:"event_id,omitempty"`
 	MentionUsers      []string `json:"mention_users,omitempty"`
 	ImagePaths        []string `json:"image_paths,omitempty"`
+	ImagePending      bool     `json:"image_pending,omitempty"`
 }
 
 type BusMessage struct {
