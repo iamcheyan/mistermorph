@@ -5,10 +5,49 @@ This document explains how to configure `mistermorph line` end-to-end.
 Current runtime capability:
 - Webhook ingress with signature verification (`X-Line-Signature`)
 - Text message handling for group and private chats
+- Image message handling (download to cache + multimodal parts) when `line` is enabled in `multimodal.image.sources`
 - Main agent execution (`runLineTask`)
 - Group trigger modes: `strict | smart | talkative`
-- `message_react` tool support in both pre-run addressing and main run
+- No `message_react` tool in LINE runtime (LINE responses are text-only)
 - Outbound delivery with `reply` first, fallback to `push` when reply token is invalid/expired
+
+## Runtime Architecture (ASCII)
+
+```text
+LINE user/group message
+        |
+        v
+LINE Messaging API webhook
+        |
+        v
+line runtime HTTP handler
+(verify signature + normalize event)
+        |
+        v
+line inbound adapter
+        |
+        v
+inproc bus (topic: chat.message, inbound)
+        |
+        v
+line runtime dispatcher
+(per-conversation worker queue)
+        |
+        v
+runLineTask
+(trigger decision -> prompt build -> agent.Engine)
+        |
+        v
+inproc bus (topic: chat.message, outbound)
+        |
+        v
+line delivery adapter
+  |- reply (when replyToken is valid)
+  `- push  (fallback on token missing/expired/invalid)
+        |
+        v
+LINE Messaging API send
+```
 
 ## 1. LINE Console Step-by-Step (Do This First)
 
@@ -56,7 +95,12 @@ ngrok http 18080
 - Turn on `Use webhook`.
 - Click `Verify` and ensure it succeeds.
 
-7. Do a real message test.
+7. Enable group join.
+- Open channel -> `Messaging API`.
+- Turn on `Allow bot to join group chats`.
+- If this is off, adding bot to a group may immediately show `left the group`.
+
+8. Do a real message test.
 - Send a private message to the bot account.
 - You should see runtime log `line_task_enqueued`.
 - If this works, token/secret/webhook wiring is correct.
@@ -104,6 +148,7 @@ Field notes:
 - `webhook_listen`: local bind address for the webhook HTTP server.
 - `webhook_path`: must match the path in LINE Console webhook URL.
 - `allowed_group_ids`: applies to group chats only; private chats are still accepted.
+- image recognition is controlled by top-level `multimodal.image.sources`; include `line` to enable image download + multimodal parts.
 - `group_trigger_mode`:
   - `strict`: only explicit triggers (mention/command prefix) in groups.
   - `smart`: use addressing LLM and require addressed+confidence.
@@ -146,7 +191,7 @@ Inbound checks:
 
 Outbound checks:
 - bot replies successfully in chat
-- if model chooses lightweight reaction, `message_reaction_applied` or `line_group_addressing_reaction_applied` should appear
+- no LINE reaction log should appear (`message_reaction_applied` is Telegram/Slack only)
 - if reply token is expired, fallback log `line_reply_failed_fallback_push` should appear and message is sent via push
 
 ## 7. Prompt/Request Dump Inspection
@@ -167,7 +212,6 @@ Generated files:
 
 Use this when checking:
 - whether LINE block/profile text was injected into the final prompt
-- whether `message_react` tool schema was present in the request
 - whether multimodal `Parts` were built for inbound images
 
 ## 8. Common Misconfigurations
