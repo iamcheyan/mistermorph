@@ -1,17 +1,26 @@
 ---
 date: 2026-03-04
 title: LINE Support Architecture Plan (Aligned with Telegram/Slack)
-status: draft
+status: implemented
 ---
 
 # LINE Support Architecture Plan (Aligned with Telegram/Slack)
+
+## Progress Snapshot (2026-03-05)
+
+- Completed: PR-1 ~ PR-10
+- Regression: `go test ./...` passed on 2026-03-05
+
+Regression record:
+- `go test ./...`
+- `go test ./internal/channelruntime/telegram ./internal/channelruntime/slack ./internal/channelruntime/line`
 
 ## 1) Scope
 
 - Add a new long-running channel runtime: `mistermorph line`.
 - Keep the same core pipeline as existing Telegram/Slack:
   - inbound event -> bus -> per-conversation worker -> `run*Task` -> outbound bus -> delivery adapter.
-- Support LINE **group chat only** in V1.
+- Support LINE **group + private chat** in V1.
 - Message capability in V1: `text + message_react + image multimodal input`.
 - Reuse shared group-trigger decision logic (`strict|smart|talkative`) and shared addressing LLM decision path.
 
@@ -27,7 +36,6 @@ status: draft
 - No new generic bus backend (still inproc).
 - No rich message template system (carousel/flex/sticker packs) in V1.
 - No support for LINE room chat in V1.
-- No support for LINE 1:1 private chat in V1.
 - No audio/video/file multimodal in V1.
 
 ## 4) First-Principles Design Constraints
@@ -48,7 +56,7 @@ status: draft
   - `reply` uses webhook `replyToken` and is time-limited.
   - `push` is fallback when `reply` is unavailable or expired.
 - Webhook signature verification is mandatory.
-- LINE has both group and room, but V1 supports group only.
+- LINE has group/room/user chat types. V1 supports `group` and `user(private)`, and ignores `room`.
 
 Implication for architecture:
 - `mistermorph line` should run an HTTP webhook listener + worker loop in one process, similar to how `mistermorph slack` runs socket + worker loop.
@@ -87,11 +95,11 @@ Cross-module updates:
 
 V1 key rules (minimal and deterministic):
 
-- `conversation_key`: `line:<group_id>`
-- `conversation_type`: fixed to `group` in V1 (room/private rejected).
-- `participant_key`: `line:<user_id>` when sender user id is available.
+- `conversation_key`: `line:<chat_id>`
+- `conversation_type`: `group|private` in V1 (`room` rejected).
+- `participant_key`: raw user id string.
 - `contact_id` hint format for tools/routing:
-  - group target: `line:<group_id>`
+  - group/private target: `line:<chat_id>`
   - user identity (speaker/contact profile): `line_user:<user_id>` (planned profile field)
 
 Rationale:
@@ -109,7 +117,7 @@ Group:
 Explicit trigger inputs for LINE group (V1):
 - mention metadata when available,
 - configured command prefix,
-- direct reply-to-bot signal when webhook payload can prove it.
+- reply-to-bot signal is reserved, but currently not enabled in runtime because webhook payload path does not provide a stable reply-target identity field.
 
 Lightweight/reaction rule in V1:
 - register `message_react` in both addressing and main task flow (same shape as Telegram/Slack).
@@ -149,6 +157,7 @@ line:
 Notes:
 - `allowed_group_ids` follows the same allowlist spirit used by Telegram/Slack.
 - timeout/concurrency defaults should match existing channel defaults unless LINE requires stricter limits.
+- LINE image caching uses global `file_cache_dir` (stored under `file_cache_dir/line`).
 - multimodal switch follows existing global policy:
   - `multimodal.image.sources` includes `line` when image recognition is enabled for LINE inbound.
 
@@ -158,7 +167,7 @@ Notes:
   - `internal/promptprofile/prompts/block_line.md`
 - Register via prompt profile appender in line runtime task (same pattern as Telegram/Slack block injection).
 - Include LINE-specific instructions for:
-  - group-only operation,
+  - group/private operation,
   - `message_react`,
   - reply/push behavior expectations.
 
@@ -208,7 +217,7 @@ Acceptance:
 
 - Extend contacts observe/routing to include line.
 - Extend `contactsruntime` sender to publish outbound line bus messages.
-- Support `chat_id=line:<group_id>` in routing paths where applicable.
+- Support `chat_id=line:<chat_id>` in routing paths where applicable.
 
 Acceptance:
 - contacts outbound path can route to LINE same as Telegram/Slack.
@@ -243,130 +252,132 @@ Acceptance:
 
 ## 15) Deliverable Checklist
 
-- [ ] `mistermorph line` command runnable.
-- [ ] line inbound adapter + delivery adapter implemented.
-- [ ] line runtime task integrated with engine and bus.
-- [ ] group trigger parity (`strict|smart|talkative`).
-- [ ] `message_react` available in LINE addressing + main task path.
-- [ ] LINE inbound image multimodal path implemented.
-- [ ] contacts routing parity for line.
-- [ ] docs update: `docs/arch.md`, `docs/bus.md`, `docs/tools.md` (line sections).
+- [x] `mistermorph line` command runnable.
+- [x] line inbound adapter + delivery adapter implemented.
+- [x] line runtime task integrated with engine and bus.
+- [x] group trigger parity (`strict|smart|talkative`).
+- [x] `message_react` available in LINE addressing + main task path.
+- [x] LINE inbound image multimodal path implemented.
+- [x] contacts routing parity for line.
+- [x] docs update: `docs/arch.md`, `docs/bus.md`, `docs/tools.md` (line sections).
 
 ## 16) Concrete Work Checklist (Task Split)
 
 ### PR-1: Channel and config plumbing
 
-- [ ] Add `line` channel constant and expose it in shared channel enums:
+- [x] Add `line` channel constant and expose it in shared channel enums:
   - `internal/channels/channels.go`
   - `internal/bus/message.go` (`ChannelLine` + validation allowlist)
   - `internal/chathistory/types.go` (`ChannelLine`)
-- [ ] Add config defaults:
+- [x] Add config defaults:
   - `cmd/mistermorph/defaults.go` (`line.*` defaults)
   - `assets/config/config.example.yaml` (`line` section)
-- [ ] Add config parsing/builders:
+- [x] Add config parsing/builders:
   - `internal/channelopts/options.go` (`LineConfig`, `LineInput`, `BuildLineRunOptions`)
   - `internal/channelopts/options_test.go`
 
 ### PR-2: Bus conversation key + adapter contracts
 
-- [ ] Add line conversation key helper:
+- [x] Add line conversation key helper:
   - `internal/bus/conversation_key.go` (`BuildLineGroupConversationKey` or equivalent)
   - `internal/bus/conversation_key_test.go`
-- [ ] Add adapter package skeleton:
+- [x] Add adapter package skeleton:
   - `internal/bus/adapters/line/inbound.go`
   - `internal/bus/adapters/line/delivery.go`
   - `internal/bus/adapters/line/*_test.go`
-- [ ] Enforce group-only guard in inbound adapter (drop room/private with explicit logs).
+- [x] Enforce V1 chat-type guard in inbound adapter:
+  - accept `group|private`
+  - drop `room` with explicit handling
 
 ### PR-3: LINE webhook runtime loop
 
-- [ ] Add command entry:
+- [x] Add command entry:
   - `cmd/mistermorph/linecmd/*`
   - register in `cmd/mistermorph/root.go`
-- [ ] Implement HTTP webhook server:
+- [x] Implement HTTP webhook server:
   - signature verification
   - event normalization
   - inbound adapter publish
-- [ ] Implement runtime worker loop:
+- [x] Implement runtime worker loop:
   - per-conversation serialization by `conversation_key`
   - bounded queue/backpressure behavior aligned with Telegram/Slack runtime patterns.
 
 ### PR-4: LINE outbound delivery (`reply` + `push`)
 
-- [ ] Implement LINE API client methods for:
+- [x] Implement LINE API client methods for:
   - reply message
   - push message
-- [ ] Delivery adapter policy:
+- [x] Delivery adapter policy:
   - prefer `reply` when reply token exists
   - fallback to `push` on token-missing/token-expired/token-invalid class errors
-- [ ] Add error classification + logging fields for fallback path.
+- [x] Add error classification + logging fields for fallback path.
 
 ### PR-5: Main task runtime + LINE prompt block
 
-- [ ] Implement `runLineTask`:
+- [x] Implement `runLineTask`:
   - prompt assembly
   - agent engine execution
   - outbound bus publish path
-- [ ] Add LINE runtime prompt template:
+- [x] Add LINE runtime prompt template:
   - `internal/promptprofile/prompts/block_line.md`
-- [ ] Add prompt block appender wiring in line runtime task.
-- [ ] Add run metadata keys (for logs/prompt context), for example:
+- [x] Add prompt block appender wiring in line runtime task.
+- [x] Add run metadata keys (for logs/prompt context), for example:
   - `trigger=line`
-  - `line_group_id`
+  - `line_chat_id`
   - `line_user_id`
   - `line_message_id`
 
 ### PR-6: Group trigger parity (`strict|smart|talkative`)
 
-- [ ] Add LINE trigger flow module (mirroring telegram/slack trigger wiring).
-- [ ] Reuse `internal/grouptrigger/decision.go` and shared addressing prompt rendering.
-- [ ] Add explicit trigger extraction for LINE group events:
+- [x] Add LINE trigger flow module (mirroring telegram/slack trigger wiring).
+- [x] Reuse `internal/grouptrigger/decision.go` and shared addressing prompt rendering.
+- [x] Add explicit trigger extraction for LINE group events:
   - mention signal
   - command prefix signal
-  - reply-to-bot signal (when payload provides enough info)
-- [ ] Add trigger-mode matrix tests for LINE group messages.
+  - reply-to-bot signal is intentionally not enabled yet (current webhook path has no stable reply-target identity field)
+- [x] Add trigger-mode matrix tests for LINE group messages.
 
 ### PR-7: `message_react` support (addressing + main task)
 
-- [ ] Implement LINE reaction tool:
+- [x] Implement LINE reaction tool:
   - `tools/line/react_tool.go`
   - tool name must stay `message_react` for cross-channel prompt consistency
-- [ ] Register reaction tool in LINE main task registry.
-- [ ] Register reaction tool in LINE addressing flow (pre-run addressing LLM path).
-- [ ] Add tests:
+- [x] Register reaction tool in LINE main task registry.
+- [x] Register reaction tool in LINE addressing flow (pre-run addressing LLM path).
+- [x] Add tests:
   - tool schema and execute path
-  - no duplicate lightweight reaction behavior
+  - lightweight reaction behavior in addressing/main run paths
   - reaction + text publish policy compatibility.
 
 ### PR-8: LINE image multimodal input
 
-- [ ] Inbound image handling:
+- [x] Inbound image handling:
   - fetch image bytes from LINE content endpoint
   - store in file cache
   - enforce size/count limits before upload
-- [ ] Build history/user message `llm.Parts` (`text + image_base64`) in `runLineTask`.
-- [ ] Enable via existing global switch:
+- [x] Build history/user message `llm.Parts` (`text + image_base64`) in `runLineTask`.
+- [x] Enable via existing global switch:
   - `multimodal.image.sources` contains `line`
-- [ ] Reuse existing model capability gate and add LINE runtime tests.
+- [x] Reuse existing model capability gate and add LINE runtime tests.
 
 ### PR-9: Contacts and sender parity
 
-- [ ] Extend contacts observe path for line inbound bus messages:
+- [x] Extend contacts observe path for line inbound bus messages:
   - `contacts/bus_observe.go` (+ tests)
-- [ ] Extend contacts profile parsing/store for line identifiers (group + user mapping fields).
-- [ ] Extend sender routing:
+- [x] Extend contacts profile parsing/store for line identifiers (group + user mapping fields).
+- [x] Extend sender routing:
   - `internal/contactsruntime/sender.go`
-  - support `chat_id=line:<group_id>`
-- [ ] Add end-to-end sender bus tests for line route selection.
+  - support `chat_id=line:<chat_id>`
+- [x] Add end-to-end sender bus tests for line route selection.
 
 ### PR-10: Documentation and regression closure
 
-- [ ] Update docs:
+- [x] Update docs:
   - `docs/arch.md`
   - `docs/bus.md`
   - `docs/tools.md`
-  - add `docs/line.md` (setup + scopes + webhook verification + reply/push semantics)
-- [ ] Add/refresh dump-based examples for LINE prompt/request inspection.
-- [ ] Run and record regression suite:
+  - `docs/line.md` (already added and updated; keep syncing with runtime changes)
+- [x] Add/refresh dump-based examples for LINE prompt/request inspection.
+- [x] Run and record regression suite:
   - `go test ./...`
   - focused channel suites (telegram/slack/line) with no regressions.

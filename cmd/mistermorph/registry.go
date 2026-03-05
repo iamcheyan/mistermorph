@@ -45,6 +45,8 @@ type registryConfig struct {
 	TelegramBaseURL               string
 	SlackBotToken                 string
 	SlackBaseURL                  string
+	LineChannelAccessToken        string
+	LineBaseURL                   string
 	ContactsFailureCooldown       time.Duration
 }
 
@@ -118,6 +120,8 @@ func loadRegistryConfigFromViper() registryConfig {
 		TelegramBaseURL:               "https://api.telegram.org",
 		SlackBotToken:                 strings.TrimSpace(viper.GetString("slack.bot_token")),
 		SlackBaseURL:                  strings.TrimSpace(viper.GetString("slack.base_url")),
+		LineChannelAccessToken:        strings.TrimSpace(viper.GetString("line.channel_access_token")),
+		LineBaseURL:                   strings.TrimSpace(viper.GetString("line.base_url")),
 		ContactsFailureCooldown:       contactsFailureCooldownFromViper(),
 	}
 }
@@ -215,6 +219,8 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			TelegramBaseURL:  strings.TrimSpace(cfg.TelegramBaseURL),
 			SlackBotToken:    strings.TrimSpace(cfg.SlackBotToken),
 			SlackBaseURL:     strings.TrimSpace(cfg.SlackBaseURL),
+			LineChannelToken: strings.TrimSpace(cfg.LineChannelAccessToken),
+			LineBaseURL:      strings.TrimSpace(cfg.LineBaseURL),
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
 	}, nil)

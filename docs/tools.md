@@ -12,7 +12,7 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
   - `telegram_send_voice`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
-  - `message_react`: runtime-injected in both Telegram and Slack runtimes; params/context differ by channel.
+  - `message_react`: runtime-injected in Telegram, Slack, and LINE runtimes; params/context differ by channel.
 
 ### 2) ASCII architecture
 
@@ -42,7 +42,7 @@ Execution path split:
             v
          buildLLMTools(...) -> Engine exposes tool schemas to LLM
 
-  B) telegram / slack task runtimes
+  B) telegram / slack / line task runtimes
      clone/copy base registry (chat-aware filtering; base registry required non-nil)
        |-- remove `contacts_send` in group contexts
        `-- RegisterRuntimeTools(taskReg, runtimeCfg, llmClient, model)
@@ -53,6 +53,7 @@ Execution path split:
                SetTodoUpdateToolAddContext(...)
                + Telegram runtime tools (telegram_*)
                + Slack runtime tool (`message_react`, when runtime context and emoji catalog are available)
+               + LINE runtime tool (`message_react`, when runtime context allows)
                     |
                     v
                buildLLMTools(...) -> Engine exposes tool schemas to LLM
@@ -67,7 +68,7 @@ Flow notes:
 - Phase B (runtime deps): build `RuntimeToolsRegisterConfig`, then inject via `RegisterRuntimeTools`.
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
-  - `telegram`/`slack`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
+  - `telegram`/`slack`/`line`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
   - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_file`, `message_react`.
 - First-principles invariants:
   - correctness: task toolset matches chat/channel context.
@@ -234,7 +235,7 @@ Note: in current implementation, `missing_reference_id` is usually raised during
 
 ## `contacts_send`
 
-Purpose: send a single message to one contact (auto-routed via Telegram/Slack).
+Purpose: send a single message to one contact (auto-routed via Telegram/Slack/LINE).
 
 Contact profile maintenance:
 
@@ -246,7 +247,7 @@ Parameters:
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `contact_id` | `string` | Yes | None | Target contact ID. |
-| `chat_id` | `string` | No | Empty | Optional Telegram chat hint (for example `tg:-1001234567890`). |
+| `chat_id` | `string` | No | Empty | Optional chat hint (for example `tg:-1001234567890`, `slack:T001:C002`, `line:Cgroup001`). |
 | `content_type` | `string` | No | `application/json` | Payload type; must be envelope JSON type. |
 | `message_text` | `string` | Conditionally required | None | Message text; the tool wraps it into an envelope. |
 | `message_base64` | `string` | Conditionally required | None | base64url-encoded envelope JSON. |
@@ -260,8 +261,9 @@ Constraints:
 - In Telegram runtime mode: `group/supergroup` sessions do not expose `contacts_send` by default; `private` sessions keep it available.
 - If cross-session forwarding is needed in group chat (for example, explicit "DM someone"), trigger it via explicit task/command, not by routing ordinary group replies to `contacts_send`.
 - If `chat_id` is provided:
-  - It is used only when it matches the contact's `tg_private_chat_id` or `tg_group_chat_ids`.
-  - Otherwise it falls back to the contact's `tg_private_chat_id`.
+  - Telegram: used only when matching `tg_private_chat_id` or `tg_group_chat_ids`; otherwise falls back to `tg_private_chat_id`.
+  - Slack: used directly as `slack:<team_id>:<channel_id>`.
+  - LINE: used only when matching `line_chat_ids`; otherwise falls back to `line_user_id`.
   - If still unavailable, the tool returns an error.
 - At least one of `message_text` or `message_base64` is required.
 - `content_type` defaults to `application/json`, and must be `application/json` (parameters allowed, for example `application/json; charset=utf-8`).
@@ -356,6 +358,24 @@ Constraints:
 - If emoji catalog is loaded, emoji name must exist in current workspace catalog.
 - Subject to `allowed_channel_ids` restriction when configured.
 
+## `message_react` (LINE)
+
+Purpose: add emoji reactions to LINE messages.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `chat_id` | `string` | No | Current context chat | Target LINE `chat_id`. |
+| `message_id` | `string` | No | Trigger message ID | Message ID to react to. |
+| `emoji` | `string` | Yes | None | LINE reaction emoji (Unicode). |
+
+Constraints:
+
+- Available only in LINE mode.
+- Requires `message_id` context in LINE mode (or explicit `message_id` input).
+- Subject to allowed chat/channel scope in current runtime context.
+
 ## Notes
 
 - Runtime parameter validation follows each tool's `ParameterSchema()` and execution-time checks inside the corresponding tool/runtime handlers.
@@ -363,4 +383,4 @@ Constraints:
 
 ## TODO
 
-- Refactor duplicated Phase C task-registry shaping logic between Telegram and Slack (group-context `contacts_send` filtering + runtime tool re-registration) into a shared helper.
+- Refactor duplicated Phase C task-registry shaping logic across Telegram/Slack/LINE (group-context `contacts_send` filtering + runtime tool re-registration) into a shared helper.

@@ -14,6 +14,7 @@ Channels:
 
 - [Telegram](./telegram.md)
 - [Slack](./slack.md)
+- [LINE](./line.md)
 - [Bus](./bus.md)
 
 Integration:

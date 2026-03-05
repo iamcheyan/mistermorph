@@ -8,6 +8,7 @@ import (
 	"time"
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 )
 
 type observedContactCandidate struct {
@@ -20,6 +21,8 @@ type observedContactCandidate struct {
 	TelegramChatID      int64
 	TelegramChatType    string
 	TelegramIsSender    bool
+	LineUserID          string
+	LineChatIDs         []string
 	SlackTeamID         string
 	SlackUserID         string
 	SlackDMChannelID    string
@@ -45,6 +48,8 @@ func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.B
 		return s.observeTelegramInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelSlack:
 		return s.observeSlackInboundBusMessage(ctx, msg, now)
+	case busruntime.ChannelLine:
+		return s.observeLineInboundBusMessage(ctx, msg, now)
 	default:
 		return nil
 	}
@@ -158,6 +163,49 @@ func (s *Service) observeSlackInboundBusMessage(ctx context.Context, msg busrunt
 	return s.applyObservedCandidates(ctx, candidates, now)
 }
 
+func (s *Service) observeLineInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+	chatID, err := lineChatIDFromConversationKey(msg.ConversationKey)
+	if err != nil {
+		return err
+	}
+	fromUserID := refid.NormalizeLineID(msg.Extensions.FromUserRef)
+	if fromUserID == "" {
+		fromUserID = refid.NormalizeLineID(msg.ParticipantKey)
+	}
+	nickname := strings.TrimSpace(msg.Extensions.FromDisplayName)
+	if nickname == "" {
+		nickname = strings.TrimSpace(msg.Extensions.FromUsername)
+	}
+
+	candidates := make([]observedContactCandidate, 0, len(msg.Extensions.MentionUsers)+1)
+	if senderContactID := lineContactIDFromUser(fromUserID); senderContactID != "" {
+		candidates = append(candidates, observedContactCandidate{
+			PrimaryContactID: senderContactID,
+			Kind:             KindHuman,
+			Channel:          ChannelLine,
+			Nickname:         nickname,
+			LineUserID:       fromUserID,
+			LineChatIDs:      []string{chatID},
+		})
+	}
+
+	for _, rawMention := range msg.Extensions.MentionUsers {
+		userID := refid.NormalizeLineID(rawMention)
+		if userID == "" {
+			continue
+		}
+		candidates = append(candidates, observedContactCandidate{
+			PrimaryContactID: lineContactIDFromUser(userID),
+			Kind:             KindHuman,
+			Channel:          ChannelLine,
+			LineUserID:       userID,
+			LineChatIDs:      []string{chatID},
+		})
+	}
+
+	return s.applyObservedCandidates(ctx, candidates, now)
+}
+
 func slackContactIDFromUser(teamID, userID string) string {
 	teamID = normalizeSlackID(teamID)
 	userID = normalizeSlackID(userID)
@@ -176,6 +224,14 @@ func telegramContactIDFromUser(username string, userID int64) string {
 		return "tg:" + strconv.FormatInt(userID, 10)
 	}
 	return ""
+}
+
+func lineContactIDFromUser(userID string) string {
+	userID = refid.NormalizeLineID(userID)
+	if userID == "" {
+		return ""
+	}
+	return "line_user:" + userID
 }
 
 func telegramChatIDFromConversationKey(conversationKey string) (int64, error) {
@@ -249,6 +305,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 			existing.TGUsername = username
 		}
 		applyObservedTelegramMerge(&existing, candidate)
+		applyObservedLineMerge(&existing, candidate)
 		applyObservedSlackMerge(&existing, candidate)
 		existing.LastInteractionAt = &lastInteraction
 		_, err := s.UpsertContact(ctx, existing, now)
@@ -261,6 +318,8 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		Channel:           strings.TrimSpace(candidate.Channel),
 		ContactNickname:   strings.TrimSpace(candidate.Nickname),
 		TGUsername:        normalizeTelegramUsername(candidate.TGUsername),
+		LineUserID:        refid.NormalizeLineID(candidate.LineUserID),
+		LineChatIDs:       normalizeStringSlice(candidate.LineChatIDs),
 		SlackTeamID:       normalizeSlackID(candidate.SlackTeamID),
 		SlackUserID:       normalizeSlackID(candidate.SlackUserID),
 		SlackDMChannelID:  normalizeSlackID(candidate.SlackDMChannelID),
@@ -268,6 +327,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		LastInteractionAt: &lastInteraction,
 	}
 	applyObservedTelegramMerge(&contact, candidate)
+	applyObservedLineMerge(&contact, candidate)
 	applyObservedSlackMerge(&contact, candidate)
 	_, err = s.UpsertContact(ctx, contact, now)
 	return err
@@ -338,6 +398,25 @@ func applyObservedSlackMerge(contact *Contact, candidate observedContactCandidat
 	}
 }
 
+func applyObservedLineMerge(contact *Contact, candidate observedContactCandidate) {
+	if contact == nil {
+		return
+	}
+	userID := refid.NormalizeLineID(candidate.LineUserID)
+	if userID != "" && strings.TrimSpace(contact.LineUserID) == "" {
+		contact.LineUserID = userID
+	}
+	if len(candidate.LineChatIDs) > 0 {
+		contact.LineChatIDs = mergeLineChatIDs(contact.LineChatIDs, candidate.LineChatIDs...)
+	}
+	if strings.TrimSpace(contact.ContactID) == "" && userID != "" {
+		contact.ContactID = "line_user:" + userID
+	}
+	if strings.TrimSpace(contact.ContactID) == "" && len(contact.LineChatIDs) > 0 {
+		contact.ContactID = "line:" + contact.LineChatIDs[0]
+	}
+}
+
 func mergeObservedTGGroupChatIDs(base []int64, chatID int64) []int64 {
 	if chatID == 0 {
 		return normalizeInt64Slice(base)
@@ -352,6 +431,15 @@ func mergeSlackChannelIDs(base []string, channelIDs ...string) []string {
 	out = append(out, channelIDs...)
 	for i := range out {
 		out[i] = normalizeSlackID(out[i])
+	}
+	return normalizeStringSlice(out)
+}
+
+func mergeLineChatIDs(base []string, chatIDs ...string) []string {
+	out := append([]string(nil), base...)
+	out = append(out, chatIDs...)
+	for i := range out {
+		out[i] = refid.NormalizeLineID(out[i])
 	}
 	return normalizeStringSlice(out)
 }
@@ -387,6 +475,19 @@ func parseSlackParticipantKey(raw string) (string, string, error) {
 		return "", "", fmt.Errorf("slack participant key is invalid")
 	}
 	return teamID, userID, nil
+}
+
+func lineChatIDFromConversationKey(conversationKey string) (string, error) {
+	const prefix = "line:"
+	key := strings.TrimSpace(conversationKey)
+	if !strings.HasPrefix(strings.ToLower(key), prefix) {
+		return "", fmt.Errorf("line conversation key is invalid")
+	}
+	chatID := refid.NormalizeLineID(key[len(prefix):])
+	if chatID == "" {
+		return "", fmt.Errorf("line chat id is required")
+	}
+	return chatID, nil
 }
 
 func normalizeSlackChatType(chatType string, channelID string) string {

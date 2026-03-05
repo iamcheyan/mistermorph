@@ -113,6 +113,8 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			TelegramBaseURL:               "https://api.telegram.org",
 			SlackBotToken:                 strings.TrimSpace(v.GetString("slack.bot_token")),
 			SlackBaseURL:                  strings.TrimSpace(v.GetString("slack.base_url")),
+			LineChannelAccessToken:        strings.TrimSpace(v.GetString("line.channel_access_token")),
+			LineBaseURL:                   strings.TrimSpace(v.GetString("line.base_url")),
 			ContactsFailureCooldown:       contactsFailureCooldownFromReader(v),
 		},
 		Guard: guardSnapshot{

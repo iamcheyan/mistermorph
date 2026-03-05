@@ -67,3 +67,44 @@ func TestParseSlackChatIDHint(t *testing.T) {
 		t.Fatalf("ParseSlackChatIDHint(invalid slack) expected has_hint=true error")
 	}
 }
+
+func TestParseLineChatIDHint(t *testing.T) {
+	chatID, hasHint, err := ParseLineChatIDHint("line:Cgroup001")
+	if err != nil || !hasHint || chatID != "Cgroup001" {
+		t.Fatalf("ParseLineChatIDHint(valid) mismatch: chat_id=%q has_hint=%v err=%v", chatID, hasHint, err)
+	}
+	_, hasHint, err = ParseLineChatIDHint("tg:1001")
+	if err != nil || hasHint {
+		t.Fatalf("ParseLineChatIDHint(non line) mismatch: has_hint=%v err=%v", hasHint, err)
+	}
+	_, hasHint, err = ParseLineChatIDHint("line:")
+	if err == nil || !hasHint {
+		t.Fatalf("ParseLineChatIDHint(invalid line) expected has_hint=true error")
+	}
+}
+
+func TestParseLineContactIDs(t *testing.T) {
+	chatID, ok := ParseLineChatContactID("line:C100")
+	if !ok || chatID != "C100" {
+		t.Fatalf("ParseLineChatContactID(valid) mismatch: chat_id=%q ok=%v", chatID, ok)
+	}
+	userID, ok := ParseLineUserContactID("line_user:U100")
+	if !ok || userID != "U100" {
+		t.Fatalf("ParseLineUserContactID(valid) mismatch: user_id=%q ok=%v", userID, ok)
+	}
+	if _, ok := ParseLineChatContactID("line:"); ok {
+		t.Fatalf("ParseLineChatContactID(invalid) expected ok=false")
+	}
+	if _, ok := ParseLineUserContactID("line_user:"); ok {
+		t.Fatalf("ParseLineUserContactID(invalid) expected ok=false")
+	}
+	if NormalizeLineID("  U123 ") != "U123" {
+		t.Fatalf("NormalizeLineID mismatch")
+	}
+	if !LineIDLooksLikeUserID("U123") {
+		t.Fatalf("LineIDLooksLikeUserID expected true")
+	}
+	if LineIDLooksLikeUserID("C123") {
+		t.Fatalf("LineIDLooksLikeUserID expected false")
+	}
+}

@@ -337,7 +337,7 @@ line:
   # Channel secret used to verify webhook signature. Prefer env var: MISTER_MORPH_LINE_CHANNEL_SECRET
   channel_secret: ""
   # Webhook HTTP listen address.
-  webhook_listen: "127.0.0.1:18080"
+  webhook_listen: "localhost:18080"
   # Webhook path.
   webhook_path: "/line/webhook"
   # Optional allowlist of group IDs. Empty means allow all groups.

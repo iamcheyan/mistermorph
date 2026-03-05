@@ -6,6 +6,7 @@
                            +-------------------------+
                            |      User Surface       |
                            | CLI / Telegram / Slack  |
+                           | / LINE                  |
                            +------------+------------+
                                         |
                    +--------------------+--------------------+
@@ -26,7 +27,7 @@
       |                 |                                       |
  +----v-----+   +-------v--------+                     +--------v--------+
  | One-shot |   | Channel runtime|                     | Heartbeat       |
- | runtime  |   | telegram/slack |                     | scheduler       |
+ | runtime  |   | tg/slack/line  |                     | scheduler       |
  | run/serve|   | event workers  |                     | periodic checks |
  +----+-----+   +-------+--------+                     +--------+--------+
       |                 |                                       |
@@ -98,9 +99,15 @@ Telegram:
 
 Slack:
 
-- Group-addressing decision request.
-  tools: `none`
+- Group-addressing decision request (this path can inject local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
+  tools: `message_react` only when context allows; otherwise `none`
   files: `slack/trigger.go`
+
+LINE:
+
+- Group-addressing decision request (this path can inject local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
+  tools: `message_react` only when context allows; otherwise `none`
+  files: `line/trigger.go`
 
 TODO semantics / references:
 
@@ -125,7 +132,7 @@ CLI command -> config/registry/guard setup -> agent.Engine.Run -> output/json
 - Entrypoints: `cmd/mistermorph/runcmd/run.go`, `cmd/mistermorph/daemoncmd/serve.go`
 - Characteristics: single task execution or queued execution; no platform event consumer loop
 
-### 3.2 Channel (Telegram / Slack)
+### 3.2 Channel (Telegram / Slack / LINE)
 
 ```text
 platform event
@@ -140,6 +147,7 @@ platform event
 
 - Telegram: `internal/channelruntime/telegram/*`
 - Slack: `internal/channelruntime/slack/*`
+- LINE: `internal/channelruntime/line/*`
 
 ## 4. Existing Topic Docs (Links Only)
 
@@ -152,6 +160,7 @@ The following areas already have formal docs, so this file only links them:
 - Heartbeat feature notes: [`./feat/feat_20260204_heartbeat.md`](./feat/feat_20260204_heartbeat.md)
 - Telegram runtime behavior: [`./telegram.md`](./telegram.md)
 - Slack Socket Mode: [`./slack.md`](./slack.md)
+- LINE webhook runtime: [`./line.md`](./line.md)
 - Bus design and implementation: [`./bus.md`](./bus.md), [`./bus_impl.md`](./bus_impl.md)
 
 ## 5. Key Areas Without Standalone Docs
@@ -281,5 +290,5 @@ Recommended reading order:
 1. `cmd/mistermorph/root.go` (entrypoint assembly)
 2. `integration/runtime.go` (embedding entrypoint)
 3. `agent/engine.go` + `agent/engine_loop.go` (execution core)
-4. `internal/channelruntime/telegram/runtime.go`, `internal/channelruntime/telegram/runtime_task.go`, and `internal/channelruntime/slack/runtime.go` (channel flow)
+4. `internal/channelruntime/telegram/runtime.go`, `internal/channelruntime/telegram/runtime_task.go`, `internal/channelruntime/slack/runtime.go`, and `internal/channelruntime/line/runtime.go` (channel flow)
 5. `internal/bus/*` and `internal/bus/adapters/*` (message bus and adapters)

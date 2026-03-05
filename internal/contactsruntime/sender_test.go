@@ -68,3 +68,33 @@ func TestBuildEnvelopePayload_InvalidPayload(t *testing.T) {
 		t.Fatalf("expected error for invalid payload_base64")
 	}
 }
+
+func TestResolveLineTarget(t *testing.T) {
+	target, err := ResolveLineTarget(contacts.Contact{
+		ContactID:   "line_user:U001",
+		Channel:     contacts.ChannelLine,
+		LineUserID:  "U001",
+		LineChatIDs: []string{"Cgroup001"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveLineTarget() error = %v", err)
+	}
+	if target.ChatID != "U001" {
+		t.Fatalf("ResolveLineTarget() mismatch: target=%+v", target)
+	}
+}
+
+func TestResolveLineTargetWithChatIDHint(t *testing.T) {
+	target, err := ResolveLineTargetWithChatID(contacts.Contact{
+		ContactID:   "line_user:U001",
+		Channel:     contacts.ChannelLine,
+		LineUserID:  "U001",
+		LineChatIDs: []string{"Cgroup001"},
+	}, "line:Cgroup001")
+	if err != nil {
+		t.Fatalf("ResolveLineTargetWithChatID() error = %v", err)
+	}
+	if target.ChatID != "Cgroup001" {
+		t.Fatalf("ResolveLineTargetWithChatID() mismatch: target=%+v", target)
+	}
+}

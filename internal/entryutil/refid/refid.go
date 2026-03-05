@@ -91,3 +91,56 @@ func ParseSlackChatIDHint(raw string) (string, string, bool, error) {
 	}
 	return teamID, channelID, true, nil
 }
+
+// ParseLineChatIDHint parses "line:<chat_id>" chat hints.
+// Empty input returns ("", false, nil).
+func ParseLineChatIDHint(raw string) (string, bool, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", false, nil
+	}
+	if !strings.HasPrefix(strings.ToLower(value), "line:") {
+		return "", false, nil
+	}
+	chatID := strings.TrimSpace(value[len("line:"):])
+	if chatID == "" {
+		return "", true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+	}
+	return chatID, true, nil
+}
+
+// NormalizeLineID trims surrounding spaces.
+func NormalizeLineID(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+// ParseLineChatContactID parses "line:<chat_id>" contact IDs.
+func ParseLineChatContactID(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(value), "line:") {
+		return "", false
+	}
+	chatID := NormalizeLineID(value[len("line:"):])
+	if chatID == "" {
+		return "", false
+	}
+	return chatID, true
+}
+
+// ParseLineUserContactID parses "line_user:<user_id>" contact IDs.
+func ParseLineUserContactID(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(value), "line_user:") {
+		return "", false
+	}
+	userID := NormalizeLineID(value[len("line_user:"):])
+	if userID == "" {
+		return "", false
+	}
+	return userID, true
+}
+
+// LineIDLooksLikeUserID reports whether ID shape looks like a LINE user id.
+func LineIDLooksLikeUserID(value string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(value)), "U")
+}

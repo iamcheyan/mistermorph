@@ -228,6 +228,62 @@ func TestObserveInboundBusMessage_SlackDMSetOnce(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessage_LineSenderAndMention(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(t.TempDir())
+	svc := NewService(store)
+	now := time.Date(2026, 3, 5, 9, 55, 0, 0, time.UTC)
+
+	msg := busruntime.BusMessage{
+		Direction:       busruntime.DirectionInbound,
+		Channel:         busruntime.ChannelLine,
+		ConversationKey: "line:Cgroup100",
+		Extensions: busruntime.MessageExtensions{
+			ChatType:        "group",
+			FromUserRef:     "U100",
+			FromDisplayName: "Alice LINE",
+			MentionUsers:    []string{"U100", "U200"},
+		},
+	}
+	if err := svc.ObserveInboundBusMessage(ctx, msg, now); err != nil {
+		t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+	}
+
+	alice, ok, err := svc.GetContact(ctx, "line_user:U100")
+	if err != nil {
+		t.Fatalf("GetContact(alice) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(alice) expected ok=true")
+	}
+	if alice.Channel != ChannelLine {
+		t.Fatalf("channel mismatch: got %q want %q", alice.Channel, ChannelLine)
+	}
+	if alice.ContactNickname != "Alice LINE" {
+		t.Fatalf("nickname mismatch: got %q want %q", alice.ContactNickname, "Alice LINE")
+	}
+	if alice.LineUserID != "U100" {
+		t.Fatalf("line_user_id mismatch: got %q want %q", alice.LineUserID, "U100")
+	}
+	if len(alice.LineChatIDs) != 1 || alice.LineChatIDs[0] != "Cgroup100" {
+		t.Fatalf("line_chat_ids mismatch: got=%v", alice.LineChatIDs)
+	}
+	if alice.LastInteractionAt == nil || !alice.LastInteractionAt.Equal(now) {
+		t.Fatalf("last_interaction_at mismatch: got=%v want=%v", alice.LastInteractionAt, now)
+	}
+
+	bob, ok, err := svc.GetContact(ctx, "line_user:U200")
+	if err != nil {
+		t.Fatalf("GetContact(bob) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(bob) expected ok=true")
+	}
+	if len(bob.LineChatIDs) != 1 || bob.LineChatIDs[0] != "Cgroup100" {
+		t.Fatalf("line_chat_ids mismatch: got=%v", bob.LineChatIDs)
+	}
+}
+
 func timePtr(ts time.Time) *time.Time {
 	t := ts.UTC()
 	return &t

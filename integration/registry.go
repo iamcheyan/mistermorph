@@ -115,6 +115,8 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			TelegramBaseURL:  strings.TrimSpace(cfg.TelegramBaseURL),
 			SlackBotToken:    strings.TrimSpace(cfg.SlackBotToken),
 			SlackBaseURL:     strings.TrimSpace(cfg.SlackBaseURL),
+			LineChannelToken: strings.TrimSpace(cfg.LineChannelAccessToken),
+			LineBaseURL:      strings.TrimSpace(cfg.LineBaseURL),
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
 	}, selectedBuiltinTools)

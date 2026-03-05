@@ -35,6 +35,8 @@ type Contact struct {
 	TGUsername        string     `json:"tg_username,omitempty"`
 	TGPrivateChatID   int64      `json:"tg_private_chat_id,omitempty"`
 	TGGroupChatIDs    []int64    `json:"tg_group_chat_ids,omitempty"`
+	LineUserID        string     `json:"line_user_id,omitempty"`
+	LineChatIDs       []string   `json:"line_chat_ids,omitempty"`
 	SlackTeamID       string     `json:"slack_team_id,omitempty"`
 	SlackUserID       string     `json:"slack_user_id,omitempty"`
 	SlackDMChannelID  string     `json:"slack_dm_channel_id,omitempty"`

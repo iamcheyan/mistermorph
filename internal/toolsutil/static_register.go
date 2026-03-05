@@ -86,6 +86,8 @@ type StaticContactsSendConfig struct {
 	TelegramBaseURL  string
 	SlackBotToken    string
 	SlackBaseURL     string
+	LineChannelToken string
+	LineBaseURL      string
 	FailureCooldown  time.Duration
 }
 
@@ -170,6 +172,8 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			TelegramBaseURL:  strings.TrimSpace(cfg.ContactsSend.TelegramBaseURL),
 			SlackBotToken:    strings.TrimSpace(cfg.ContactsSend.SlackBotToken),
 			SlackBaseURL:     strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
+			LineChannelToken: strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
+			LineBaseURL:      strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
 			FailureCooldown:  cfg.ContactsSend.FailureCooldown,
 		}))
 	}

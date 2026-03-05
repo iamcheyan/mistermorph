@@ -67,6 +67,8 @@ type registrySnapshot struct {
 	TelegramBaseURL               string
 	SlackBotToken                 string
 	SlackBaseURL                  string
+	LineChannelAccessToken        string
+	LineBaseURL                   string
 	ContactsFailureCooldown       time.Duration
 }
 

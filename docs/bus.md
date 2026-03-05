@@ -1,5 +1,5 @@
 ---
-date: 2026-02-17
+date: 2026-03-04
 title: Multi-Channel Messaging Architecture (Bus + Adapters)
 status: implemented
 ---
@@ -76,6 +76,7 @@ Registered topic allowlist:
 Implemented constructors:
 - Telegram chat: `tg:<chat_id>`
 - Slack channel: `slack:<team_id>:<channel_id>`
+- LINE chat: `line:<chat_id>`
 - Discord channel: `discord:<channel_id>`
 
 Notes:
@@ -98,6 +99,9 @@ Implemented channel adapters:
 - Slack:
   - inbound: `internal/bus/adapters/slack/inbound.go`
   - delivery: `internal/bus/adapters/slack/delivery.go`
+- LINE:
+  - inbound: `internal/bus/adapters/line/inbound.go`
+  - delivery: `internal/bus/adapters/line/delivery.go`
 
 ### 2.7 Command Wiring
 
@@ -115,9 +119,15 @@ Implemented channel adapters:
 - inbound path: Slack Socket Mode event -> Slack inbound adapter -> bus -> handler -> per-conversation worker
 - task output and error replies are published as outbound bus messages, then delivered by Slack delivery adapter
 
+`mistermorph line`:
+- starts inproc bus
+- subscribes `AllTopics()` with one dispatcher by `direction + channel`
+- inbound path: LINE webhook event -> LINE inbound adapter -> bus -> handler -> per-conversation worker
+- task output and error replies are published as outbound bus messages, then delivered by LINE delivery adapter (`reply` first, fallback `push`)
+
 `internal/contactsruntime/sender.go`:
 - `NewRoutingSender` starts inproc bus and delivery adapters internally
-- `Send(...)` routes to Telegram / Slack, then publishes outbound `BusMessage`
+- `Send(...)` routes to Telegram / Slack / LINE, then publishes outbound `BusMessage`
 - `publishAndAwait(...)` uses a pending map for synchronous delivery result waiting
 - fail-fast: missing `idempotency_key` is an immediate error
 
@@ -163,7 +173,8 @@ Ordering/routing boundary:
 
 ```text
 Telegram poll/getUpdates ----\
-Slack Socket Mode ------------+--> inbound adapters (telegram/slack)
+Slack Socket Mode ------------+--> inbound adapters (telegram/slack/line)
+LINE Webhook (HTTP) ---------/
                                            v
                                 +----------------------+
                                 | inproc bus runtime   |
@@ -178,11 +189,11 @@ Slack Socket Mode ------------+--> inbound adapters (telegram/slack)
                     |                                             |
                     v                                             v
               run task / agent                            delivery adapters
-                    |                           (telegram / slack)
+                    |                           (telegram / slack / line)
                     +-------------------------+-------------------+
                                               |
                                               v
-                                  Telegram / Slack send
+                            Telegram / Slack / LINE send
 ```
 
 ### 3.2 Shared Inbound Path (`InboundFlow`)
@@ -215,7 +226,8 @@ Telegram draft-stream note:
 ## 4) Design Evaluation (Current State)
 
 ### 4.1 Why this is reasonable now
-- Minimal viable path is complete: Telegram / Slack inbound paths are unified through bus; canonical outbound messages are bus-driven while Telegram draft-stream deltas are runtime-local.
+- Telegram / Slack inbound paths are unified through bus; LINE inbound webhook path is now on the same bus flow.
+- Canonical outbound messages are bus-driven while Telegram draft-stream deltas are runtime-local.
 - Ordering is explicit and enforceable per `conversation_key`.
 - Backpressure is bounded and observable via typed error (`QUEUE_FULL`).
 - Idempotency is explicit via inbox/outbox keyed records.
@@ -232,18 +244,20 @@ Telegram draft-stream note:
 ### 5.1 Completed
 - Telegram inbound/delivery adapters
 - Slack inbound/delivery adapters
+- LINE inbound/delivery adapters
 - outbound bus migration in `contactsruntime sender`
 - Slack runtime bus path (`mistermorph slack`) with inbound publish and outbound delivery
+- LINE runtime bus path (`mistermorph line`) with webhook inbound publish and outbound delivery
 - main-path test coverage expansion
 - Telegram business outbound via bus for canonical events, with runtime-local direct draft streaming for incremental output
 - typed error code propagation in call-site logging
 
 ### 5.2 Verified test set
-Verified locally on `2026-02-17`:
+Verified locally on `2026-03-04`:
 - `go test ./internal/bus/...`
 - `go test ./internal/bus/adapters/...`
 - `go test ./internal/contactsruntime/... ./contacts/...`
-- `go test ./cmd/mistermorph/telegramcmd ./cmd/mistermorph/slackcmd`
+- `go test ./cmd/mistermorph/telegramcmd ./cmd/mistermorph/slackcmd ./cmd/mistermorph/linecmd`
 - `go test ./...`
 
 ## 6) Backlog (Separated from Current State)

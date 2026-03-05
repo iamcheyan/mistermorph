@@ -10,15 +10,56 @@ Current runtime capability:
 - `message_react` tool support in both pre-run addressing and main run
 - Outbound delivery with `reply` first, fallback to `push` when reply token is invalid/expired
 
-## 1. What You Need from LINE Console
+## 1. LINE Console Step-by-Step (Do This First)
 
-From your LINE Messaging API channel:
-- `Channel access token` -> use as `line.channel_access_token`
-- `Channel secret` -> use as `line.channel_secret`
+Follow this sequence in LINE Developers Console so you can actually start `mistermorph line`:
 
-In LINE Developers Console:
-- Set `Webhook URL` to your public endpoint, for example `https://your.domain/line/webhook`
-- Enable webhook delivery
+1. Create a LINE Messaging API channel.
+- Go to LINE Developers Console.
+- Create/select a Provider.
+- Create a `Messaging API` channel (not LIFF-only).
+
+2. Get `Channel secret`.
+- Open the channel.
+- Go to `Basic settings`.
+- Copy `Channel secret`.
+- Map it to `line.channel_secret`.
+
+3. Get `Channel access token`.
+- Open the channel.
+- Go to `Messaging API`.
+- Issue/copy a channel access token.
+- Map it to `line.channel_access_token`.
+
+4. Start local runtime first.
+- Run `mistermorph line` locally and expose webhook port:
+```bash
+go run ./cmd/mistermorph line \
+  --line-channel-access-token "$MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN" \
+  --line-channel-secret "$MISTER_MORPH_LINE_CHANNEL_SECRET" \
+  --line-webhook-listen 127.0.0.1:18080 \
+  --line-webhook-path /line/webhook
+```
+
+5. Expose local webhook to public internet.
+- LINE must reach your webhook over public HTTPS.
+- Example with `ngrok`:
+```bash
+ngrok http 18080
+```
+- If ngrok gives `https://abc123.ngrok-free.app`, your webhook URL is:
+  `https://abc123.ngrok-free.app/line/webhook`
+
+6. Configure webhook in LINE Console.
+- Open channel -> `Messaging API`.
+- Set `Webhook URL` to your public URL above.
+- Turn on `Use webhook`.
+- Click `Verify` and ensure it succeeds.
+
+7. Do a real message test.
+- Send a private message to the bot account.
+- You should see runtime log `line_task_enqueued`.
+- If this works, token/secret/webhook wiring is correct.
 
 ## 2. Required Config
 
@@ -78,6 +119,7 @@ Notes:
 - when explicit trigger matches, message enters main task directly.
 - otherwise behavior depends on `group_trigger_mode` (`strict|smart|talkative`).
 - `reply-to-bot` explicit signal is not used yet in LINE because webhook payload in current path does not provide a stable reply-target identity field.
+
 ## 5. Run Command
 
 ```bash
@@ -91,6 +133,7 @@ go run ./cmd/mistermorph line \
 If your webhook is exposed through reverse proxy/tunnel:
 - public URL should be `https://<public-host>/line/webhook`
 - proxy forwards to your local `webhook_listen` address
+
 ## 6. How to Verify Configuration
 
 Startup log checks:
@@ -105,7 +148,29 @@ Outbound checks:
 - bot replies successfully in chat
 - if model chooses lightweight reaction, `message_reaction_applied` or `line_group_addressing_reaction_applied` should appear
 - if reply token is expired, fallback log `line_reply_failed_fallback_push` should appear and message is sent via push
-## 7. Common Misconfigurations
+
+## 7. Prompt/Request Dump Inspection
+
+To inspect LINE prompt and request payloads, run with:
+
+```bash
+go run ./cmd/mistermorph line \
+  --line-channel-access-token "$MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN" \
+  --line-channel-secret "$MISTER_MORPH_LINE_CHANNEL_SECRET" \
+  --inspect-prompt \
+  --inspect-request
+```
+
+Generated files:
+- `dump/prompt_line_YYYYMMDD_HHmmss.md`
+- `dump/request_line_YYYYMMDD_HHmmss.md`
+
+Use this when checking:
+- whether LINE block/profile text was injected into the final prompt
+- whether `message_react` tool schema was present in the request
+- whether multimodal `Parts` were built for inbound images
+
+## 8. Common Misconfigurations
 
 - `missing line.channel_access_token` or `missing line.channel_secret`
   - credentials are not set or env var names are wrong.

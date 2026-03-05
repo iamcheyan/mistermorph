@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"gopkg.in/yaml.v3"
 )
@@ -348,6 +349,8 @@ type contactProfileSection struct {
 	TGUsername        string   `yaml:"tg_username"`
 	TGPrivateChatID   string   `yaml:"tg_private_chat_id"`
 	TGGroupChatIDs    []string `yaml:"tg_group_chat_ids"`
+	LineUserID        string   `yaml:"line_user_id"`
+	LineChatIDs       []string `yaml:"line_chat_ids"`
 	SlackTeamID       string   `yaml:"slack_team_id"`
 	SlackUserID       string   `yaml:"slack_user_id"`
 	SlackDMChannelID  string   `yaml:"slack_dm_channel_id"`
@@ -510,6 +513,8 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 		ContactNickname:  strings.TrimSpace(profile.Nickname),
 		Channel:          strings.ToLower(strings.TrimSpace(profile.Channel)),
 		TGUsername:       normalizeTelegramUsername(profile.TGUsername),
+		LineUserID:       refid.NormalizeLineID(profile.LineUserID),
+		LineChatIDs:      normalizeStringSlice(profile.LineChatIDs),
 		SlackTeamID:      normalizeSlackID(profile.SlackTeamID),
 		SlackUserID:      normalizeSlackID(profile.SlackUserID),
 		SlackDMChannelID: normalizeSlackID(profile.SlackDMChannelID),
@@ -592,6 +597,8 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		Kind:             string(normalizeKind(contact.Kind)),
 		Channel:          strings.TrimSpace(contact.Channel),
 		TGUsername:       normalizeTelegramUsername(contact.TGUsername),
+		LineUserID:       refid.NormalizeLineID(contact.LineUserID),
+		LineChatIDs:      normalizeStringSlice(contact.LineChatIDs),
 		SlackTeamID:      normalizeSlackID(contact.SlackTeamID),
 		SlackUserID:      normalizeSlackID(contact.SlackUserID),
 		SlackDMChannelID: normalizeSlackID(contact.SlackDMChannelID),
@@ -604,6 +611,8 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		switch {
 		case contact.TGPrivateChatID != 0 || len(contact.TGGroupChatIDs) > 0 || profile.TGUsername != "":
 			profile.Channel = ChannelTelegram
+		case profile.LineUserID != "" || len(profile.LineChatIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "line:") || strings.HasPrefix(strings.ToLower(profile.ContactID), "line_user:"):
+			profile.Channel = ChannelLine
 		case profile.SlackTeamID != "" || profile.SlackUserID != "" || profile.SlackDMChannelID != "" || len(profile.SlackChannelIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "slack:"):
 			profile.Channel = ChannelSlack
 		default:
@@ -656,6 +665,16 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 			case len(profile.SlackChannelIDs) == 0 && (strings.HasPrefix(strings.ToUpper(id), "C") || strings.HasPrefix(strings.ToUpper(id), "G")):
 				profile.SlackChannelIDs = []string{id}
 			}
+		}
+	}
+	if profile.LineUserID == "" {
+		if userID, ok := refid.ParseLineUserContactID(profile.ContactID); ok {
+			profile.LineUserID = userID
+		}
+	}
+	if len(profile.LineChatIDs) == 0 {
+		if chatID, ok := refid.ParseLineChatContactID(profile.ContactID); ok {
+			profile.LineChatIDs = []string{chatID}
 		}
 	}
 	if contact.CooldownUntil != nil && !contact.CooldownUntil.IsZero() {
@@ -913,6 +932,12 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	c.ContactNickname = strings.TrimSpace(c.ContactNickname)
 	c.PersonaBrief = strings.TrimSpace(c.PersonaBrief)
 	c.TGUsername = normalizeTelegramUsername(c.TGUsername)
+	c.LineUserID = refid.NormalizeLineID(c.LineUserID)
+	c.LineChatIDs = normalizeStringSlice(c.LineChatIDs)
+	for i := range c.LineChatIDs {
+		c.LineChatIDs[i] = refid.NormalizeLineID(c.LineChatIDs[i])
+	}
+	c.LineChatIDs = normalizeStringSlice(c.LineChatIDs)
 	c.SlackTeamID = normalizeSlackID(c.SlackTeamID)
 	c.SlackUserID = normalizeSlackID(c.SlackUserID)
 	c.SlackDMChannelID = normalizeSlackID(c.SlackDMChannelID)
@@ -924,6 +949,9 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	c.Kind = normalizeKind(c.Kind)
 	c.Channel = normalizeContactChannel(c.Channel)
 	c.TGGroupChatIDs = normalizeInt64Slice(c.TGGroupChatIDs)
+	if len(c.LineChatIDs) == 0 {
+		c.LineChatIDs = nil
+	}
 	if len(c.SlackChannelIDs) == 0 {
 		c.SlackChannelIDs = nil
 	}
@@ -963,6 +991,8 @@ func normalizeContact(c Contact, now time.Time) Contact {
 		switch {
 		case strings.HasPrefix(strings.ToLower(c.ContactID), "tg:"), c.TGPrivateChatID != 0, len(c.TGGroupChatIDs) > 0, c.TGUsername != "":
 			c.Channel = ChannelTelegram
+		case strings.HasPrefix(strings.ToLower(c.ContactID), "line:"), strings.HasPrefix(strings.ToLower(c.ContactID), "line_user:"), c.LineUserID != "", len(c.LineChatIDs) > 0:
+			c.Channel = ChannelLine
 		case strings.HasPrefix(strings.ToLower(c.ContactID), "slack:"), c.SlackTeamID != "", c.SlackUserID != "", c.SlackDMChannelID != "", len(c.SlackChannelIDs) > 0:
 			c.Channel = ChannelSlack
 		}
@@ -994,6 +1024,19 @@ func normalizeContact(c Contact, now time.Time) Contact {
 				c.SlackDMChannelID = userOrChannelID
 			case strings.HasPrefix(userOrChannelIDUpper, "C") || strings.HasPrefix(userOrChannelIDUpper, "G"):
 				c.SlackChannelIDs = normalizeStringSlice(append(c.SlackChannelIDs, userOrChannelID))
+			}
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(c.ContactID), "line_user:") && c.LineUserID == "" {
+		if userID, ok := refid.ParseLineUserContactID(c.ContactID); ok {
+			c.LineUserID = userID
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(c.ContactID), "line:") {
+		if chatID, ok := refid.ParseLineChatContactID(c.ContactID); ok {
+			c.LineChatIDs = normalizeStringSlice(append(c.LineChatIDs, chatID))
+			if c.LineUserID == "" && refid.LineIDLooksLikeUserID(chatID) {
+				c.LineUserID = chatID
 			}
 		}
 	}

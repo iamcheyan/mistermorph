@@ -291,7 +291,7 @@ func contactNotFoundError(contactID string) error {
 	contactID = strings.TrimSpace(contactID)
 	if protocol, id, ok := refid.Parse(contactID); ok {
 		switch protocol {
-		case "tg", "slack":
+		case "tg", "slack", "line", "line_user":
 			return fmt.Errorf("contact not found: %s", contactID)
 		default:
 			return fmt.Errorf("hint: protocol '%q' is not mapped. Try to find other ways to send to '%s' in protocol/tool '%s'.", protocol, id, protocol)
@@ -320,23 +320,31 @@ func telegramUsernameOfContact(contact Contact) string {
 }
 
 func ResolveDecisionChannel(contact Contact, decision ShareDecision) (string, error) {
-	if strings.TrimSpace(decision.ChatID) != "" {
-		if _, _, ok, err := refid.ParseSlackChatIDHint(decision.ChatID); ok || err != nil {
-			if err != nil {
-				return "", err
-			}
+	if channel, hasHint, err := resolveChannelFromChatIDHint(decision.ChatID); hasHint || err != nil {
+		return channel, err
+	}
+	switch normalizeContactChannel(contact.Channel) {
+	case ChannelSlack:
+		if hasSlackTarget(contact) {
 			return ChannelSlack, nil
 		}
-		if _, _, err := refid.ParseTelegramChatIDHint(decision.ChatID); err != nil {
-			return "", err
+	case ChannelTelegram:
+		if hasTelegramTarget(contact) {
+			return ChannelTelegram, nil
 		}
-		return ChannelTelegram, nil
+	case ChannelLine:
+		if hasLineTarget(contact) {
+			return ChannelLine, nil
+		}
 	}
 	if hasSlackTarget(contact) {
 		return ChannelSlack, nil
 	}
 	if hasTelegramTarget(contact) {
 		return ChannelTelegram, nil
+	}
+	if hasLineTarget(contact) {
+		return ChannelLine, nil
 	}
 	return "", fmt.Errorf("unable to resolve delivery channel for contact_id=%s", contact.ContactID)
 }
@@ -465,6 +473,22 @@ func hasSlackTarget(contact Contact) bool {
 	return false
 }
 
+func hasLineTarget(contact Contact) bool {
+	if strings.TrimSpace(contact.LineUserID) != "" {
+		return true
+	}
+	for _, raw := range contact.LineChatIDs {
+		if refid.NormalizeLineID(raw) != "" {
+			return true
+		}
+	}
+	if userID, ok := refid.ParseLineUserContactID(contact.ContactID); ok && userID != "" {
+		return true
+	}
+	chatID, ok := refid.ParseLineChatContactID(contact.ContactID)
+	return ok && chatID != ""
+}
+
 func deriveContactID(contact Contact) string {
 	if v := strings.TrimSpace(contact.ContactID); v != "" {
 		return v
@@ -492,6 +516,23 @@ func deriveContactID(contact Contact) string {
 			}
 		}
 	}
+	if userID := refid.NormalizeLineID(contact.LineUserID); userID != "" {
+		return "line_user:" + userID
+	}
+	for _, raw := range normalizeStringSlice(contact.LineChatIDs) {
+		chatID := refid.NormalizeLineID(raw)
+		if chatID != "" {
+			return "line:" + chatID
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(contact.Channel), ChannelLine) {
+		for _, raw := range normalizeStringSlice(contact.LineChatIDs) {
+			chatID := refid.NormalizeLineID(raw)
+			if chatID != "" {
+				return "line:" + chatID
+			}
+		}
+	}
 	if contact.Channel == ChannelTelegram {
 		ids := append([]int64(nil), contact.TGGroupChatIDs...)
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
@@ -509,4 +550,28 @@ func normalizeNow(now time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return now.UTC()
+}
+
+func resolveChannelFromChatIDHint(chatID string) (string, bool, error) {
+	value := strings.TrimSpace(chatID)
+	if value == "" {
+		return "", false, nil
+	}
+	if protocol, _, ok := refid.Parse(value); ok {
+		switch protocol {
+		case "slack":
+			_, _, _, err := refid.ParseSlackChatIDHint(value)
+			return ChannelSlack, true, err
+		case "line":
+			_, _, err := refid.ParseLineChatIDHint(value)
+			return ChannelLine, true, err
+		case "tg":
+			_, _, err := refid.ParseTelegramChatIDHint(value)
+			return ChannelTelegram, true, err
+		default:
+			return "", true, fmt.Errorf("invalid chat_id: %s", value)
+		}
+	}
+	_, _, err := refid.ParseTelegramChatIDHint(value)
+	return ChannelTelegram, true, err
 }

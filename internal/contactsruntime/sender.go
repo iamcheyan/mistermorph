@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
@@ -26,12 +27,15 @@ import (
 
 const defaultTelegramBaseURL = "https://api.telegram.org"
 const defaultSlackBaseURL = "https://slack.com/api"
+const defaultLineBaseURL = "https://api.line.me"
 
 type SenderOptions struct {
 	TelegramBotToken string
 	TelegramBaseURL  string
 	SlackBotToken    string
 	SlackBaseURL     string
+	LineChannelToken string
+	LineBaseURL      string
 	BusMaxInFlight   int
 	Logger           *slog.Logger
 }
@@ -40,10 +44,14 @@ type RoutingSender struct {
 	bus              *busruntime.Inproc
 	telegramDelivery *telegrambus.DeliveryAdapter
 	slackDelivery    *slackbus.DeliveryAdapter
+	lineDelivery     *linebus.DeliveryAdapter
 	telegramClient   *http.Client
+	lineClient       *http.Client
 	slackPoster      *slackclient.Client
 	telegramBaseURL  string
 	telegramBotToken string
+	lineBaseURL      string
+	lineToken        string
 	logger           *slog.Logger
 	pendingMu        sync.Mutex
 	pending          map[string]chan deliveryResult
@@ -74,6 +82,10 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	if slackBaseURL == "" {
 		slackBaseURL = defaultSlackBaseURL
 	}
+	lineBaseURL := strings.TrimSpace(opts.LineBaseURL)
+	if lineBaseURL == "" {
+		lineBaseURL = defaultLineBaseURL
+	}
 
 	maxInFlight := opts.BusMaxInFlight
 	if maxInFlight <= 0 {
@@ -91,8 +103,11 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	sender := &RoutingSender{
 		bus:              inprocBus,
 		telegramClient:   &http.Client{Timeout: 30 * time.Second},
+		lineClient:       &http.Client{Timeout: 30 * time.Second},
 		telegramBaseURL:  baseURL,
 		telegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
+		lineBaseURL:      lineBaseURL,
+		lineToken:        strings.TrimSpace(opts.LineChannelToken),
 		slackPoster:      slackclient.New(&http.Client{Timeout: 30 * time.Second}, slackBaseURL, strings.TrimSpace(opts.SlackBotToken)),
 		logger:           logger,
 		pending:          make(map[string]chan deliveryResult),
@@ -106,6 +121,13 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	}
 	sender.slackDelivery, err = slackbus.NewDeliveryAdapter(slackbus.DeliveryAdapterOptions{
 		SendText: sender.sendSlackTarget,
+	})
+	if err != nil {
+		_ = sender.Close()
+		return nil, err
+	}
+	sender.lineDelivery, err = linebus.NewDeliveryAdapter(linebus.DeliveryAdapterOptions{
+		SendText: sender.sendLineTarget,
 	})
 	if err != nil {
 		_ = sender.Close()
@@ -132,6 +154,8 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 			accepted, deduped, deliverErr = sender.telegramDelivery.Deliver(deliverCtx, msg)
 		case busruntime.ChannelSlack:
 			accepted, deduped, deliverErr = sender.slackDelivery.Deliver(deliverCtx, msg)
+		case busruntime.ChannelLine:
+			accepted, deduped, deliverErr = sender.lineDelivery.Deliver(deliverCtx, msg)
 		default:
 			deliverErr = fmt.Errorf("unsupported outbound channel: %s", msg.Channel)
 		}
@@ -199,6 +223,12 @@ func (s *RoutingSender) Send(ctx context.Context, contact contacts.Contact, deci
 			return false, false, resolveErr
 		}
 		return s.publishTelegram(ctx, target, decision)
+	case contacts.ChannelLine:
+		target, resolveErr := ResolveLineTargetWithChatID(contact, decision.ChatID)
+		if resolveErr != nil {
+			return false, false, resolveErr
+		}
+		return s.publishLine(ctx, target, decision)
 	default:
 		return false, false, fmt.Errorf("unsupported delivery channel: %s", channel)
 	}
@@ -271,6 +301,43 @@ func (s *RoutingSender) publishSlack(ctx context.Context, target any, decision c
 		Extensions: busruntime.MessageExtensions{
 			TeamID:    strings.TrimSpace(resolvedTarget.TeamID),
 			ChannelID: strings.TrimSpace(resolvedTarget.ChannelID),
+		},
+	}
+	return s.publishAndAwait(ctx, msg)
+}
+
+func (s *RoutingSender) publishLine(ctx context.Context, target any, decision contacts.ShareDecision) (bool, bool, error) {
+	if s == nil || s.bus == nil {
+		return false, false, fmt.Errorf("sender bus is not configured")
+	}
+	idempotencyKey := strings.TrimSpace(decision.IdempotencyKey)
+	if idempotencyKey == "" {
+		return false, false, fmt.Errorf("idempotency_key is required")
+	}
+	topic := contacts.ShareTopic
+	now := time.Now().UTC()
+	payloadRaw, err := buildEnvelopePayload(decision, decision.ContentType, decision.PayloadBase64, now)
+	if err != nil {
+		return false, false, err
+	}
+	payloadBase64 := base64.RawURLEncoding.EncodeToString(payloadRaw)
+	conversationKey, participantKey, resolvedTarget, err := lineConversationFromTarget(target)
+	if err != nil {
+		return false, false, err
+	}
+	msg := busruntime.BusMessage{
+		ID:              "bus_" + uuid.NewString(),
+		Direction:       busruntime.DirectionOutbound,
+		Channel:         busruntime.ChannelLine,
+		Topic:           topic,
+		ConversationKey: conversationKey,
+		ParticipantKey:  participantKey,
+		IdempotencyKey:  idempotencyKey,
+		CorrelationID:   "contactsruntime:line:" + idempotencyKey,
+		PayloadBase64:   payloadBase64,
+		CreatedAt:       now,
+		Extensions: busruntime.MessageExtensions{
+			ChannelID: strings.TrimSpace(resolvedTarget.ChatID),
 		},
 	}
 	return s.publishAndAwait(ctx, msg)
@@ -464,6 +531,19 @@ func slackConversationFromTarget(target any) (string, string, slackbus.DeliveryT
 	return conversationKey, participantKey, resolvedTarget, nil
 }
 
+func lineConversationFromTarget(target any) (string, string, linebus.DeliveryTarget, error) {
+	resolvedTarget, err := normalizeLineSendTarget(target)
+	if err != nil {
+		return "", "", linebus.DeliveryTarget{}, err
+	}
+	chatID := strings.TrimSpace(resolvedTarget.ChatID)
+	conversationKey, err := busruntime.BuildLineConversationKey(chatID)
+	if err != nil {
+		return "", "", linebus.DeliveryTarget{}, err
+	}
+	return conversationKey, chatID, resolvedTarget, nil
+}
+
 func normalizeTelegramSendTarget(target any) (any, error) {
 	switch value := target.(type) {
 	case int64:
@@ -505,6 +585,25 @@ func normalizeSlackSendTarget(target any) (slackbus.DeliveryTarget, error) {
 		}, nil
 	default:
 		return slackbus.DeliveryTarget{}, fmt.Errorf("unsupported slack target type: %T", target)
+	}
+}
+
+func normalizeLineSendTarget(target any) (linebus.DeliveryTarget, error) {
+	switch value := target.(type) {
+	case linebus.DeliveryTarget:
+		chatID := strings.TrimSpace(value.ChatID)
+		if chatID == "" {
+			return linebus.DeliveryTarget{}, fmt.Errorf("line chat_id is required")
+		}
+		return linebus.DeliveryTarget{ChatID: chatID}, nil
+	case string:
+		chatID := strings.TrimSpace(value)
+		if chatID == "" {
+			return linebus.DeliveryTarget{}, fmt.Errorf("line chat_id is required")
+		}
+		return linebus.DeliveryTarget{ChatID: chatID}, nil
+	default:
+		return linebus.DeliveryTarget{}, fmt.Errorf("unsupported line target type: %T", target)
 	}
 }
 
@@ -609,6 +708,76 @@ func (s *RoutingSender) sendSlackTarget(ctx context.Context, target any, text st
 	return s.slackPoster.PostMessage(ctx, resolvedTarget.ChannelID, text, strings.TrimSpace(opts.ThreadTS))
 }
 
+type lineTextMessage struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type linePushRequest struct {
+	To       string            `json:"to"`
+	Messages []lineTextMessage `json:"messages"`
+}
+
+func (s *RoutingSender) sendLineTarget(ctx context.Context, target any, text string, opts linebus.SendTextOptions) error {
+	_ = opts
+	if s == nil {
+		return fmt.Errorf("sender is required")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is required")
+	}
+	if s.lineClient == nil {
+		return fmt.Errorf("line client is not configured")
+	}
+	token := strings.TrimSpace(s.lineToken)
+	if token == "" {
+		return fmt.Errorf("line sender is not configured")
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fmt.Errorf("line text is required")
+	}
+
+	resolvedTarget, err := normalizeLineSendTarget(target)
+	if err != nil {
+		return err
+	}
+
+	raw, err := json.Marshal(linePushRequest{
+		To: strings.TrimSpace(resolvedTarget.ChatID),
+		Messages: []lineTextMessage{
+			{Type: "text", Text: text},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal line payload: %w", err)
+	}
+
+	url := strings.TrimRight(strings.TrimSpace(s.lineBaseURL), "/") + "/v2/bot/message/push"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.lineClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respRaw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("line http %d: %s", resp.StatusCode, strings.TrimSpace(string(respRaw)))
+	}
+	return nil
+}
+
 func ResolveTelegramTarget(contact contacts.Contact) (any, string, error) {
 	if chatID, chatType, ok := preferredChat(contact); ok {
 		return chatID, chatType, nil
@@ -644,6 +813,54 @@ func ResolveTelegramTargetWithChatID(contact contacts.Contact, chatIDHint string
 		return contact.TGPrivateChatID, "private", nil
 	}
 	return nil, "", fmt.Errorf("telegram chat_id %d not found in tg_private_chat_id/tg_group_chat_ids and no tg_private_chat_id fallback", hintID)
+}
+
+func ResolveLineTarget(contact contacts.Contact) (linebus.DeliveryTarget, error) {
+	if userID := strings.TrimSpace(contact.LineUserID); userID != "" {
+		return linebus.DeliveryTarget{ChatID: userID}, nil
+	}
+	chatIDs := append([]string(nil), contact.LineChatIDs...)
+	sort.Slice(chatIDs, func(i, j int) bool { return chatIDs[i] < chatIDs[j] })
+	for _, raw := range chatIDs {
+		chatID := strings.TrimSpace(raw)
+		if chatID == "" {
+			continue
+		}
+		return linebus.DeliveryTarget{ChatID: chatID}, nil
+	}
+	if chatID, ok := refid.ParseLineChatContactID(contact.ContactID); ok {
+		return linebus.DeliveryTarget{ChatID: chatID}, nil
+	}
+	if userID, ok := refid.ParseLineUserContactID(contact.ContactID); ok {
+		return linebus.DeliveryTarget{ChatID: userID}, nil
+	}
+	return linebus.DeliveryTarget{}, fmt.Errorf("line target not found in line_user_id/line_chat_ids/contact_id")
+}
+
+func ResolveLineTargetWithChatID(contact contacts.Contact, chatIDHint string) (linebus.DeliveryTarget, error) {
+	chatID, hasHint, err := refid.ParseLineChatIDHint(chatIDHint)
+	if err != nil {
+		return linebus.DeliveryTarget{}, err
+	}
+	if hasHint {
+		chatID = strings.TrimSpace(chatID)
+		if chatID == "" {
+			return linebus.DeliveryTarget{}, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(chatIDHint))
+		}
+		if strings.EqualFold(strings.TrimSpace(contact.LineUserID), chatID) {
+			return linebus.DeliveryTarget{ChatID: chatID}, nil
+		}
+		for _, raw := range contact.LineChatIDs {
+			if strings.EqualFold(strings.TrimSpace(raw), chatID) {
+				return linebus.DeliveryTarget{ChatID: chatID}, nil
+			}
+		}
+		if userID := strings.TrimSpace(contact.LineUserID); userID != "" {
+			return linebus.DeliveryTarget{ChatID: userID}, nil
+		}
+		return linebus.DeliveryTarget{}, fmt.Errorf("line chat_id %q not found in line_chat_ids and no line_user_id fallback", chatID)
+	}
+	return ResolveLineTarget(contact)
 }
 
 func ResolveSlackTarget(contact contacts.Contact) (slackbus.DeliveryTarget, string, error) {
