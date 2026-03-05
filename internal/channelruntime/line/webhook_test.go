@@ -1,9 +1,14 @@
 package line
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -162,5 +167,80 @@ func TestInboundMessageFromWebhookEvent_GroupAllowlist(t *testing.T) {
 	}
 	if ok {
 		t.Fatalf("inboundMessageFromWebhookEvent() ok=true, want false")
+	}
+}
+
+func TestInboundMessageFromWebhookEvent_ImageEnabled(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/message/m_img_1/content" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/m_img_1/content")
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	event := lineWebhookEvent{
+		Type: "message",
+		Source: lineWebhookSource{
+			Type:   "user",
+			UserID: "Uprivate001",
+		},
+		Message: lineWebhookMessage{
+			ID:   "m_img_1",
+			Type: "image",
+		},
+	}
+	cacheDir := t.TempDir()
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
+		API:                     api,
+		ImageRecognitionEnabled: true,
+		ImageCacheDir:           cacheDir,
+	})
+	if err != nil {
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
+	}
+	if msg.Text != "Please process the uploaded image." {
+		t.Fatalf("text = %q, want %q", msg.Text, "Please process the uploaded image.")
+	}
+	if len(msg.ImagePaths) != 1 {
+		t.Fatalf("image_paths len = %d, want 1", len(msg.ImagePaths))
+	}
+	if filepath.Ext(msg.ImagePaths[0]) != ".png" {
+		t.Fatalf("image extension = %q, want .png", filepath.Ext(msg.ImagePaths[0]))
+	}
+	if _, statErr := os.Stat(msg.ImagePaths[0]); statErr != nil {
+		t.Fatalf("downloaded image stat error = %v", statErr)
+	}
+}
+
+func TestInboundMessageFromWebhookEvent_ImageDisabled(t *testing.T) {
+	t.Parallel()
+
+	event := lineWebhookEvent{
+		Type: "message",
+		Source: lineWebhookSource{
+			Type:   "user",
+			UserID: "Uprivate001",
+		},
+		Message: lineWebhookMessage{
+			ID:   "m_img_2",
+			Type: "image",
+		},
+	}
+	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
+		ImageRecognitionEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
 	}
 }

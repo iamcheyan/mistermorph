@@ -381,6 +381,7 @@ type LineConfig struct {
 	TaskTimeout                          time.Duration
 	GlobalTaskTimeout                    time.Duration
 	MaxConcurrency                       int
+	FileCacheDir                         string
 	ServerListen                         string
 	ServerAuthToken                      string
 	ServerMaxQueue                       int
@@ -427,6 +428,7 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		TaskTimeout:                          r.GetDuration("line.task_timeout"),
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("line.max_concurrency"),
+		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
 		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
@@ -483,6 +485,7 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 	if maxConcurrency <= 0 {
 		maxConcurrency = cfg.MaxConcurrency
 	}
+	fileCacheDir := strings.TrimSpace(cfg.FileCacheDir)
 	serverListen := normalizeServerListen(cfg.ServerListen)
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
@@ -507,6 +510,7 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,
 		MaxConcurrency:                maxConcurrency,
+		FileCacheDir:                  fileCacheDir,
 		ServerListen:                  serverListen,
 		ServerAuthToken:               cfg.ServerAuthToken,
 		ServerMaxQueue:                cfg.ServerMaxQueue,

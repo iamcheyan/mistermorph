@@ -20,6 +20,7 @@ type RunOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	ServerListen                  string
 	ServerAuthToken               string
 	ServerMaxQueue                int

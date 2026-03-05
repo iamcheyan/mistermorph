@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,9 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/tools"
 	linetools "github.com/quailyquaily/mistermorph/tools/line"
 )
@@ -37,6 +40,7 @@ type lineJob struct {
 	FromUsername    string
 	DisplayName     string
 	Text            string
+	ImagePaths      []string
 	SentAt          time.Time
 	Version         uint64
 	MentionUsers    []string
@@ -152,6 +156,21 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
 		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
+		ImageRecognitionEnabled:     opts.ImageRecognitionEnabled,
+	}
+	lineImageCacheDir := ""
+	if opts.ImageRecognitionEnabled {
+		fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
+		if fileCacheDir == "" {
+			return fmt.Errorf("line file cache dir is required for image recognition")
+		}
+		if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
+			return fmt.Errorf("line file cache dir: %w", err)
+		}
+		lineImageCacheDir = filepath.Join(fileCacheDir, "line")
+		if err := ensureLineSecureChildDir(fileCacheDir, lineImageCacheDir); err != nil {
+			return fmt.Errorf("line cache subdir: %w", err)
+		}
 	}
 	addressingLLMTimeout := requestTimeout
 	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
@@ -452,6 +471,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			FromUsername:    inbound.FromUsername,
 			DisplayName:     inbound.DisplayName,
 			Text:            text,
+			ImagePaths:      append([]string(nil), inbound.ImagePaths...),
 			SentAt:          inbound.SentAt,
 			Version:         version,
 			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
@@ -489,6 +509,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			"idempotency_key", msg.IdempotencyKey,
 			"conversation_key", msg.ConversationKey,
 			"text_len", len(text),
+			"image_count", len(inbound.ImagePaths),
 		)
 		return nil
 	}
@@ -528,10 +549,13 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	webhookPath := normalizeWebhookPath(opts.WebhookPath)
 	webhookMux := http.NewServeMux()
 	webhookMux.Handle(webhookPath, newLineWebhookHandler(lineWebhookHandlerOptions{
-		ChannelSecret: channelSecret,
-		Inbound:       lineInboundAdapter,
-		AllowedGroups: allowedGroups,
-		Logger:        logger,
+		ChannelSecret:           channelSecret,
+		Inbound:                 lineInboundAdapter,
+		AllowedGroups:           allowedGroups,
+		Logger:                  logger,
+		API:                     api,
+		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		ImageCacheDir:           lineImageCacheDir,
 	}))
 	webhookServer := &http.Server{
 		Addr:              strings.TrimSpace(opts.WebhookListen),
@@ -568,6 +592,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		"group_trigger_mode", strings.TrimSpace(opts.GroupTriggerMode),
 		"addressing_confidence_threshold", opts.AddressingConfidenceThreshold,
 		"addressing_interject_threshold", opts.AddressingInterjectThreshold,
+		"image_recognition_enabled", opts.ImageRecognitionEnabled,
 	)
 
 	select {

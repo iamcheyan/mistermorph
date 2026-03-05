@@ -26,6 +26,7 @@ import (
 
 type runtimeTaskOptions struct {
 	SecretsRequireSkillProfiles bool
+	ImageRecognitionEnabled     bool
 }
 
 const lineStickySkillsCap = 16
@@ -58,7 +59,15 @@ func runLineTask(
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("render line history context: %w", err)
 	}
-	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !runtimeOpts.ImageRecognitionEnabled {
+		imagePaths = nil
+	}
+	historyMsg, err := buildLineHistoryMessage(string(historyRaw), model, imagePaths, logger)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	llmHistory := []llm.Message{historyMsg}
 
 	if baseReg == nil {
 		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
@@ -182,6 +191,7 @@ func lineJobFromInbound(inbound linebus.InboundMessage) lineJob {
 		FromUsername: strings.TrimSpace(inbound.FromUsername),
 		DisplayName:  strings.TrimSpace(inbound.DisplayName),
 		Text:         strings.TrimSpace(inbound.Text),
+		ImagePaths:   append([]string(nil), inbound.ImagePaths...),
 		SentAt:       inbound.SentAt.UTC(),
 	}
 }

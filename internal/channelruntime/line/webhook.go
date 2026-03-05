@@ -1,6 +1,7 @@
 package line
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,10 +19,13 @@ import (
 const lineWebhookBodyMaxBytes = 1 << 20 // 1MB
 
 type lineWebhookHandlerOptions struct {
-	ChannelSecret string
-	Inbound       *linebus.InboundAdapter
-	AllowedGroups map[string]bool
-	Logger        *slog.Logger
+	ChannelSecret           string
+	Inbound                 *linebus.InboundAdapter
+	AllowedGroups           map[string]bool
+	Logger                  *slog.Logger
+	API                     *lineAPI
+	ImageRecognitionEnabled bool
+	ImageCacheDir           string
 }
 
 type lineWebhookPayload struct {
@@ -62,6 +66,12 @@ type lineWebhookMentionee struct {
 	UserID string `json:"userId,omitempty"`
 }
 
+type inboundMessageFromWebhookEventOptions struct {
+	API                     *lineAPI
+	ImageRecognitionEnabled bool
+	ImageCacheDir           string
+}
+
 func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 	secret := strings.TrimSpace(opts.ChannelSecret)
 	allowedGroups := opts.AllowedGroups
@@ -93,7 +103,11 @@ func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 			return
 		}
 		for _, event := range payload.Events {
-			inbound, ok, normalizeErr := inboundMessageFromWebhookEvent(event, allowedGroups)
+			inbound, ok, normalizeErr := inboundMessageFromWebhookEventWithOptions(r.Context(), event, allowedGroups, inboundMessageFromWebhookEventOptions{
+				API:                     opts.API,
+				ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+				ImageCacheDir:           opts.ImageCacheDir,
+			})
 			if normalizeErr != nil {
 				logLineWebhookWarn(opts.Logger, "line_webhook_event_invalid",
 					"event_id", strings.TrimSpace(event.WebhookEventID),
@@ -141,10 +155,11 @@ func verifyLineWebhookSignature(channelSecret string, body []byte, signature str
 }
 
 func inboundMessageFromWebhookEvent(event lineWebhookEvent, allowedGroups map[string]bool) (linebus.InboundMessage, bool, error) {
+	return inboundMessageFromWebhookEventWithOptions(context.Background(), event, allowedGroups, inboundMessageFromWebhookEventOptions{})
+}
+
+func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWebhookEvent, allowedGroups map[string]bool, opts inboundMessageFromWebhookEventOptions) (linebus.InboundMessage, bool, error) {
 	if strings.ToLower(strings.TrimSpace(event.Type)) != "message" {
-		return linebus.InboundMessage{}, false, nil
-	}
-	if strings.ToLower(strings.TrimSpace(event.Message.Type)) != "text" {
 		return linebus.InboundMessage{}, false, nil
 	}
 
@@ -178,13 +193,31 @@ func inboundMessageFromWebhookEvent(event lineWebhookEvent, allowedGroups map[st
 		return linebus.InboundMessage{}, false, nil
 	}
 
-	text := strings.TrimSpace(event.Message.Text)
-	if text == "" {
-		return linebus.InboundMessage{}, false, nil
-	}
 	messageID := strings.TrimSpace(event.Message.ID)
 	if messageID == "" {
 		return linebus.InboundMessage{}, false, fmt.Errorf("message_id is required")
+	}
+
+	msgType := strings.ToLower(strings.TrimSpace(event.Message.Type))
+	text := strings.TrimSpace(event.Message.Text)
+	imagePaths := []string(nil)
+	switch msgType {
+	case "text":
+		if text == "" {
+			return linebus.InboundMessage{}, false, nil
+		}
+	case "image":
+		if !opts.ImageRecognitionEnabled {
+			return linebus.InboundMessage{}, false, nil
+		}
+		path, err := downloadLineImageToCache(ctx, opts.API, opts.ImageCacheDir, messageID, lineLLMMaxImageBytes)
+		if err != nil {
+			return linebus.InboundMessage{}, false, err
+		}
+		imagePaths = []string{path}
+		text = "Please process the uploaded image."
+	default:
+		return linebus.InboundMessage{}, false, nil
 	}
 
 	return linebus.InboundMessage{
@@ -198,7 +231,7 @@ func inboundMessageFromWebhookEvent(event lineWebhookEvent, allowedGroups map[st
 		DisplayName:  "",
 		Text:         text,
 		MentionUsers: collectLineMentionUsers(event.Message.Mention),
-		ImagePaths:   nil,
+		ImagePaths:   imagePaths,
 		EventID:      strings.TrimSpace(event.WebhookEventID),
 	}, true, nil
 }

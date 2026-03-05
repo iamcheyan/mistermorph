@@ -139,6 +139,35 @@ func TestLineAPIAddReaction(t *testing.T) {
 	}
 }
 
+func TestLineAPIMessageContent(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte{0x89, 0x50, 0x4e, 0x47}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/bot/message/m_1001/content" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/m_1001/content")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer line-token" {
+			t.Fatalf("authorization = %q, want %q", got, "Bearer line-token")
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	raw, mimeType, err := api.messageContent(context.Background(), "m_1001", 1024)
+	if err != nil {
+		t.Fatalf("messageContent() error = %v", err)
+	}
+	if mimeType != "image/png" {
+		t.Fatalf("mime type = %q, want image/png", mimeType)
+	}
+	if string(raw) != string(payload) {
+		t.Fatalf("raw = %v, want %v", raw, payload)
+	}
+}
+
 func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Parallel()
 

@@ -206,6 +206,7 @@ func TestBuildLineRunOptionsTaskTimeoutFallback(t *testing.T) {
 			TaskTimeout:                          0,
 			GlobalTaskTimeout:                    4 * time.Minute,
 			MaxConcurrency:                       3,
+			FileCacheDir:                         "/tmp/morph-cache",
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
@@ -229,6 +230,9 @@ func TestBuildLineRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if !opts.ImageRecognitionEnabled {
 		t.Fatalf("ImageRecognitionEnabled = false, want true when line is in sources")
+	}
+	if opts.FileCacheDir != "/tmp/morph-cache" {
+		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
 	}
 }
 

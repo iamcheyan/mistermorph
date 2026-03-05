@@ -16,6 +16,7 @@ type runtimeLoopOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	ServerListen                  string
 	ServerAuthToken               string
 	ServerMaxQueue                int
@@ -46,6 +47,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
 		TaskTimeout:                   opts.TaskTimeout,
 		MaxConcurrency:                opts.MaxConcurrency,
+		FileCacheDir:                  strings.TrimSpace(opts.FileCacheDir),
 		ServerListen:                  strings.TrimSpace(opts.ServerListen),
 		ServerAuthToken:               strings.TrimSpace(opts.ServerAuthToken),
 		ServerMaxQueue:                opts.ServerMaxQueue,
@@ -73,6 +75,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.ChannelSecret = strings.TrimSpace(opts.ChannelSecret)
 	opts.AllowedGroupIDs = normalizeRunStringSlice(opts.AllowedGroupIDs)
 	opts.GroupTriggerMode = strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
+	opts.FileCacheDir = strings.TrimSpace(opts.FileCacheDir)
 	opts.ServerListen = strings.TrimSpace(opts.ServerListen)
 	opts.ServerAuthToken = strings.TrimSpace(opts.ServerAuthToken)
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
@@ -115,6 +118,9 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	if opts.WebhookPath == "" {
 		opts.WebhookPath = "/line/webhook"
+	}
+	if opts.FileCacheDir == "" {
+		opts.FileCacheDir = "~/.cache/morph"
 	}
 	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6)
 	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, 0.6)

@@ -21,6 +21,9 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if opts.WebhookPath != "/line/webhook" {
 		t.Fatalf("webhook path = %q, want %q", opts.WebhookPath, "/line/webhook")
 	}
+	if opts.FileCacheDir != "~/.cache/morph" {
+		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "~/.cache/morph")
+	}
 }
 
 func TestNormalizeRuntimeLoopOptionsWebhookPath(t *testing.T) {

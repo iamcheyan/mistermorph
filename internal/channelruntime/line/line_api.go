@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -134,6 +135,49 @@ func (api *lineAPI) addReaction(ctx context.Context, chatID string, messageID st
 		MessageID: messageID,
 		Emoji:     emoji,
 	})
+}
+
+func (api *lineAPI) messageContent(ctx context.Context, messageID string, maxBytes int64) ([]byte, string, error) {
+	if api == nil {
+		return nil, "", fmt.Errorf("line api is not initialized")
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, "", fmt.Errorf("line message id is required")
+	}
+	if maxBytes <= 0 {
+		return nil, "", fmt.Errorf("line max bytes must be positive")
+	}
+	endpoint := api.baseURL + "/v2/bot/message/" + url.PathEscape(messageID) + "/content"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+api.channelAccessToken)
+	req.Header.Set("Accept", "*/*")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, "", parseLineAPIError(resp.StatusCode, raw)
+	}
+	limited := io.LimitReader(resp.Body, maxBytes+1)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(raw)) > maxBytes {
+		return nil, "", fmt.Errorf("line image too large: %d bytes > %d bytes", len(raw), maxBytes)
+	}
+	contentType := strings.TrimSpace(strings.ToLower(resp.Header.Get("Content-Type")))
+	if idx := strings.Index(contentType, ";"); idx >= 0 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+	return raw, contentType, nil
 }
 
 type lineAPIError struct {
