@@ -107,7 +107,7 @@ func TestShouldPublishLineText(t *testing.T) {
 	if !shouldPublishLineText(&agent.Final{IsLightweight: false}) {
 		t.Fatalf("shouldPublishLineText(heavy) = false, want true")
 	}
-	if shouldPublishLineText(&agent.Final{IsLightweight: true}) {
-		t.Fatalf("shouldPublishLineText(lightweight) = true, want false")
+	if !shouldPublishLineText(&agent.Final{IsLightweight: true}) {
+		t.Fatalf("shouldPublishLineText(lightweight) = false, want true")
 	}
 }

@@ -2,7 +2,6 @@ package line
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -25,35 +24,6 @@ func (s *stubLineAddressingLLMClient) Chat(_ context.Context, _ llm.Request) (ll
 	res := s.results[0]
 	s.results = s.results[1:]
 	return res, nil
-}
-
-type stubLineAddressingTool struct {
-	name      string
-	execCount int
-	lastEmoji string
-}
-
-func (s *stubLineAddressingTool) Name() string { return s.name }
-
-func (s *stubLineAddressingTool) Description() string { return "stub tool" }
-
-func (s *stubLineAddressingTool) ParameterSchema() string {
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"emoji": map[string]any{"type": "string"},
-		},
-		"required": []string{"emoji"},
-	}
-	b, _ := json.Marshal(schema)
-	return string(b)
-}
-
-func (s *stubLineAddressingTool) Execute(_ context.Context, params map[string]any) (string, error) {
-	s.execCount++
-	emoji, _ := params["emoji"].(string)
-	s.lastEmoji = emoji
-	return "ok", nil
 }
 
 func TestLineExplicitTriggerReason(t *testing.T) {
@@ -97,7 +67,7 @@ func TestDecideLineGroupTriggerStrict(t *testing.T) {
 		EventID:      "ev_1",
 		ReplyToken:   "rtok_1",
 	}
-	dec, ok, err := decideLineGroupTrigger(nil, nil, "", inboundMention, "Ubot001", "strict", 0, 0.6, 0.6, nil, nil)
+	dec, ok, err := decideLineGroupTrigger(nil, nil, "", inboundMention, "Ubot001", "strict", 0, 0.6, 0.6, nil)
 	if err != nil {
 		t.Fatalf("decideLineGroupTrigger(mention) error = %v", err)
 	}
@@ -115,7 +85,7 @@ func TestDecideLineGroupTriggerStrict(t *testing.T) {
 		ChatID:     "Cgroup123",
 		MessageID:  "m_1002",
 	}
-	_, ok, err = decideLineGroupTrigger(nil, nil, "", inboundIgnored, "Ubot001", "strict", 0, 0.6, 0.6, nil, nil)
+	_, ok, err = decideLineGroupTrigger(nil, nil, "", inboundIgnored, "Ubot001", "strict", 0, 0.6, 0.6, nil)
 	if err != nil {
 		t.Fatalf("decideLineGroupTrigger(non_mention) error = %v", err)
 	}
@@ -139,7 +109,7 @@ func TestDecideLineGroupTriggerSmart(t *testing.T) {
 		MessageID:  "m_1001",
 		FromUserID: "U123",
 	}
-	_, ok, err := decideLineGroupTrigger(context.Background(), client, "gpt-5.2", inbound, "Ubot001", "smart", 0, 0.6, 0.6, nil, nil)
+	_, ok, err := decideLineGroupTrigger(context.Background(), client, "gpt-5.2", inbound, "Ubot001", "smart", 0, 0.6, 0.6, nil)
 	if err != nil {
 		t.Fatalf("decideLineGroupTrigger(smart) error = %v", err)
 	}
@@ -163,7 +133,7 @@ func TestDecideLineGroupTriggerTalkative(t *testing.T) {
 		MessageID:  "m_1001",
 		FromUserID: "U123",
 	}
-	_, ok, err := decideLineGroupTrigger(context.Background(), client, "gpt-5.2", inbound, "Ubot001", "talkative", 0, 0.6, 0.6, nil, nil)
+	_, ok, err := decideLineGroupTrigger(context.Background(), client, "gpt-5.2", inbound, "Ubot001", "talkative", 0, 0.6, 0.6, nil)
 	if err != nil {
 		t.Fatalf("decideLineGroupTrigger(talkative) error = %v", err)
 	}
@@ -172,7 +142,7 @@ func TestDecideLineGroupTriggerTalkative(t *testing.T) {
 	}
 }
 
-func TestLineAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
+func TestLineAddressingDecisionViaLLM_AllowsLightweightWithoutReactionTool(t *testing.T) {
 	t.Parallel()
 
 	client := &stubLineAddressingLLMClient{
@@ -180,8 +150,6 @@ func TestLineAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
 			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.2,"impulse":0.2,"is_lightweight":true,"reaction":"👍","reason":"x"}`},
 		},
 	}
-	tool := &stubLineAddressingTool{name: "message_react"}
-
 	got, ok, err := lineAddressingDecisionViaLLM(context.Background(), client, "gpt-5.2", linebus.InboundMessage{
 		ChatID:       "C123",
 		ChatType:     "group",
@@ -190,7 +158,7 @@ func TestLineAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
 		Text:         "ok",
 		ReplyToken:   "rtok",
 		MentionUsers: nil,
-	}, nil, tool)
+	}, nil)
 	if err != nil {
 		t.Fatalf("lineAddressingDecisionViaLLM() error = %v", err)
 	}
@@ -199,11 +167,5 @@ func TestLineAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
 	}
 	if !got.IsLightweight {
 		t.Fatalf("IsLightweight = false, want true")
-	}
-	if tool.execCount != 1 {
-		t.Fatalf("tool exec count = %d, want 1", tool.execCount)
-	}
-	if tool.lastEmoji != "👍" {
-		t.Fatalf("tool last emoji = %q, want %q", tool.lastEmoji, "👍")
 	}
 }

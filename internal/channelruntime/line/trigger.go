@@ -14,7 +14,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/tools"
 )
 
 type lineGroupTriggerDecision = grouptrigger.Decision
@@ -30,7 +29,6 @@ func decideLineGroupTrigger(
 	addressingConfidenceThreshold float64,
 	addressingInterjectThreshold float64,
 	history []chathistory.ChatHistoryItem,
-	addressingReactionTool tools.Tool,
 ) (lineGroupTriggerDecision, bool, error) {
 	explicitReason, explicitMatched := lineExplicitTriggerReason(inbound, botUserID)
 	return grouptrigger.Decide(ctx, grouptrigger.DecideOptions{
@@ -42,7 +40,7 @@ func decideLineGroupTrigger(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return lineAddressingDecisionViaLLM(addrCtx, client, model, inbound, history, addressingReactionTool)
+			return lineAddressingDecisionViaLLM(addrCtx, client, model, inbound, history)
 		},
 	})
 }
@@ -81,7 +79,6 @@ func lineAddressingDecisionViaLLM(
 	model string,
 	inbound linebus.InboundMessage,
 	history []chathistory.ChatHistoryItem,
-	addressingTool tools.Tool,
 ) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
@@ -105,12 +102,10 @@ func lineAddressingDecisionViaLLM(
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
 	return grouptrigger.DecideViaLLM(llminspect.WithModelScene(ctx, "line.addressing_decision"), grouptrigger.LLMDecisionOptions{
-		Client:         client,
-		Model:          model,
-		SystemPrompt:   systemPrompt,
-		UserPrompt:     userPrompt,
-		AddressingTool: addressingTool,
-		MaxToolRounds:  3,
+		Client:       client,
+		Model:        model,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
 	})
 }
 

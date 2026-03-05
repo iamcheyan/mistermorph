@@ -12,7 +12,7 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
   - `telegram_send_voice`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
-  - `message_react`: runtime-injected in Telegram, Slack, and LINE runtimes; params/context differ by channel.
+  - `message_react`: runtime-injected in Telegram and Slack runtimes; params/context differ by channel.
 
 ### 2) ASCII architecture
 
@@ -53,7 +53,6 @@ Execution path split:
                SetTodoUpdateToolAddContext(...)
                + Telegram runtime tools (telegram_*)
                + Slack runtime tool (`message_react`, when runtime context and emoji catalog are available)
-               + LINE runtime tool (`message_react`, when runtime context allows)
                     |
                     v
                buildLLMTools(...) -> Engine exposes tool schemas to LLM
@@ -70,6 +69,7 @@ Flow notes:
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
   - `telegram`/`slack`/`line`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
   - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_file`, `message_react`.
+  - Slack task registry may add `message_react` when runtime context allows.
 - First-principles invariants:
   - correctness: task toolset matches chat/channel context.
   - isolation: `todo_update` context is task-scoped.
@@ -357,24 +357,6 @@ Constraints:
 - Emoji must be a valid Slack emoji name format (not raw Unicode emoji).
 - If emoji catalog is loaded, emoji name must exist in current workspace catalog.
 - Subject to `allowed_channel_ids` restriction when configured.
-
-## `message_react` (LINE)
-
-Purpose: add emoji reactions to LINE messages.
-
-Parameters:
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `chat_id` | `string` | No | Current context chat | Target LINE `chat_id`. |
-| `message_id` | `string` | No | Trigger message ID | Message ID to react to. |
-| `emoji` | `string` | Yes | None | LINE reaction emoji (Unicode). |
-
-Constraints:
-
-- Available only in LINE mode.
-- Requires `message_id` context in LINE mode (or explicit `message_id` input).
-- Subject to allowed chat/channel scope in current runtime context.
 
 ## Notes
 

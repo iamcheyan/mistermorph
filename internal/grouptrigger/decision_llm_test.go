@@ -3,6 +3,7 @@ package grouptrigger
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/llm"
@@ -82,6 +83,38 @@ func TestDecideViaLLM_EnforcesLightweightReaction(t *testing.T) {
 	}
 }
 
+func TestDecideViaLLM_AllowsLightweightWithoutReactionTool(t *testing.T) {
+	t.Parallel()
+
+	client := &stubDecisionLLMClient{
+		results: []llm.Result{
+			{Text: `{"addressed":false,"confidence":0.2,"wanna_interject":true,"interject":0.1,"impulse":0.3,"is_lightweight":true,"reaction":"🤨","reason":"x"}`},
+		},
+	}
+
+	got, ok, err := DecideViaLLM(context.Background(), LLMDecisionOptions{
+		Client:       client,
+		Model:        "gpt-5.2",
+		SystemPrompt: "system",
+		UserPrompt:   "user",
+	})
+	if err != nil {
+		t.Fatalf("DecideViaLLM() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("DecideViaLLM() ok = false, want true")
+	}
+	if !got.IsLightweight {
+		t.Fatalf("IsLightweight = false, want true")
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("chat calls = %d, want 1", len(client.calls))
+	}
+	if len(client.calls[0].Tools) != 0 {
+		t.Fatalf("tools len = %d, want 0", len(client.calls[0].Tools))
+	}
+}
+
 func TestDecideViaLLM_DoesNotDuplicateReactionAfterToolCall(t *testing.T) {
 	t.Parallel()
 
@@ -139,5 +172,36 @@ func TestDecideViaLLM_InvalidJSON(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("DecideViaLLM() error = nil, want non-nil")
+	}
+}
+
+func TestDecideViaLLM_NoToolRejectsToolCalls(t *testing.T) {
+	t.Parallel()
+
+	client := &stubDecisionLLMClient{
+		results: []llm.Result{
+			{
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:        "tc_1",
+						Name:      "message_react",
+						Arguments: map[string]any{"emoji": ":+1:"},
+					},
+				},
+			},
+		},
+	}
+
+	_, _, err := DecideViaLLM(context.Background(), LLMDecisionOptions{
+		Client:       client,
+		Model:        "gpt-5.2",
+		SystemPrompt: "system",
+		UserPrompt:   "user",
+	})
+	if err == nil {
+		t.Fatalf("DecideViaLLM() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "no addressing tool is configured") {
+		t.Fatalf("error = %q, want contains %q", err.Error(), "no addressing tool is configured")
 	}
 }

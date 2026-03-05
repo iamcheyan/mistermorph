@@ -24,7 +24,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/tools"
-	linetools "github.com/quailyquaily/mistermorph/tools/line"
 )
 
 type Dependencies = depsutil.CommonDependencies
@@ -265,14 +264,13 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					})
 				}
 				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, reaction, runErr := runLineTask(
+				final, _, loadedSkills, runErr := runLineTask(
 					runCtx,
 					d,
 					logger,
 					logOpts,
 					client,
 					reg,
-					api,
 					sharedGuard,
 					cfg,
 					model,
@@ -353,13 +351,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				}
 				cur := history[conversationKey]
 				cur = append(cur, newLineInboundHistoryItem(job))
-				if reaction != nil {
-					note := "[reacted]"
-					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-						note = "[reacted: " + emoji + "]"
-					}
-					cur = append(cur, newLineOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC()))
-				}
 				if outText != "" {
 					cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
 				}
@@ -385,14 +376,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
-			var addressingReactionTool tools.Tool
-			if api != nil &&
-				strings.TrimSpace(inbound.ChatID) != "" &&
-				strings.TrimSpace(inbound.MessageID) != "" {
-				addressingReactionTool = linetools.NewReactTool(newLineToolAPI(api), inbound.ChatID, inbound.MessageID, map[string]bool{
-					inbound.ChatID: true,
-				})
-			}
 			dec, accepted, decErr := decideLineGroupTrigger(
 				context.Background(),
 				client,
@@ -404,18 +387,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				addressingConfidenceThreshold,
 				addressingInterjectThreshold,
 				historySnapshot,
-				addressingReactionTool,
 			)
-			if reactTool, ok := addressingReactionTool.(*linetools.ReactTool); ok && reactTool != nil {
-				if reaction := reactTool.LastReaction(); reaction != nil {
-					logger.Info("line_group_addressing_reaction_applied",
-						"chat_id", reaction.ChatID,
-						"message_id", reaction.MessageID,
-						"emoji", reaction.Emoji,
-						"source", reaction.Source,
-					)
-				}
-			}
 			if decErr != nil {
 				logger.Warn("line_addressing_llm_error",
 					"chat_id", inbound.ChatID,

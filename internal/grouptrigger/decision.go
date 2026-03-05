@@ -137,75 +137,30 @@ func DecideViaLLM(ctx context.Context, opts LLMDecisionOptions) (Addressing, boo
 		{Role: "system", Content: opts.SystemPrompt},
 		{Role: "user", Content: opts.UserPrompt},
 	}
-	var llmTools []llm.Tool
-	if t := llmToolFromTool(opts.AddressingTool); t != nil {
-		llmTools = append(llmTools, *t)
+	hasAddressingTool := llmToolFromTool(opts.AddressingTool) != nil
+
+	var (
+		out            addressingLLMOutput
+		reactionCalled bool
+		err            error
+	)
+	if hasAddressingTool {
+		out, reactionCalled, err = runAddressingLLMWithTool(ctx, opts, messages, maxToolRounds)
+	} else {
+		out, err = runAddressingLLMWithoutTool(ctx, opts, messages)
 	}
-
-	reactionCalled := false
-	var out addressingLLMOutput
-	for round := 0; ; round++ {
-		res, err := opts.Client.Chat(ctx, llm.Request{
-			Model:     opts.Model,
-			ForceJSON: true,
-			Messages:  messages,
-			Tools:     llmTools,
+	if err != nil {
+		return Addressing{}, false, err
+	}
+	if hasAddressingTool && out.IsLightweight && strings.TrimSpace(out.Reaction) != "" && !reactionCalled {
+		toolName := strings.TrimSpace(opts.AddressingTool.Name())
+		observation, executedOK := executeAddressingToolCall(ctx, opts.AddressingTool, llm.ToolCall{
+			Name:      toolName,
+			Arguments: map[string]any{"emoji": strings.TrimSpace(out.Reaction)},
 		})
-		if err != nil {
-			return Addressing{}, false, err
+		if !executedOK {
+			return Addressing{}, false, fmt.Errorf("lightweight response requires reaction tool: %s", strings.TrimSpace(observation))
 		}
-
-		if len(res.ToolCalls) > 0 {
-			if round >= maxToolRounds {
-				return Addressing{}, false, fmt.Errorf("addressing_llm exceeded tool-call rounds")
-			}
-			messages = append(messages, llm.Message{
-				Role:      "assistant",
-				Content:   strings.TrimSpace(res.Text),
-				ToolCalls: res.ToolCalls,
-			})
-			for _, tc := range res.ToolCalls {
-				observation, executedOK := executeAddressingToolCall(ctx, opts.AddressingTool, tc)
-				if executedOK {
-					reactionCalled = true
-				}
-				if strings.TrimSpace(tc.ID) != "" {
-					messages = append(messages, llm.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    observation,
-					})
-					continue
-				}
-				messages = append(messages, llm.Message{
-					Role:    "user",
-					Content: fmt.Sprintf("Tool Result (%s):\n%s", strings.TrimSpace(tc.Name), observation),
-				})
-			}
-			continue
-		}
-
-		raw := strings.TrimSpace(res.Text)
-		if raw == "" {
-			return Addressing{}, false, fmt.Errorf("empty addressing_llm response")
-		}
-		if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
-			return Addressing{}, false, fmt.Errorf("invalid addressing_llm json")
-		}
-		if out.IsLightweight && strings.TrimSpace(out.Reaction) != "" && !reactionCalled {
-			toolName := ""
-			if opts.AddressingTool != nil {
-				toolName = strings.TrimSpace(opts.AddressingTool.Name())
-			}
-			observation, executedOK := executeAddressingToolCall(ctx, opts.AddressingTool, llm.ToolCall{
-				Name:      toolName,
-				Arguments: map[string]any{"emoji": strings.TrimSpace(out.Reaction)},
-			})
-			if !executedOK {
-				return Addressing{}, false, fmt.Errorf("lightweight response requires reaction tool: %s", strings.TrimSpace(observation))
-			}
-		}
-		break
 	}
 
 	wannaInterject := out.Interject > 0
@@ -222,6 +177,84 @@ func DecideViaLLM(ctx context.Context, opts LLMDecisionOptions) (Addressing, boo
 		Reason:         strings.TrimSpace(out.Reason),
 	}
 	return addressing, true, nil
+}
+
+func runAddressingLLMWithoutTool(ctx context.Context, opts LLMDecisionOptions, messages []llm.Message) (addressingLLMOutput, error) {
+	res, err := opts.Client.Chat(ctx, llm.Request{
+		Model:     opts.Model,
+		ForceJSON: true,
+		Messages:  messages,
+	})
+	if err != nil {
+		return addressingLLMOutput{}, err
+	}
+	if len(res.ToolCalls) > 0 {
+		return addressingLLMOutput{}, fmt.Errorf("addressing_llm returned tool call when no addressing tool is configured")
+	}
+	return parseAddressingLLMOutput(res.Text)
+}
+
+func runAddressingLLMWithTool(
+	ctx context.Context,
+	opts LLMDecisionOptions,
+	messages []llm.Message,
+	maxToolRounds int,
+) (addressingLLMOutput, bool, error) {
+	reactionCalled := false
+	llmTools := []llm.Tool{*llmToolFromTool(opts.AddressingTool)}
+	for round := 0; ; round++ {
+		res, err := opts.Client.Chat(ctx, llm.Request{
+			Model:     opts.Model,
+			ForceJSON: true,
+			Messages:  messages,
+			Tools:     llmTools,
+		})
+		if err != nil {
+			return addressingLLMOutput{}, false, err
+		}
+		if len(res.ToolCalls) == 0 {
+			out, parseErr := parseAddressingLLMOutput(res.Text)
+			return out, reactionCalled, parseErr
+		}
+		if round >= maxToolRounds {
+			return addressingLLMOutput{}, false, fmt.Errorf("addressing_llm exceeded tool-call rounds")
+		}
+		messages = append(messages, llm.Message{
+			Role:      "assistant",
+			Content:   strings.TrimSpace(res.Text),
+			ToolCalls: res.ToolCalls,
+		})
+		for _, tc := range res.ToolCalls {
+			observation, executedOK := executeAddressingToolCall(ctx, opts.AddressingTool, tc)
+			if executedOK {
+				reactionCalled = true
+			}
+			if strings.TrimSpace(tc.ID) != "" {
+				messages = append(messages, llm.Message{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content:    observation,
+				})
+				continue
+			}
+			messages = append(messages, llm.Message{
+				Role:    "user",
+				Content: fmt.Sprintf("Tool Result (%s):\n%s", strings.TrimSpace(tc.Name), observation),
+			})
+		}
+	}
+}
+
+func parseAddressingLLMOutput(text string) (addressingLLMOutput, error) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return addressingLLMOutput{}, fmt.Errorf("empty addressing_llm response")
+	}
+	var out addressingLLMOutput
+	if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
+		return addressingLLMOutput{}, fmt.Errorf("invalid addressing_llm json")
+	}
+	return out, nil
 }
 
 func clamp01(v float64) float64 {
