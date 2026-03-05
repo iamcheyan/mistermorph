@@ -214,13 +214,19 @@ func TestInboundMessageFromWebhookEvent_ImageDisabled(t *testing.T) {
 			Type: "image",
 		},
 	}
-	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
+	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
 		ImageRecognitionEnabled: false,
 	})
 	if err != nil {
 		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
 	}
-	if ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
+	if !ok {
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
+	}
+	if msg.Text != lineImageRecognitionDisabledPrompt {
+		t.Fatalf("text = %q, want %q", msg.Text, lineImageRecognitionDisabledPrompt)
+	}
+	if msg.ImagePending {
+		t.Fatalf("image_pending = true, want false")
 	}
 }

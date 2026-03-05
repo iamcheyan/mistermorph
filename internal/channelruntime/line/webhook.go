@@ -68,6 +68,8 @@ type inboundMessageFromWebhookEventOptions struct {
 	ImageRecognitionEnabled bool
 }
 
+const lineImageRecognitionDisabledPrompt = "User sent an image, but image recognition is disabled in the current LINE runtime. Reply briefly and ask the user to either describe the image in text or enable line in multimodal.image.sources."
+
 func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 	secret := strings.TrimSpace(opts.ChannelSecret)
 	allowedGroups := opts.AllowedGroups
@@ -195,17 +197,19 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 	msgType := strings.ToLower(strings.TrimSpace(event.Message.Type))
 	text := strings.TrimSpace(event.Message.Text)
 	imagePaths := []string(nil)
+	imagePending := false
 	switch msgType {
 	case "text":
 		if text == "" {
 			return linebus.InboundMessage{}, false, nil
 		}
 	case "image":
-		if !opts.ImageRecognitionEnabled {
-			return linebus.InboundMessage{}, false, nil
+		if opts.ImageRecognitionEnabled {
+			text = "Please process the uploaded image."
+			imagePending = true
+		} else {
+			text = lineImageRecognitionDisabledPrompt
 		}
-		imagePaths = nil
-		text = "Please process the uploaded image."
 	default:
 		return linebus.InboundMessage{}, false, nil
 	}
@@ -222,7 +226,7 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 		Text:         text,
 		MentionUsers: collectLineMentionUsers(event.Message.Mention),
 		ImagePaths:   imagePaths,
-		ImagePending: msgType == "image",
+		ImagePending: imagePending,
 		EventID:      strings.TrimSpace(event.WebhookEventID),
 	}, true, nil
 }

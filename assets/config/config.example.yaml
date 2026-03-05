@@ -43,8 +43,7 @@ multimodal:
   image:
     # Enabled source whitelist.
     # Supported values: telegram, slack, line, remote_download.
-    # Current runtime wiring: telegram. line is planned.
-    sources: ["telegram"]
+    sources: ["telegram", "line"]
 
 logging:
   # debug|info|warn|error

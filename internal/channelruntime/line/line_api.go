@@ -148,7 +148,11 @@ func (api *lineAPI) messageContent(ctx context.Context, messageID string, maxByt
 	if maxBytes <= 0 {
 		return nil, "", fmt.Errorf("line max bytes must be positive")
 	}
-	endpoint := api.baseURL + "/v2/bot/message/" + url.PathEscape(messageID) + "/content"
+	endpoint := api.contentBaseURL() + "/v2/bot/message/" + url.PathEscape(messageID) + "/content"
+	return api.fetchMessageContentOnce(ctx, endpoint, maxBytes)
+}
+
+func (api *lineAPI) fetchMessageContentOnce(ctx context.Context, endpoint string, maxBytes int64) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, "", err
@@ -178,6 +182,25 @@ func (api *lineAPI) messageContent(ctx context.Context, messageID string, maxByt
 		contentType = strings.TrimSpace(contentType[:idx])
 	}
 	return raw, contentType, nil
+}
+
+func (api *lineAPI) contentBaseURL() string {
+	if api == nil {
+		return "https://api-data.line.me"
+	}
+	base := strings.TrimSpace(strings.TrimRight(api.baseURL, "/"))
+	if base == "" {
+		return "https://api-data.line.me"
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return base
+	}
+	if strings.EqualFold(strings.TrimSpace(parsed.Host), "api.line.me") {
+		parsed.Host = "api-data.line.me"
+		return strings.TrimRight(parsed.String(), "/")
+	}
+	return base
 }
 
 type lineAPIError struct {

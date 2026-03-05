@@ -168,6 +168,19 @@ func TestLineAPIMessageContent(t *testing.T) {
 	}
 }
 
+func TestLineAPIContentBaseURL(t *testing.T) {
+	t.Parallel()
+
+	api := newLineAPI(nil, "https://api.line.me", "line-token")
+	if got := api.contentBaseURL(); got != "https://api-data.line.me" {
+		t.Fatalf("contentBaseURL() = %q, want %q", got, "https://api-data.line.me")
+	}
+	custom := newLineAPI(nil, "https://line-proxy.example.com", "line-token")
+	if got := custom.contentBaseURL(); got != "https://line-proxy.example.com" {
+		t.Fatalf("contentBaseURL() custom = %q, want %q", got, "https://line-proxy.example.com")
+	}
+}
+
 func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Parallel()
 
