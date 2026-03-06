@@ -150,10 +150,6 @@ func verifyLineWebhookSignature(channelSecret string, body []byte, signature str
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-func inboundMessageFromWebhookEvent(event lineWebhookEvent, allowedGroups map[string]bool) (linebus.InboundMessage, bool, error) {
-	return inboundMessageFromWebhookEventWithOptions(context.Background(), event, allowedGroups, inboundMessageFromWebhookEventOptions{})
-}
-
 func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWebhookEvent, allowedGroups map[string]bool, opts inboundMessageFromWebhookEventOptions) (linebus.InboundMessage, bool, error) {
 	if strings.ToLower(strings.TrimSpace(event.Type)) != "message" {
 		return linebus.InboundMessage{}, false, nil

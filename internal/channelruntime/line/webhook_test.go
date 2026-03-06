@@ -52,12 +52,12 @@ func TestInboundMessageFromWebhookEvent_Group(t *testing.T) {
 			},
 		},
 	}
-	msg, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
+	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
 	}
 	if msg.ChatID != "Cgroup123" {
 		t.Fatalf("chat_id = %q, want %q", msg.ChatID, "Cgroup123")
@@ -101,12 +101,12 @@ func TestInboundMessageFromWebhookEvent_Private(t *testing.T) {
 			Text: "hi",
 		},
 	}
-	msg, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
+	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
 	}
 	if msg.ChatType != "private" {
 		t.Fatalf("chat_type = %q, want %q", msg.ChatType, "private")
@@ -132,12 +132,12 @@ func TestInboundMessageFromWebhookEvent_RoomIgnored(t *testing.T) {
 			Text: "hello",
 		},
 	}
-	_, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
+	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
 	}
 	if ok {
-		t.Fatalf("inboundMessageFromWebhookEvent() ok=true, want false")
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
 	}
 }
 
@@ -157,12 +157,12 @@ func TestInboundMessageFromWebhookEvent_GroupAllowlist(t *testing.T) {
 			Text: "hello",
 		},
 	}
-	_, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{"Cgroup_allowed": true})
+	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{"Cgroup_allowed": true}, inboundMessageFromWebhookEventOptions{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
 	}
 	if ok {
-		t.Fatalf("inboundMessageFromWebhookEvent() ok=true, want false")
+		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
 	}
 }
 
