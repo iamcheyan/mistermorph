@@ -88,6 +88,9 @@ type StaticContactsSendConfig struct {
 	SlackBaseURL     string
 	LineChannelToken string
 	LineBaseURL      string
+	LarkAppID        string
+	LarkAppSecret    string
+	LarkBaseURL      string
 	FailureCooldown  time.Duration
 }
 
@@ -174,6 +177,9 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			SlackBaseURL:     strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
 			LineChannelToken: strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
 			LineBaseURL:      strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
+			LarkAppID:        strings.TrimSpace(cfg.ContactsSend.LarkAppID),
+			LarkAppSecret:    strings.TrimSpace(cfg.ContactsSend.LarkAppSecret),
+			LarkBaseURL:      strings.TrimSpace(cfg.ContactsSend.LarkBaseURL),
 			FailureCooldown:  cfg.ContactsSend.FailureCooldown,
 		}))
 	}

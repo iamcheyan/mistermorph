@@ -27,6 +27,9 @@ type ContactsSendToolOptions struct {
 	SlackBaseURL     string
 	LineChannelToken string
 	LineBaseURL      string
+	LarkAppID        string
+	LarkAppSecret    string
+	LarkBaseURL      string
 	FailureCooldown  time.Duration
 }
 
@@ -41,7 +44,7 @@ func NewContactsSendTool(opts ContactsSendToolOptions) *ContactsSendTool {
 func (t *ContactsSendTool) Name() string { return "contacts_send" }
 
 func (t *ContactsSendTool) Description() string {
-	return "Sends one message to a contact. Routing is automatic across Slack, Telegram, and LINE based on chat_id/contact reachability."
+	return "Sends one message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability."
 }
 
 func (t *ContactsSendTool) ParameterSchema() string {
@@ -50,11 +53,11 @@ func (t *ContactsSendTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"contact_id": map[string]any{
 				"type":        "string",
-				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>.",
+				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>.",
 			},
 			"chat_id": map[string]any{
 				"type":        "string",
-				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, or line:<chat_id>.",
+				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, line:<chat_id>, or lark:<chat_id>.",
 			},
 			"content_type": map[string]any{
 				"type":        "string",
@@ -113,6 +116,9 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 		SlackBaseURL:     strings.TrimSpace(t.opts.SlackBaseURL),
 		LineChannelToken: strings.TrimSpace(t.opts.LineChannelToken),
 		LineBaseURL:      strings.TrimSpace(t.opts.LineBaseURL),
+		LarkAppID:        strings.TrimSpace(t.opts.LarkAppID),
+		LarkAppSecret:    strings.TrimSpace(t.opts.LarkAppSecret),
+		LarkBaseURL:      strings.TrimSpace(t.opts.LarkBaseURL),
 	})
 	if err != nil {
 		return "", err

@@ -355,6 +355,38 @@ line:
   # Max number of conversations processed concurrently.
   max_concurrency: 3
 
+# Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
+lark:
+  # Feishu Open API base URL (override for mock/testing only).
+  base_url: "https://open.feishu.cn/open-apis"
+  # App ID. Prefer env var: MISTER_MORPH_LARK_APP_ID
+  app_id: ""
+  # App secret. Prefer env var: MISTER_MORPH_LARK_APP_SECRET
+  app_secret: ""
+  # Webhook HTTP listen address.
+  webhook_listen: "127.0.0.1:18081"
+  # Webhook path.
+  webhook_path: "/lark/webhook"
+  # Event subscription verification token.
+  verification_token: ""
+  # Event subscription encrypt key.
+  encrypt_key: ""
+  # Optional allowlist of chat IDs. Empty means allow all chats.
+  allowed_chat_ids: []
+  # Group trigger mode:
+  # - strict: only explicit triggers in groups.
+  # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
+  # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
+  group_trigger_mode: "smart"
+  # Minimum confidence required to accept the LLM addressing classification.
+  addressing_confidence_threshold: 0.6
+  # Minimum interject required to accept the LLM addressing classification.
+  addressing_interject_threshold: 0.6
+  # Per-message agent timeout (0 uses top-level timeout).
+  task_timeout: "0s"
+  # Max number of conversations processed concurrently.
+  max_concurrency: 3
+
 # Heartbeat (periodic awareness/checkpoint).
 heartbeat:
   # Enable heartbeats by default.

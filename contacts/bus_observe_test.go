@@ -284,6 +284,62 @@ func TestObserveInboundBusMessage_LineSenderAndMention(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessage_LarkSenderAndMention(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(t.TempDir())
+	svc := NewService(store)
+	now := time.Date(2026, 3, 5, 10, 5, 0, 0, time.UTC)
+
+	msg := busruntime.BusMessage{
+		Direction:       busruntime.DirectionInbound,
+		Channel:         busruntime.ChannelLark,
+		ConversationKey: "lark:oc_group100",
+		Extensions: busruntime.MessageExtensions{
+			ChatType:        "group",
+			FromUserRef:     "ou_100",
+			FromDisplayName: "Alice Lark",
+			MentionUsers:    []string{"ou_100", "ou_200"},
+		},
+	}
+	if err := svc.ObserveInboundBusMessage(ctx, msg, now); err != nil {
+		t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+	}
+
+	alice, ok, err := svc.GetContact(ctx, "lark_user:ou_100")
+	if err != nil {
+		t.Fatalf("GetContact(alice) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(alice) expected ok=true")
+	}
+	if alice.Channel != ChannelLark {
+		t.Fatalf("channel mismatch: got %q want %q", alice.Channel, ChannelLark)
+	}
+	if alice.ContactNickname != "Alice Lark" {
+		t.Fatalf("nickname mismatch: got %q want %q", alice.ContactNickname, "Alice Lark")
+	}
+	if alice.LarkOpenID != "ou_100" {
+		t.Fatalf("lark_open_id mismatch: got %q want %q", alice.LarkOpenID, "ou_100")
+	}
+	if len(alice.LarkChatIDs) != 1 || alice.LarkChatIDs[0] != "oc_group100" {
+		t.Fatalf("lark_chat_ids mismatch: got=%v", alice.LarkChatIDs)
+	}
+	if alice.LastInteractionAt == nil || !alice.LastInteractionAt.Equal(now) {
+		t.Fatalf("last_interaction_at mismatch: got=%v want=%v", alice.LastInteractionAt, now)
+	}
+
+	bob, ok, err := svc.GetContact(ctx, "lark_user:ou_200")
+	if err != nil {
+		t.Fatalf("GetContact(bob) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(bob) expected ok=true")
+	}
+	if len(bob.LarkChatIDs) != 1 || bob.LarkChatIDs[0] != "oc_group100" {
+		t.Fatalf("lark_chat_ids mismatch: got=%v", bob.LarkChatIDs)
+	}
+}
+
 func timePtr(ts time.Time) *time.Time {
 	t := ts.UTC()
 	return &t

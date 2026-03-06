@@ -249,3 +249,55 @@ func TestBuildLineRunOptionsInputOverridesAndDedupesGroups(t *testing.T) {
 		t.Fatalf("allowed groups = %#v, want [groupB groupC]", opts.AllowedGroupIDs)
 	}
 }
+
+func TestLarkConfigFromReaderAllowedChatIDs(t *testing.T) {
+	cfg := LarkConfigFromReader(stubConfigReader{
+		"lark.allowed_chat_ids": []string{"oc_1", "oc_2"},
+	})
+	if len(cfg.AllowedChatIDs) != 2 {
+		t.Fatalf("AllowedChatIDs len = %d, want 2", len(cfg.AllowedChatIDs))
+	}
+}
+
+func TestBuildLarkRunOptionsTaskTimeoutFallback(t *testing.T) {
+	opts := BuildLarkRunOptions(
+		LarkConfig{
+			AllowedChatIDs:                       []string{"oc_groupA"},
+			TaskTimeout:                          0,
+			GlobalTaskTimeout:                    5 * time.Minute,
+			MaxConcurrency:                       3,
+			DefaultGroupTriggerMode:              "smart",
+			DefaultAddressingConfidenceThreshold: 0.6,
+			DefaultAddressingInterjectThreshold:  0.6,
+			AgentLimits:                          agent.Limits{ToolRepeatLimit: 13},
+		},
+		LarkInput{
+			AppID:       "cli_xxx",
+			AppSecret:   "secret",
+			TaskTimeout: 0,
+		},
+	)
+	if opts.TaskTimeout != 5*time.Minute {
+		t.Fatalf("task timeout = %v, want 5m", opts.TaskTimeout)
+	}
+	if len(opts.AllowedChatIDs) != 1 || opts.AllowedChatIDs[0] != "oc_groupA" {
+		t.Fatalf("allowed chats = %#v, want [oc_groupA]", opts.AllowedChatIDs)
+	}
+	if opts.AgentLimits.ToolRepeatLimit != 13 {
+		t.Fatalf("agent tool repeat limit = %d, want 13", opts.AgentLimits.ToolRepeatLimit)
+	}
+}
+
+func TestBuildLarkRunOptionsInputOverridesAndDedupesChats(t *testing.T) {
+	opts := BuildLarkRunOptions(
+		LarkConfig{
+			AllowedChatIDs: []string{"oc_groupA"},
+		},
+		LarkInput{
+			AllowedChatIDs: []string{" oc_groupB ", "oc_groupB", "oc_groupC"},
+		},
+	)
+	if len(opts.AllowedChatIDs) != 2 || opts.AllowedChatIDs[0] != "oc_groupB" || opts.AllowedChatIDs[1] != "oc_groupC" {
+		t.Fatalf("allowed chats = %#v, want [oc_groupB oc_groupC]", opts.AllowedChatIDs)
+	}
+}

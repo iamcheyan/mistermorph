@@ -22,6 +22,16 @@ func TestBuildConversationKeyLine(t *testing.T) {
 	}
 }
 
+func TestBuildConversationKeyLark(t *testing.T) {
+	key, err := BuildLarkConversationKey("oc_group123")
+	if err != nil {
+		t.Fatalf("BuildLarkConversationKey() error = %v", err)
+	}
+	if key != "lark:oc_group123" {
+		t.Fatalf("conversation key mismatch: got %q", key)
+	}
+}
+
 func TestBuildConversationKeyRejectsInvalidInput(t *testing.T) {
 	cases := []struct {
 		name    string

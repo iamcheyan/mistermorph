@@ -20,6 +20,7 @@ const (
 	ChannelTelegram Channel = Channel(channels.Telegram)
 	ChannelSlack    Channel = Channel(channels.Slack)
 	ChannelLine     Channel = Channel(channels.Line)
+	ChannelLark     Channel = Channel(channels.Lark)
 	ChannelDiscord  Channel = Channel(channels.Discord)
 )
 
@@ -74,7 +75,7 @@ func (m BusMessage) Validate() error {
 
 	if m.Channel != "" {
 		switch m.Channel {
-		case ChannelTelegram, ChannelSlack, ChannelLine, ChannelDiscord:
+		case ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, ChannelDiscord:
 		default:
 			return fmt.Errorf("channel is invalid")
 		}

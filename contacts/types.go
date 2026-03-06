@@ -24,6 +24,7 @@ const (
 	ChannelTelegram = channels.Telegram
 	ChannelSlack    = channels.Slack
 	ChannelLine     = channels.Line
+	ChannelLark     = channels.Lark
 	ShareTopic      = "chat.message"
 )
 
@@ -37,6 +38,8 @@ type Contact struct {
 	TGGroupChatIDs    []int64    `json:"tg_group_chat_ids,omitempty"`
 	LineUserID        string     `json:"line_user_id,omitempty"`
 	LineChatIDs       []string   `json:"line_chat_ids,omitempty"`
+	LarkOpenID        string     `json:"lark_open_id,omitempty"`
+	LarkChatIDs       []string   `json:"lark_chat_ids,omitempty"`
 	SlackTeamID       string     `json:"slack_team_id,omitempty"`
 	SlackUserID       string     `json:"slack_user_id,omitempty"`
 	SlackDMChannelID  string     `json:"slack_dm_channel_id,omitempty"`

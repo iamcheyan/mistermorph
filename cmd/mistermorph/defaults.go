@@ -98,6 +98,21 @@ func initViperDefaults() {
 	viper.SetDefault("line.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("line.addressing_interject_threshold", 0.6)
 
+	// Lark.
+	viper.SetDefault("lark.base_url", "https://open.feishu.cn/open-apis")
+	viper.SetDefault("lark.app_id", "")
+	viper.SetDefault("lark.app_secret", "")
+	viper.SetDefault("lark.webhook_listen", "127.0.0.1:18081")
+	viper.SetDefault("lark.webhook_path", "/lark/webhook")
+	viper.SetDefault("lark.verification_token", "")
+	viper.SetDefault("lark.encrypt_key", "")
+	viper.SetDefault("lark.allowed_chat_ids", []string{})
+	viper.SetDefault("lark.task_timeout", 0*time.Second)
+	viper.SetDefault("lark.max_concurrency", 3)
+	viper.SetDefault("lark.group_trigger_mode", "smart")
+	viper.SetDefault("lark.addressing_confidence_threshold", 0.6)
+	viper.SetDefault("lark.addressing_interject_threshold", 0.6)
+
 	// Heartbeat
 	viper.SetDefault("heartbeat.enabled", true)
 	viper.SetDefault("heartbeat.interval", 30*time.Minute)

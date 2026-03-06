@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	larkruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/lark"
 	lineruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/line"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
@@ -416,6 +417,51 @@ type LineInput struct {
 	InspectRequest                bool
 }
 
+type LarkConfig struct {
+	AllowedChatIDs                       []string
+	DefaultGroupTriggerMode              string
+	DefaultAddressingConfidenceThreshold float64
+	DefaultAddressingInterjectThreshold  float64
+	TaskTimeout                          time.Duration
+	GlobalTaskTimeout                    time.Duration
+	MaxConcurrency                       int
+	ServerListen                         string
+	ServerAuthToken                      string
+	ServerMaxQueue                       int
+	BaseURL                              string
+	WebhookListen                        string
+	WebhookPath                          string
+	VerificationToken                    string
+	EncryptKey                           string
+	BusMaxInFlight                       int
+	RequestTimeout                       time.Duration
+	AgentLimits                          agent.Limits
+	MemoryEnabled                        bool
+	MemoryShortTermDays                  int
+	MemoryInjectionEnabled               bool
+	MemoryInjectionMaxItems              int
+	SecretsRequireSkillProfiles          bool
+}
+
+type LarkInput struct {
+	AppID                         string
+	AppSecret                     string
+	AllowedChatIDs                []string
+	GroupTriggerMode              string
+	AddressingConfidenceThreshold float64
+	AddressingInterjectThreshold  float64
+	TaskTimeout                   time.Duration
+	MaxConcurrency                int
+	BaseURL                       string
+	WebhookListen                 string
+	WebhookPath                   string
+	VerificationToken             string
+	EncryptKey                    string
+	Hooks                         larkruntime.Hooks
+	InspectPrompt                 bool
+	InspectRequest                bool
+}
+
 func LineConfigFromReader(r ConfigReader) LineConfig {
 	if r == nil {
 		return LineConfig{}
@@ -454,6 +500,46 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 
 func LineConfigFromViper() LineConfig {
 	return LineConfigFromReader(viper.GetViper())
+}
+
+func LarkConfigFromReader(r ConfigReader) LarkConfig {
+	if r == nil {
+		return LarkConfig{}
+	}
+	return LarkConfig{
+		AllowedChatIDs:                       append([]string(nil), r.GetStringSlice("lark.allowed_chat_ids")...),
+		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("lark.group_trigger_mode")),
+		DefaultAddressingConfidenceThreshold: r.GetFloat64("lark.addressing_confidence_threshold"),
+		DefaultAddressingInterjectThreshold:  r.GetFloat64("lark.addressing_interject_threshold"),
+		TaskTimeout:                          r.GetDuration("lark.task_timeout"),
+		GlobalTaskTimeout:                    r.GetDuration("timeout"),
+		MaxConcurrency:                       r.GetInt("lark.max_concurrency"),
+		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
+		ServerMaxQueue:                       r.GetInt("server.max_queue"),
+		BaseURL:                              strings.TrimSpace(r.GetString("lark.base_url")),
+		WebhookListen:                        strings.TrimSpace(r.GetString("lark.webhook_listen")),
+		WebhookPath:                          strings.TrimSpace(r.GetString("lark.webhook_path")),
+		VerificationToken:                    strings.TrimSpace(r.GetString("lark.verification_token")),
+		EncryptKey:                           strings.TrimSpace(r.GetString("lark.encrypt_key")),
+		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
+		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
+		AgentLimits: agent.Limits{
+			MaxSteps:        r.GetInt("max_steps"),
+			ParseRetries:    r.GetInt("parse_retries"),
+			MaxTokenBudget:  r.GetInt("max_token_budget"),
+			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
+		},
+		MemoryEnabled:               r.GetBool("memory.enabled"),
+		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
+		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
+	}
+}
+
+func LarkConfigFromViper() LarkConfig {
+	return LarkConfigFromReader(viper.GetViper())
 }
 
 func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
@@ -526,6 +612,88 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
 		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		ImageRecognitionEnabled:       imageRecognitionEnabled,
+		Hooks:                         in.Hooks,
+		InspectPrompt:                 in.InspectPrompt,
+		InspectRequest:                in.InspectRequest,
+	}
+}
+
+func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
+	allowedChatIDs := normalizeTrimmedUniqueStrings(in.AllowedChatIDs)
+	if len(allowedChatIDs) == 0 {
+		allowedChatIDs = normalizeTrimmedUniqueStrings(cfg.AllowedChatIDs)
+	}
+
+	groupTriggerMode := strings.TrimSpace(in.GroupTriggerMode)
+	if groupTriggerMode == "" {
+		groupTriggerMode = strings.TrimSpace(cfg.DefaultGroupTriggerMode)
+	}
+	addressingConfidenceThreshold := in.AddressingConfidenceThreshold
+	if addressingConfidenceThreshold <= 0 {
+		addressingConfidenceThreshold = cfg.DefaultAddressingConfidenceThreshold
+	}
+	addressingInterjectThreshold := in.AddressingInterjectThreshold
+	if addressingInterjectThreshold <= 0 {
+		addressingInterjectThreshold = cfg.DefaultAddressingInterjectThreshold
+	}
+	taskTimeout := in.TaskTimeout
+	if taskTimeout <= 0 {
+		taskTimeout = cfg.TaskTimeout
+	}
+	if taskTimeout <= 0 {
+		taskTimeout = cfg.GlobalTaskTimeout
+	}
+	maxConcurrency := in.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = cfg.MaxConcurrency
+	}
+	serverListen := normalizeServerListen(cfg.ServerListen)
+	baseURL := strings.TrimSpace(in.BaseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(cfg.BaseURL)
+	}
+	webhookListen := strings.TrimSpace(in.WebhookListen)
+	if webhookListen == "" {
+		webhookListen = strings.TrimSpace(cfg.WebhookListen)
+	}
+	webhookPath := strings.TrimSpace(in.WebhookPath)
+	if webhookPath == "" {
+		webhookPath = strings.TrimSpace(cfg.WebhookPath)
+	}
+	verificationToken := strings.TrimSpace(in.VerificationToken)
+	if verificationToken == "" {
+		verificationToken = strings.TrimSpace(cfg.VerificationToken)
+	}
+	encryptKey := strings.TrimSpace(in.EncryptKey)
+	if encryptKey == "" {
+		encryptKey = strings.TrimSpace(cfg.EncryptKey)
+	}
+
+	return larkruntime.RunOptions{
+		AppID:                         strings.TrimSpace(in.AppID),
+		AppSecret:                     strings.TrimSpace(in.AppSecret),
+		AllowedChatIDs:                allowedChatIDs,
+		GroupTriggerMode:              groupTriggerMode,
+		AddressingConfidenceThreshold: addressingConfidenceThreshold,
+		AddressingInterjectThreshold:  addressingInterjectThreshold,
+		TaskTimeout:                   taskTimeout,
+		MaxConcurrency:                maxConcurrency,
+		ServerListen:                  serverListen,
+		ServerAuthToken:               cfg.ServerAuthToken,
+		ServerMaxQueue:                cfg.ServerMaxQueue,
+		BaseURL:                       baseURL,
+		WebhookListen:                 webhookListen,
+		WebhookPath:                   webhookPath,
+		VerificationToken:             verificationToken,
+		EncryptKey:                    encryptKey,
+		BusMaxInFlight:                cfg.BusMaxInFlight,
+		RequestTimeout:                cfg.RequestTimeout,
+		AgentLimits:                   cfg.AgentLimits,
+		MemoryEnabled:                 cfg.MemoryEnabled,
+		MemoryShortTermDays:           cfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
+		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,

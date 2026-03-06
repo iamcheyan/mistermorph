@@ -84,3 +84,35 @@ func TestAppendLineRuntimeBlocks_Private(t *testing.T) {
 		t.Fatalf("private policy block missing marker: %q", spec.Blocks[0].Content)
 	}
 }
+
+func TestAppendLarkRuntimeBlocks_Group(t *testing.T) {
+	spec := agent.PromptSpec{}
+
+	AppendLarkRuntimeBlocks(&spec, true)
+
+	if len(spec.Blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Policies ]]") {
+		t.Fatalf("lark policy heading missing: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Group Policies ]]") {
+		t.Fatalf("group policy block missing marker: %q", spec.Blocks[0].Content)
+	}
+}
+
+func TestAppendLarkRuntimeBlocks_Private(t *testing.T) {
+	spec := agent.PromptSpec{}
+
+	AppendLarkRuntimeBlocks(&spec, false)
+
+	if len(spec.Blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Policies ]]") {
+		t.Fatalf("lark policy heading missing: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Private Policies ]]") {
+		t.Fatalf("private policy block missing marker: %q", spec.Blocks[0].Content)
+	}
+}

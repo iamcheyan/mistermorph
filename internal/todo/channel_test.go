@@ -112,6 +112,29 @@ func TestStoreAddWithCustomProtocolChatID(t *testing.T) {
 	}
 }
 
+func TestStoreAddWithLarkRefs(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"))
+	store.Semantics = stubSemantics{}
+	store.Now = func() time.Time {
+		return time.Date(2026, 3, 6, 9, 30, 0, 0, time.UTC)
+	}
+
+	addRes, err := store.AddWithChatID(context.Background(), "提醒 [John](lark_user:ou_123) 跟进飞书群消息", "lark:oc_group123")
+	if err != nil {
+		t.Fatalf("AddWithChatID() error = %v", err)
+	}
+	if addRes.Entry == nil {
+		t.Fatalf("AddWithChatID() missing entry")
+	}
+	if addRes.Entry.ChatID != "lark:oc_group123" {
+		t.Fatalf("chat_id mismatch: got %q want %q", addRes.Entry.ChatID, "lark:oc_group123")
+	}
+	if !strings.Contains(addRes.Entry.Content, "[John](lark_user:ou_123)") {
+		t.Fatalf("content mismatch: got %q", addRes.Entry.Content)
+	}
+}
+
 func TestStoreAddWithInvalidChatID(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"))

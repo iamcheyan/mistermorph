@@ -86,6 +86,21 @@ func TestParseLineChatIDHint(t *testing.T) {
 	}
 }
 
+func TestParseLarkChatIDHint(t *testing.T) {
+	chatID, hasHint, err := ParseLarkChatIDHint("lark:oc_group001")
+	if err != nil || !hasHint || chatID != "oc_group001" {
+		t.Fatalf("ParseLarkChatIDHint(valid) mismatch: chat_id=%q has_hint=%v err=%v", chatID, hasHint, err)
+	}
+	_, hasHint, err = ParseLarkChatIDHint("tg:1001")
+	if err != nil || hasHint {
+		t.Fatalf("ParseLarkChatIDHint(non lark) mismatch: has_hint=%v err=%v", hasHint, err)
+	}
+	_, hasHint, err = ParseLarkChatIDHint("lark:")
+	if err == nil || !hasHint {
+		t.Fatalf("ParseLarkChatIDHint(invalid lark) expected has_hint=true error")
+	}
+}
+
 func TestParseLineContactIDs(t *testing.T) {
 	chatID, ok := ParseLineChatContactID("line:C100")
 	if !ok || chatID != "C100" {
@@ -109,5 +124,25 @@ func TestParseLineContactIDs(t *testing.T) {
 	}
 	if LineIDLooksLikeUserID("C123") {
 		t.Fatalf("LineIDLooksLikeUserID expected false")
+	}
+}
+
+func TestParseLarkContactIDs(t *testing.T) {
+	chatID, ok := ParseLarkChatContactID("lark:oc_group001")
+	if !ok || chatID != "oc_group001" {
+		t.Fatalf("ParseLarkChatContactID(valid) mismatch: chat_id=%q ok=%v", chatID, ok)
+	}
+	openID, ok := ParseLarkUserContactID("lark_user:ou_123")
+	if !ok || openID != "ou_123" {
+		t.Fatalf("ParseLarkUserContactID(valid) mismatch: open_id=%q ok=%v", openID, ok)
+	}
+	if _, ok := ParseLarkChatContactID("lark:"); ok {
+		t.Fatalf("ParseLarkChatContactID(invalid) expected ok=false")
+	}
+	if _, ok := ParseLarkUserContactID("lark_user:"); ok {
+		t.Fatalf("ParseLarkUserContactID(invalid) expected ok=false")
+	}
+	if NormalizeLarkID("  ou_123 ") != "ou_123" {
+		t.Fatalf("NormalizeLarkID mismatch")
 	}
 }

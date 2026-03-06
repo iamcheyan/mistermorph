@@ -291,7 +291,7 @@ func contactNotFoundError(contactID string) error {
 	contactID = strings.TrimSpace(contactID)
 	if protocol, id, ok := refid.Parse(contactID); ok {
 		switch protocol {
-		case "tg", "slack", "line", "line_user":
+		case "tg", "slack", "line", "line_user", "lark", "lark_user":
 			return fmt.Errorf("contact not found: %s", contactID)
 		default:
 			return fmt.Errorf("hint: protocol '%q' is not mapped. Try to find other ways to send to '%s' in protocol/tool '%s'.", protocol, id, protocol)
@@ -336,6 +336,10 @@ func ResolveDecisionChannel(contact Contact, decision ShareDecision) (string, er
 		if hasLineTarget(contact) {
 			return ChannelLine, nil
 		}
+	case ChannelLark:
+		if hasLarkTarget(contact) {
+			return ChannelLark, nil
+		}
 	}
 	if hasSlackTarget(contact) {
 		return ChannelSlack, nil
@@ -345,6 +349,9 @@ func ResolveDecisionChannel(contact Contact, decision ShareDecision) (string, er
 	}
 	if hasLineTarget(contact) {
 		return ChannelLine, nil
+	}
+	if hasLarkTarget(contact) {
+		return ChannelLark, nil
 	}
 	return "", fmt.Errorf("unable to resolve delivery channel for contact_id=%s", contact.ContactID)
 }
@@ -489,6 +496,22 @@ func hasLineTarget(contact Contact) bool {
 	return ok && chatID != ""
 }
 
+func hasLarkTarget(contact Contact) bool {
+	if refid.NormalizeLarkID(contact.LarkOpenID) != "" {
+		return true
+	}
+	for _, raw := range contact.LarkChatIDs {
+		if refid.NormalizeLarkID(raw) != "" {
+			return true
+		}
+	}
+	if openID, ok := refid.ParseLarkUserContactID(contact.ContactID); ok && openID != "" {
+		return true
+	}
+	chatID, ok := refid.ParseLarkChatContactID(contact.ContactID)
+	return ok && chatID != ""
+}
+
 func deriveContactID(contact Contact) string {
 	if v := strings.TrimSpace(contact.ContactID); v != "" {
 		return v
@@ -533,6 +556,23 @@ func deriveContactID(contact Contact) string {
 			}
 		}
 	}
+	if openID := refid.NormalizeLarkID(contact.LarkOpenID); openID != "" {
+		return "lark_user:" + openID
+	}
+	for _, raw := range normalizeStringSlice(contact.LarkChatIDs) {
+		chatID := refid.NormalizeLarkID(raw)
+		if chatID != "" {
+			return "lark:" + chatID
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(contact.Channel), ChannelLark) {
+		for _, raw := range normalizeStringSlice(contact.LarkChatIDs) {
+			chatID := refid.NormalizeLarkID(raw)
+			if chatID != "" {
+				return "lark:" + chatID
+			}
+		}
+	}
 	if contact.Channel == ChannelTelegram {
 		ids := append([]int64(nil), contact.TGGroupChatIDs...)
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
@@ -565,6 +605,9 @@ func resolveChannelFromChatIDHint(chatID string) (string, bool, error) {
 		case "line":
 			_, _, err := refid.ParseLineChatIDHint(value)
 			return ChannelLine, true, err
+		case "lark":
+			_, _, err := refid.ParseLarkChatIDHint(value)
+			return ChannelLark, true, err
 		case "tg":
 			_, _, err := refid.ParseTelegramChatIDHint(value)
 			return ChannelTelegram, true, err

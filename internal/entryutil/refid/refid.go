@@ -107,8 +107,30 @@ func ParseLineChatIDHint(raw string) (string, bool, error) {
 	return chatID, true, nil
 }
 
+// ParseLarkChatIDHint parses "lark:<chat_id>" chat hints.
+// Empty input returns ("", false, nil).
+func ParseLarkChatIDHint(raw string) (string, bool, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", false, nil
+	}
+	if !strings.HasPrefix(strings.ToLower(value), "lark:") {
+		return "", false, nil
+	}
+	chatID := NormalizeLarkID(value[len("lark:"):])
+	if chatID == "" {
+		return "", true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+	}
+	return chatID, true, nil
+}
+
 // NormalizeLineID trims surrounding spaces.
 func NormalizeLineID(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+// NormalizeLarkID trims surrounding spaces.
+func NormalizeLarkID(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
@@ -119,6 +141,19 @@ func ParseLineChatContactID(raw string) (string, bool) {
 		return "", false
 	}
 	chatID := NormalizeLineID(value[len("line:"):])
+	if chatID == "" {
+		return "", false
+	}
+	return chatID, true
+}
+
+// ParseLarkChatContactID parses "lark:<chat_id>" contact IDs.
+func ParseLarkChatContactID(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(value), "lark:") {
+		return "", false
+	}
+	chatID := NormalizeLarkID(value[len("lark:"):])
 	if chatID == "" {
 		return "", false
 	}
@@ -136,6 +171,19 @@ func ParseLineUserContactID(raw string) (string, bool) {
 		return "", false
 	}
 	return userID, true
+}
+
+// ParseLarkUserContactID parses "lark_user:<open_id>" contact IDs.
+func ParseLarkUserContactID(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(value), "lark_user:") {
+		return "", false
+	}
+	openID := NormalizeLarkID(value[len("lark_user:"):])
+	if openID == "" {
+		return "", false
+	}
+	return openID, true
 }
 
 // LineIDLooksLikeUserID reports whether ID shape looks like a LINE user id.

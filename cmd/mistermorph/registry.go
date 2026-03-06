@@ -47,6 +47,9 @@ type registryConfig struct {
 	SlackBaseURL                  string
 	LineChannelAccessToken        string
 	LineBaseURL                   string
+	LarkAppID                     string
+	LarkAppSecret                 string
+	LarkBaseURL                   string
 	ContactsFailureCooldown       time.Duration
 }
 
@@ -122,6 +125,9 @@ func loadRegistryConfigFromViper() registryConfig {
 		SlackBaseURL:                  strings.TrimSpace(viper.GetString("slack.base_url")),
 		LineChannelAccessToken:        strings.TrimSpace(viper.GetString("line.channel_access_token")),
 		LineBaseURL:                   strings.TrimSpace(viper.GetString("line.base_url")),
+		LarkAppID:                     strings.TrimSpace(viper.GetString("lark.app_id")),
+		LarkAppSecret:                 strings.TrimSpace(viper.GetString("lark.app_secret")),
+		LarkBaseURL:                   strings.TrimSpace(viper.GetString("lark.base_url")),
 		ContactsFailureCooldown:       contactsFailureCooldownFromViper(),
 	}
 }
@@ -221,6 +227,9 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			SlackBaseURL:     strings.TrimSpace(cfg.SlackBaseURL),
 			LineChannelToken: strings.TrimSpace(cfg.LineChannelAccessToken),
 			LineBaseURL:      strings.TrimSpace(cfg.LineBaseURL),
+			LarkAppID:        strings.TrimSpace(cfg.LarkAppID),
+			LarkAppSecret:    strings.TrimSpace(cfg.LarkAppSecret),
+			LarkBaseURL:      strings.TrimSpace(cfg.LarkBaseURL),
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
 	}, nil)

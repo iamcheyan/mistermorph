@@ -47,6 +47,38 @@ func TestResolveDecisionChannel_LineUserContactIDFallback(t *testing.T) {
 	}
 }
 
+func TestResolveDecisionChannel_LarkChatHint(t *testing.T) {
+	channel, err := ResolveDecisionChannel(Contact{
+		ContactID: "tg:@alice",
+		Channel:   ChannelTelegram,
+	}, ShareDecision{
+		ChatID: "lark:oc_group001",
+	})
+	if err != nil {
+		t.Fatalf("ResolveDecisionChannel() error = %v", err)
+	}
+	if channel != ChannelLark {
+		t.Fatalf("channel mismatch: got %q want %q", channel, ChannelLark)
+	}
+}
+
+func TestResolveDecisionChannel_LarkTargetFallback(t *testing.T) {
+	channel, err := ResolveDecisionChannel(Contact{
+		ContactID:  "lark_user:ou_123",
+		Channel:    ChannelLark,
+		LarkOpenID: "ou_123",
+		LarkChatIDs: []string{
+			"oc_group001",
+		},
+	}, ShareDecision{})
+	if err != nil {
+		t.Fatalf("ResolveDecisionChannel() error = %v", err)
+	}
+	if channel != ChannelLark {
+		t.Fatalf("channel mismatch: got %q want %q", channel, ChannelLark)
+	}
+}
+
 func TestResolveDecisionChannel_InvalidProtocolHint(t *testing.T) {
 	_, err := ResolveDecisionChannel(Contact{
 		ContactID: "contact:test",

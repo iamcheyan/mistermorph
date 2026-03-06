@@ -1,8 +1,13 @@
 package contactsruntime
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,5 +101,128 @@ func TestResolveLineTargetWithChatIDHint(t *testing.T) {
 	}
 	if target.ChatID != "Cgroup001" {
 		t.Fatalf("ResolveLineTargetWithChatID() mismatch: target=%+v", target)
+	}
+}
+
+func TestResolveLarkTarget(t *testing.T) {
+	target, err := ResolveLarkTarget(contacts.Contact{
+		ContactID:  "lark_user:ou_001",
+		Channel:    contacts.ChannelLark,
+		LarkOpenID: "ou_001",
+		LarkChatIDs: []string{
+			"oc_group001",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveLarkTarget() error = %v", err)
+	}
+	if target.ReceiveIDType != "open_id" || target.ReceiveID != "ou_001" {
+		t.Fatalf("ResolveLarkTarget() mismatch: target=%+v", target)
+	}
+}
+
+func TestResolveLarkTargetWithChatIDHint(t *testing.T) {
+	target, err := ResolveLarkTargetWithChatID(contacts.Contact{
+		ContactID:  "lark_user:ou_001",
+		Channel:    contacts.ChannelLark,
+		LarkOpenID: "ou_001",
+		LarkChatIDs: []string{
+			"oc_group001",
+		},
+	}, "lark:oc_group001")
+	if err != nil {
+		t.Fatalf("ResolveLarkTargetWithChatID() error = %v", err)
+	}
+	if target.ReceiveIDType != "chat_id" || target.ReceiveID != "oc_group001" {
+		t.Fatalf("ResolveLarkTargetWithChatID() mismatch: target=%+v", target)
+	}
+}
+
+func TestRoutingSenderSendLarkDirect(t *testing.T) {
+	ctx := context.Background()
+
+	var tokenHits int32
+	var messageHits int32
+	var gotAuth string
+	var gotReceiveIDType string
+	var gotReceiveID string
+	var gotContent string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth/v3/tenant_access_token/internal":
+			atomic.AddInt32(&tokenHits, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"tenant_access_token":"tenant_token_1","expire":7200}`))
+		case r.URL.Path == "/im/v1/messages":
+			atomic.AddInt32(&messageHits, 1)
+			gotAuth = r.Header.Get("Authorization")
+			gotReceiveIDType = r.URL.Query().Get("receive_id_type")
+			var payload struct {
+				ReceiveID string `json:"receive_id"`
+				Content   string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			gotReceiveID = payload.ReceiveID
+			gotContent = payload.Content
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"message_id":"om_001"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	sender, err := NewRoutingSender(ctx, SenderOptions{
+		LarkAppID:     "cli_test",
+		LarkAppSecret: "secret_test",
+		LarkBaseURL:   server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRoutingSender() error = %v", err)
+	}
+	defer sender.Close()
+
+	contentType, payloadBase64 := testEnvelopePayload(t, "hello lark")
+	accepted, deduped, err := sender.Send(ctx, contacts.Contact{
+		ContactID:  "lark_user:ou_123",
+		Kind:       contacts.KindHuman,
+		Channel:    contacts.ChannelLark,
+		LarkOpenID: "ou_123",
+		LarkChatIDs: []string{
+			"oc_group001",
+		},
+	}, contacts.ShareDecision{
+		ContactID:      "lark_user:ou_123",
+		ItemID:         "cand_lark_1",
+		ContentType:    contentType,
+		PayloadBase64:  payloadBase64,
+		IdempotencyKey: "manual:lark:1",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if !accepted || deduped {
+		t.Fatalf("Send() accepted=%v deduped=%v, want true false", accepted, deduped)
+	}
+	if atomic.LoadInt32(&tokenHits) != 1 {
+		t.Fatalf("token hits = %d, want 1", atomic.LoadInt32(&tokenHits))
+	}
+	if atomic.LoadInt32(&messageHits) != 1 {
+		t.Fatalf("message hits = %d, want 1", atomic.LoadInt32(&messageHits))
+	}
+	if gotAuth != "Bearer tenant_token_1" {
+		t.Fatalf("authorization mismatch: got %q", gotAuth)
+	}
+	if gotReceiveIDType != "open_id" {
+		t.Fatalf("receive_id_type mismatch: got %q want open_id", gotReceiveIDType)
+	}
+	if gotReceiveID != "ou_123" {
+		t.Fatalf("receive_id mismatch: got %q want ou_123", gotReceiveID)
+	}
+	if !strings.Contains(gotContent, "hello lark") {
+		t.Fatalf("content mismatch: got %q", gotContent)
 	}
 }

@@ -351,6 +351,8 @@ type contactProfileSection struct {
 	TGGroupChatIDs    []string `yaml:"tg_group_chat_ids"`
 	LineUserID        string   `yaml:"line_user_id"`
 	LineChatIDs       []string `yaml:"line_chat_ids"`
+	LarkOpenID        string   `yaml:"lark_open_id"`
+	LarkChatIDs       []string `yaml:"lark_chat_ids"`
 	SlackTeamID       string   `yaml:"slack_team_id"`
 	SlackUserID       string   `yaml:"slack_user_id"`
 	SlackDMChannelID  string   `yaml:"slack_dm_channel_id"`
@@ -515,6 +517,8 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 		TGUsername:       normalizeTelegramUsername(profile.TGUsername),
 		LineUserID:       refid.NormalizeLineID(profile.LineUserID),
 		LineChatIDs:      normalizeStringSlice(profile.LineChatIDs),
+		LarkOpenID:       refid.NormalizeLarkID(profile.LarkOpenID),
+		LarkChatIDs:      normalizeStringSlice(profile.LarkChatIDs),
 		SlackTeamID:      normalizeSlackID(profile.SlackTeamID),
 		SlackUserID:      normalizeSlackID(profile.SlackUserID),
 		SlackDMChannelID: normalizeSlackID(profile.SlackDMChannelID),
@@ -554,7 +558,7 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 	case "":
 		channel := strings.ToLower(strings.TrimSpace(profile.Channel))
 		switch channel {
-		case "", ChannelTelegram, ChannelSlack, ChannelLine, "discord":
+		case "", ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
 			contact.Kind = KindHuman
 		default:
 			contact.Kind = KindAgent
@@ -599,6 +603,8 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		TGUsername:       normalizeTelegramUsername(contact.TGUsername),
 		LineUserID:       refid.NormalizeLineID(contact.LineUserID),
 		LineChatIDs:      normalizeStringSlice(contact.LineChatIDs),
+		LarkOpenID:       refid.NormalizeLarkID(contact.LarkOpenID),
+		LarkChatIDs:      normalizeStringSlice(contact.LarkChatIDs),
 		SlackTeamID:      normalizeSlackID(contact.SlackTeamID),
 		SlackUserID:      normalizeSlackID(contact.SlackUserID),
 		SlackDMChannelID: normalizeSlackID(contact.SlackDMChannelID),
@@ -613,6 +619,8 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 			profile.Channel = ChannelTelegram
 		case profile.LineUserID != "" || len(profile.LineChatIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "line:") || strings.HasPrefix(strings.ToLower(profile.ContactID), "line_user:"):
 			profile.Channel = ChannelLine
+		case profile.LarkOpenID != "" || len(profile.LarkChatIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "lark:") || strings.HasPrefix(strings.ToLower(profile.ContactID), "lark_user:"):
+			profile.Channel = ChannelLark
 		case profile.SlackTeamID != "" || profile.SlackUserID != "" || profile.SlackDMChannelID != "" || len(profile.SlackChannelIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "slack:"):
 			profile.Channel = ChannelSlack
 		default:
@@ -675,6 +683,16 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 	if len(profile.LineChatIDs) == 0 {
 		if chatID, ok := refid.ParseLineChatContactID(profile.ContactID); ok {
 			profile.LineChatIDs = []string{chatID}
+		}
+	}
+	if profile.LarkOpenID == "" {
+		if openID, ok := refid.ParseLarkUserContactID(profile.ContactID); ok {
+			profile.LarkOpenID = openID
+		}
+	}
+	if len(profile.LarkChatIDs) == 0 {
+		if chatID, ok := refid.ParseLarkChatContactID(profile.ContactID); ok {
+			profile.LarkChatIDs = []string{chatID}
 		}
 	}
 	if contact.CooldownUntil != nil && !contact.CooldownUntil.IsZero() {
@@ -938,6 +956,12 @@ func normalizeContact(c Contact, now time.Time) Contact {
 		c.LineChatIDs[i] = refid.NormalizeLineID(c.LineChatIDs[i])
 	}
 	c.LineChatIDs = normalizeStringSlice(c.LineChatIDs)
+	c.LarkOpenID = refid.NormalizeLarkID(c.LarkOpenID)
+	c.LarkChatIDs = normalizeStringSlice(c.LarkChatIDs)
+	for i := range c.LarkChatIDs {
+		c.LarkChatIDs[i] = refid.NormalizeLarkID(c.LarkChatIDs[i])
+	}
+	c.LarkChatIDs = normalizeStringSlice(c.LarkChatIDs)
 	c.SlackTeamID = normalizeSlackID(c.SlackTeamID)
 	c.SlackUserID = normalizeSlackID(c.SlackUserID)
 	c.SlackDMChannelID = normalizeSlackID(c.SlackDMChannelID)
@@ -951,6 +975,9 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	c.TGGroupChatIDs = normalizeInt64Slice(c.TGGroupChatIDs)
 	if len(c.LineChatIDs) == 0 {
 		c.LineChatIDs = nil
+	}
+	if len(c.LarkChatIDs) == 0 {
+		c.LarkChatIDs = nil
 	}
 	if len(c.SlackChannelIDs) == 0 {
 		c.SlackChannelIDs = nil
@@ -993,6 +1020,8 @@ func normalizeContact(c Contact, now time.Time) Contact {
 			c.Channel = ChannelTelegram
 		case strings.HasPrefix(strings.ToLower(c.ContactID), "line:"), strings.HasPrefix(strings.ToLower(c.ContactID), "line_user:"), c.LineUserID != "", len(c.LineChatIDs) > 0:
 			c.Channel = ChannelLine
+		case strings.HasPrefix(strings.ToLower(c.ContactID), "lark:"), strings.HasPrefix(strings.ToLower(c.ContactID), "lark_user:"), c.LarkOpenID != "", len(c.LarkChatIDs) > 0:
+			c.Channel = ChannelLark
 		case strings.HasPrefix(strings.ToLower(c.ContactID), "slack:"), c.SlackTeamID != "", c.SlackUserID != "", c.SlackDMChannelID != "", len(c.SlackChannelIDs) > 0:
 			c.Channel = ChannelSlack
 		}
@@ -1040,6 +1069,16 @@ func normalizeContact(c Contact, now time.Time) Contact {
 			}
 		}
 	}
+	if strings.HasPrefix(strings.ToLower(c.ContactID), "lark_user:") && c.LarkOpenID == "" {
+		if openID, ok := refid.ParseLarkUserContactID(c.ContactID); ok {
+			c.LarkOpenID = openID
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(c.ContactID), "lark:") {
+		if chatID, ok := refid.ParseLarkChatContactID(c.ContactID); ok {
+			c.LarkChatIDs = normalizeStringSlice(append(c.LarkChatIDs, chatID))
+		}
+	}
 
 	if c.TGUsername == "" && c.TGPrivateChatID == 0 && len(c.TGGroupChatIDs) == 0 && c.Channel == ChannelTelegram {
 		if alias := extractTelegramAlias(c.ContactID); alias != "" {
@@ -1056,7 +1095,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 func normalizeContactChannel(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case ChannelTelegram, ChannelSlack, ChannelLine, "discord":
+	case ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
 		return value
 	default:
 		return ""

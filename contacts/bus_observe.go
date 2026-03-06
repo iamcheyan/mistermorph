@@ -23,6 +23,8 @@ type observedContactCandidate struct {
 	TelegramIsSender    bool
 	LineUserID          string
 	LineChatIDs         []string
+	LarkOpenID          string
+	LarkChatIDs         []string
 	SlackTeamID         string
 	SlackUserID         string
 	SlackDMChannelID    string
@@ -50,6 +52,8 @@ func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.B
 		return s.observeSlackInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelLine:
 		return s.observeLineInboundBusMessage(ctx, msg, now)
+	case busruntime.ChannelLark:
+		return s.observeLarkInboundBusMessage(ctx, msg, now)
 	default:
 		return nil
 	}
@@ -206,6 +210,49 @@ func (s *Service) observeLineInboundBusMessage(ctx context.Context, msg busrunti
 	return s.applyObservedCandidates(ctx, candidates, now)
 }
 
+func (s *Service) observeLarkInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+	chatID, err := larkChatIDFromConversationKey(msg.ConversationKey)
+	if err != nil {
+		return err
+	}
+	fromOpenID := refid.NormalizeLarkID(msg.Extensions.FromUserRef)
+	if fromOpenID == "" {
+		fromOpenID = refid.NormalizeLarkID(msg.ParticipantKey)
+	}
+	nickname := strings.TrimSpace(msg.Extensions.FromDisplayName)
+	if nickname == "" {
+		nickname = strings.TrimSpace(msg.Extensions.FromUsername)
+	}
+
+	candidates := make([]observedContactCandidate, 0, len(msg.Extensions.MentionUsers)+1)
+	if senderContactID := larkContactIDFromUser(fromOpenID); senderContactID != "" {
+		candidates = append(candidates, observedContactCandidate{
+			PrimaryContactID: senderContactID,
+			Kind:             KindHuman,
+			Channel:          ChannelLark,
+			Nickname:         nickname,
+			LarkOpenID:       fromOpenID,
+			LarkChatIDs:      []string{chatID},
+		})
+	}
+
+	for _, rawMention := range msg.Extensions.MentionUsers {
+		openID := refid.NormalizeLarkID(rawMention)
+		if openID == "" {
+			continue
+		}
+		candidates = append(candidates, observedContactCandidate{
+			PrimaryContactID: larkContactIDFromUser(openID),
+			Kind:             KindHuman,
+			Channel:          ChannelLark,
+			LarkOpenID:       openID,
+			LarkChatIDs:      []string{chatID},
+		})
+	}
+
+	return s.applyObservedCandidates(ctx, candidates, now)
+}
+
 func slackContactIDFromUser(teamID, userID string) string {
 	teamID = normalizeSlackID(teamID)
 	userID = normalizeSlackID(userID)
@@ -232,6 +279,14 @@ func lineContactIDFromUser(userID string) string {
 		return ""
 	}
 	return "line_user:" + userID
+}
+
+func larkContactIDFromUser(openID string) string {
+	openID = refid.NormalizeLarkID(openID)
+	if openID == "" {
+		return ""
+	}
+	return "lark_user:" + openID
 }
 
 func telegramChatIDFromConversationKey(conversationKey string) (int64, error) {
@@ -306,6 +361,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		}
 		applyObservedTelegramMerge(&existing, candidate)
 		applyObservedLineMerge(&existing, candidate)
+		applyObservedLarkMerge(&existing, candidate)
 		applyObservedSlackMerge(&existing, candidate)
 		existing.LastInteractionAt = &lastInteraction
 		_, err := s.UpsertContact(ctx, existing, now)
@@ -320,6 +376,8 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		TGUsername:        normalizeTelegramUsername(candidate.TGUsername),
 		LineUserID:        refid.NormalizeLineID(candidate.LineUserID),
 		LineChatIDs:       normalizeStringSlice(candidate.LineChatIDs),
+		LarkOpenID:        refid.NormalizeLarkID(candidate.LarkOpenID),
+		LarkChatIDs:       normalizeStringSlice(candidate.LarkChatIDs),
 		SlackTeamID:       normalizeSlackID(candidate.SlackTeamID),
 		SlackUserID:       normalizeSlackID(candidate.SlackUserID),
 		SlackDMChannelID:  normalizeSlackID(candidate.SlackDMChannelID),
@@ -328,6 +386,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 	}
 	applyObservedTelegramMerge(&contact, candidate)
 	applyObservedLineMerge(&contact, candidate)
+	applyObservedLarkMerge(&contact, candidate)
 	applyObservedSlackMerge(&contact, candidate)
 	_, err = s.UpsertContact(ctx, contact, now)
 	return err
@@ -417,6 +476,25 @@ func applyObservedLineMerge(contact *Contact, candidate observedContactCandidate
 	}
 }
 
+func applyObservedLarkMerge(contact *Contact, candidate observedContactCandidate) {
+	if contact == nil {
+		return
+	}
+	openID := refid.NormalizeLarkID(candidate.LarkOpenID)
+	if openID != "" && strings.TrimSpace(contact.LarkOpenID) == "" {
+		contact.LarkOpenID = openID
+	}
+	if len(candidate.LarkChatIDs) > 0 {
+		contact.LarkChatIDs = mergeLarkChatIDs(contact.LarkChatIDs, candidate.LarkChatIDs...)
+	}
+	if strings.TrimSpace(contact.ContactID) == "" && openID != "" {
+		contact.ContactID = "lark_user:" + openID
+	}
+	if strings.TrimSpace(contact.ContactID) == "" && len(contact.LarkChatIDs) > 0 {
+		contact.ContactID = "lark:" + contact.LarkChatIDs[0]
+	}
+}
+
 func mergeObservedTGGroupChatIDs(base []int64, chatID int64) []int64 {
 	if chatID == 0 {
 		return normalizeInt64Slice(base)
@@ -440,6 +518,15 @@ func mergeLineChatIDs(base []string, chatIDs ...string) []string {
 	out = append(out, chatIDs...)
 	for i := range out {
 		out[i] = refid.NormalizeLineID(out[i])
+	}
+	return normalizeStringSlice(out)
+}
+
+func mergeLarkChatIDs(base []string, chatIDs ...string) []string {
+	out := append([]string(nil), base...)
+	out = append(out, chatIDs...)
+	for i := range out {
+		out[i] = refid.NormalizeLarkID(out[i])
 	}
 	return normalizeStringSlice(out)
 }
@@ -486,6 +573,19 @@ func lineChatIDFromConversationKey(conversationKey string) (string, error) {
 	chatID := refid.NormalizeLineID(key[len(prefix):])
 	if chatID == "" {
 		return "", fmt.Errorf("line chat id is required")
+	}
+	return chatID, nil
+}
+
+func larkChatIDFromConversationKey(conversationKey string) (string, error) {
+	const prefix = "lark:"
+	key := strings.TrimSpace(conversationKey)
+	if !strings.HasPrefix(strings.ToLower(key), prefix) {
+		return "", fmt.Errorf("lark conversation key is invalid")
+	}
+	chatID := refid.NormalizeLarkID(key[len(prefix):])
+	if chatID == "" {
+		return "", fmt.Errorf("lark chat id is required")
 	}
 	return chatID, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/contactscmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/daemoncmd"
+	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/linecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/runcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/skillscmd"
@@ -140,6 +141,8 @@ func newRootCmd() *cobra.Command {
 	slackSkills := newSkillsRuntimeResolver()
 	lineLLM := newLLMRuntimeResolver()
 	lineSkills := newSkillsRuntimeResolver()
+	larkLLM := newLLMRuntimeResolver()
+	larkSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
 		Logger:     logutil.LoggerFromViper,
@@ -195,6 +198,38 @@ func newRootCmd() *cobra.Command {
 		Guard:    guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := lineSkills.Config()
+			if len(stickySkills) > 0 {
+				cfg.Requested = append(cfg.Requested, stickySkills...)
+			}
+			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		},
+		BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
+		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+		},
+	}))
+	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
+		Logger:     logutil.LoggerFromViper,
+		LogOptions: logutil.LogOptionsFromViper,
+		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
+			return larkLLM.CreateClient(provider, endpoint, apiKey, model, timeout)
+		},
+		LLMProvider: func() string {
+			return larkLLM.Provider()
+		},
+		LLMEndpointForProvider: func(provider string) string {
+			return larkLLM.EndpointForProvider(provider)
+		},
+		LLMAPIKeyForProvider: func(provider string) string {
+			return larkLLM.APIKeyForProvider(provider)
+		},
+		LLMModelForProvider: func(provider string) string {
+			return larkLLM.ModelForProvider(provider)
+		},
+		Registry: registryResolver.Registry,
+		Guard:    guardResolver.Guard,
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+			cfg := larkSkills.Config()
 			if len(stickySkills) > 0 {
 				cfg.Requested = append(cfg.Requested, stickySkills...)
 			}

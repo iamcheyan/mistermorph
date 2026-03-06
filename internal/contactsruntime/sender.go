@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,12 +23,14 @@ import (
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
+	larkapi "github.com/quailyquaily/mistermorph/internal/larkapi"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 )
 
 const defaultTelegramBaseURL = "https://api.telegram.org"
 const defaultSlackBaseURL = "https://slack.com/api"
 const defaultLineBaseURL = "https://api.line.me"
+const defaultLarkBaseURL = "https://open.feishu.cn/open-apis"
 
 type SenderOptions struct {
 	TelegramBotToken string
@@ -36,6 +39,9 @@ type SenderOptions struct {
 	SlackBaseURL     string
 	LineChannelToken string
 	LineBaseURL      string
+	LarkAppID        string
+	LarkAppSecret    string
+	LarkBaseURL      string
 	BusMaxInFlight   int
 	Logger           *slog.Logger
 }
@@ -47,11 +53,14 @@ type RoutingSender struct {
 	lineDelivery     *linebus.DeliveryAdapter
 	telegramClient   *http.Client
 	lineClient       *http.Client
+	larkClient       *http.Client
 	slackPoster      *slackclient.Client
 	telegramBaseURL  string
 	telegramBotToken string
 	lineBaseURL      string
 	lineToken        string
+	larkBaseURL      string
+	larkTokenClient  *larkapi.TenantTokenClient
 	logger           *slog.Logger
 	pendingMu        sync.Mutex
 	pending          map[string]chan deliveryResult
@@ -62,6 +71,29 @@ type deliveryResult struct {
 	accepted bool
 	deduped  bool
 	err      error
+}
+
+type larkSendTarget struct {
+	ReceiveIDType string
+	ReceiveID     string
+}
+
+type larkSendMessageRequest struct {
+	ReceiveID string `json:"receive_id"`
+	MsgType   string `json:"msg_type"`
+	Content   string `json:"content"`
+	UUID      string `json:"uuid,omitempty"`
+}
+
+type larkReplyMessageRequest struct {
+	Content string `json:"content"`
+	MsgType string `json:"msg_type"`
+	UUID    string `json:"uuid,omitempty"`
+}
+
+type larkMessageResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
 }
 
 func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, error) {
@@ -86,6 +118,10 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	if lineBaseURL == "" {
 		lineBaseURL = defaultLineBaseURL
 	}
+	larkBaseURL := strings.TrimSpace(opts.LarkBaseURL)
+	if larkBaseURL == "" {
+		larkBaseURL = defaultLarkBaseURL
+	}
 
 	maxInFlight := opts.BusMaxInFlight
 	if maxInFlight <= 0 {
@@ -104,14 +140,17 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 		bus:              inprocBus,
 		telegramClient:   &http.Client{Timeout: 30 * time.Second},
 		lineClient:       &http.Client{Timeout: 30 * time.Second},
+		larkClient:       &http.Client{Timeout: 30 * time.Second},
 		telegramBaseURL:  baseURL,
 		telegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
 		lineBaseURL:      lineBaseURL,
 		lineToken:        strings.TrimSpace(opts.LineChannelToken),
+		larkBaseURL:      larkBaseURL,
 		slackPoster:      slackclient.New(&http.Client{Timeout: 30 * time.Second}, slackBaseURL, strings.TrimSpace(opts.SlackBotToken)),
 		logger:           logger,
 		pending:          make(map[string]chan deliveryResult),
 	}
+	sender.larkTokenClient = larkapi.NewTenantTokenClient(sender.larkClient, larkBaseURL, strings.TrimSpace(opts.LarkAppID), strings.TrimSpace(opts.LarkAppSecret))
 	sender.telegramDelivery, err = telegrambus.NewDeliveryAdapter(telegrambus.DeliveryAdapterOptions{
 		SendText: sender.sendTelegramTarget,
 	})
@@ -229,6 +268,12 @@ func (s *RoutingSender) Send(ctx context.Context, contact contacts.Contact, deci
 			return false, false, resolveErr
 		}
 		return s.publishLine(ctx, target, decision)
+	case contacts.ChannelLark:
+		target, resolveErr := ResolveLarkTargetWithChatID(contact, decision.ChatID)
+		if resolveErr != nil {
+			return false, false, resolveErr
+		}
+		return s.publishLark(ctx, target, decision)
 	default:
 		return false, false, fmt.Errorf("unsupported delivery channel: %s", channel)
 	}
@@ -341,6 +386,34 @@ func (s *RoutingSender) publishLine(ctx context.Context, target any, decision co
 		},
 	}
 	return s.publishAndAwait(ctx, msg)
+}
+
+func (s *RoutingSender) publishLark(ctx context.Context, target larkSendTarget, decision contacts.ShareDecision) (bool, bool, error) {
+	if s == nil {
+		return false, false, fmt.Errorf("sender is required")
+	}
+	if ctx == nil {
+		return false, false, fmt.Errorf("context is required")
+	}
+	idempotencyKey := strings.TrimSpace(decision.IdempotencyKey)
+	if idempotencyKey == "" {
+		return false, false, fmt.Errorf("idempotency_key is required")
+	}
+	payloadRaw, err := buildEnvelopePayload(decision, decision.ContentType, decision.PayloadBase64, time.Now().UTC())
+	if err != nil {
+		return false, false, err
+	}
+	var env busruntime.MessageEnvelope
+	if err := json.Unmarshal(payloadRaw, &env); err != nil {
+		return false, false, fmt.Errorf("decode lark envelope: %w", err)
+	}
+	if err := env.Validate(contacts.ShareTopic); err != nil {
+		return false, false, err
+	}
+	if err := s.sendLarkTarget(ctx, target, env); err != nil {
+		return false, false, err
+	}
+	return true, false, nil
 }
 
 func (s *RoutingSender) publishAndAwait(ctx context.Context, msg busruntime.BusMessage) (bool, bool, error) {
@@ -607,6 +680,58 @@ func normalizeLineSendTarget(target any) (linebus.DeliveryTarget, error) {
 	}
 }
 
+func normalizeLarkSendTarget(target any) (larkSendTarget, error) {
+	switch value := target.(type) {
+	case larkSendTarget:
+		receiveIDType := strings.TrimSpace(value.ReceiveIDType)
+		receiveID := strings.TrimSpace(value.ReceiveID)
+		if receiveIDType == "" || receiveID == "" {
+			return larkSendTarget{}, fmt.Errorf("lark receive_id_type and receive_id are required")
+		}
+		return larkSendTarget{
+			ReceiveIDType: receiveIDType,
+			ReceiveID:     receiveID,
+		}, nil
+	default:
+		return larkSendTarget{}, fmt.Errorf("unsupported lark target type: %T", target)
+	}
+}
+
+func (s *RoutingSender) sendLarkTarget(ctx context.Context, target larkSendTarget, env busruntime.MessageEnvelope) error {
+	if s == nil {
+		return fmt.Errorf("sender is required")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is required")
+	}
+	if s.larkClient == nil || s.larkTokenClient == nil {
+		return fmt.Errorf("lark sender is not configured")
+	}
+	resolvedTarget, err := normalizeLarkSendTarget(target)
+	if err != nil {
+		return err
+	}
+	text := strings.TrimSpace(env.Text)
+	if text == "" {
+		return fmt.Errorf("lark text is required")
+	}
+	replyTo := strings.TrimSpace(env.ReplyTo)
+	if replyTo != "" {
+		replyErr := s.larkReplyText(ctx, replyTo, text)
+		if replyErr == nil {
+			return nil
+		}
+		if resolvedTarget.ReceiveIDType != "chat_id" {
+			return replyErr
+		}
+		if sendErr := s.larkSendText(ctx, resolvedTarget.ReceiveIDType, resolvedTarget.ReceiveID, text); sendErr != nil {
+			return fmt.Errorf("lark reply failed: %v; fallback send failed: %w", replyErr, sendErr)
+		}
+		return nil
+	}
+	return s.larkSendText(ctx, resolvedTarget.ReceiveIDType, resolvedTarget.ReceiveID, text)
+}
+
 func (s *RoutingSender) sendTelegramTarget(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
 	if s == nil {
 		return fmt.Errorf("sender is required")
@@ -778,6 +903,82 @@ func (s *RoutingSender) sendLineTarget(ctx context.Context, target any, text str
 	return nil
 }
 
+func (s *RoutingSender) larkSendText(ctx context.Context, receiveIDType, receiveID, text string) error {
+	contentRaw, err := json.Marshal(map[string]string{"text": strings.TrimSpace(text)})
+	if err != nil {
+		return fmt.Errorf("marshal lark content: %w", err)
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(s.larkBaseURL), "/") + "/im/v1/messages?receive_id_type=" + url.QueryEscape(strings.TrimSpace(receiveIDType))
+	return s.larkPostJSON(ctx, endpoint, larkSendMessageRequest{
+		ReceiveID: strings.TrimSpace(receiveID),
+		MsgType:   "text",
+		Content:   string(contentRaw),
+		UUID:      uuid.NewString(),
+	})
+}
+
+func (s *RoutingSender) larkReplyText(ctx context.Context, messageID, text string) error {
+	contentRaw, err := json.Marshal(map[string]string{"text": strings.TrimSpace(text)})
+	if err != nil {
+		return fmt.Errorf("marshal lark content: %w", err)
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(s.larkBaseURL), "/") + "/im/v1/messages/" + url.PathEscape(strings.TrimSpace(messageID)) + "/reply"
+	return s.larkPostJSON(ctx, endpoint, larkReplyMessageRequest{
+		Content: string(contentRaw),
+		MsgType: "text",
+		UUID:    uuid.NewString(),
+	})
+}
+
+func (s *RoutingSender) larkPostJSON(ctx context.Context, endpoint string, payload any) error {
+	if s == nil {
+		return fmt.Errorf("sender is required")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is required")
+	}
+	if s.larkClient == nil || s.larkTokenClient == nil {
+		return fmt.Errorf("lark sender is not configured")
+	}
+	bodyRaw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	token, err := s.larkTokenClient.Token(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyRaw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.larkClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respRaw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("lark http %d: %s", resp.StatusCode, strings.TrimSpace(string(respRaw)))
+	}
+	var out larkMessageResponse
+	if err := json.Unmarshal(respRaw, &out); err != nil {
+		return fmt.Errorf("decode lark response: %w", err)
+	}
+	if out.Code != 0 {
+		return fmt.Errorf("lark api code %d: %s", out.Code, strings.TrimSpace(out.Msg))
+	}
+	return nil
+}
+
 func ResolveTelegramTarget(contact contacts.Contact) (any, string, error) {
 	if chatID, chatType, ok := preferredChat(contact); ok {
 		return chatID, chatType, nil
@@ -861,6 +1062,57 @@ func ResolveLineTargetWithChatID(contact contacts.Contact, chatIDHint string) (l
 		return linebus.DeliveryTarget{}, fmt.Errorf("line chat_id %q not found in line_chat_ids and no line_user_id fallback", chatID)
 	}
 	return ResolveLineTarget(contact)
+}
+
+func ResolveLarkTarget(contact contacts.Contact) (larkSendTarget, error) {
+	if openID := refid.NormalizeLarkID(contact.LarkOpenID); openID != "" {
+		return larkSendTarget{ReceiveIDType: "open_id", ReceiveID: openID}, nil
+	}
+	chatIDs := append([]string(nil), contact.LarkChatIDs...)
+	sort.Slice(chatIDs, func(i, j int) bool { return chatIDs[i] < chatIDs[j] })
+	for _, raw := range chatIDs {
+		chatID := refid.NormalizeLarkID(raw)
+		if chatID == "" {
+			continue
+		}
+		return larkSendTarget{ReceiveIDType: "chat_id", ReceiveID: chatID}, nil
+	}
+	if openID, ok := refid.ParseLarkUserContactID(contact.ContactID); ok {
+		return larkSendTarget{ReceiveIDType: "open_id", ReceiveID: openID}, nil
+	}
+	if chatID, ok := refid.ParseLarkChatContactID(contact.ContactID); ok {
+		return larkSendTarget{ReceiveIDType: "chat_id", ReceiveID: chatID}, nil
+	}
+	return larkSendTarget{}, fmt.Errorf("lark target not found in lark_open_id/lark_chat_ids/contact_id")
+}
+
+func ResolveLarkTargetWithChatID(contact contacts.Contact, chatIDHint string) (larkSendTarget, error) {
+	chatID, hasHint, err := refid.ParseLarkChatIDHint(chatIDHint)
+	if err != nil {
+		return larkSendTarget{}, err
+	}
+	if hasHint {
+		chatID = refid.NormalizeLarkID(chatID)
+		if chatID == "" {
+			return larkSendTarget{}, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(chatIDHint))
+		}
+		for _, raw := range contact.LarkChatIDs {
+			if strings.EqualFold(refid.NormalizeLarkID(raw), chatID) {
+				return larkSendTarget{ReceiveIDType: "chat_id", ReceiveID: chatID}, nil
+			}
+		}
+		if contactChatID, ok := refid.ParseLarkChatContactID(contact.ContactID); ok && strings.EqualFold(contactChatID, chatID) {
+			return larkSendTarget{ReceiveIDType: "chat_id", ReceiveID: chatID}, nil
+		}
+		if openID := refid.NormalizeLarkID(contact.LarkOpenID); openID != "" {
+			return larkSendTarget{ReceiveIDType: "open_id", ReceiveID: openID}, nil
+		}
+		if openID, ok := refid.ParseLarkUserContactID(contact.ContactID); ok {
+			return larkSendTarget{ReceiveIDType: "open_id", ReceiveID: openID}, nil
+		}
+		return larkSendTarget{}, fmt.Errorf("lark chat_id %q not found in lark_chat_ids and no lark_open_id fallback", chatID)
+	}
+	return ResolveLarkTarget(contact)
 }
 
 func ResolveSlackTarget(contact contacts.Contact) (slackbus.DeliveryTarget, string, error) {

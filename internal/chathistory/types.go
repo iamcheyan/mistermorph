@@ -6,6 +6,7 @@ const (
 	ChannelTelegram = "telegram"
 	ChannelSlack    = "slack"
 	ChannelLine     = "line"
+	ChannelLark     = "lark"
 
 	KindInboundUser      = "inbound_user"
 	KindInboundReaction  = "inbound_reaction"
