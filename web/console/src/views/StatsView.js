@@ -11,32 +11,22 @@ function formatNumber(value) {
   return Math.trunc(n).toLocaleString();
 }
 
-function formatCost(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n) || n <= 0) {
-    return "$0.00";
-  }
-  return `$${n.toFixed(n >= 100 ? 0 : n >= 10 ? 2 : 4)}`;
-}
-
 function metricItems(t, totals) {
   return [
     { label: t("stats_requests"), value: formatNumber(totals.requests) },
     { label: t("stats_total_tokens"), value: formatNumber(totals.total_tokens) },
     { label: t("stats_input_tokens"), value: formatNumber(totals.input_tokens) },
     { label: t("stats_output_tokens"), value: formatNumber(totals.output_tokens) },
-    { label: t("stats_cost_usd"), value: formatCost(totals.cost_usd) },
   ];
 }
 
 function sumModelTotals(models) {
-  const totals = { requests: 0, total_tokens: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+  const totals = { requests: 0, total_tokens: 0, input_tokens: 0, output_tokens: 0 };
   for (const item of Array.isArray(models) ? models : []) {
     totals.requests += Number(item.requests || 0);
     totals.total_tokens += Number(item.total_tokens || 0);
     totals.input_tokens += Number(item.input_tokens || 0);
     totals.output_tokens += Number(item.output_tokens || 0);
-    totals.cost_usd += Number(item.cost_usd || 0);
   }
   return totals;
 }
@@ -239,7 +229,6 @@ const StatsView = {
             <div v-for="host in visibleHosts" :key="host.api_host" class="stats-card">
               <div class="stats-card-head">
                 <h4 class="stats-card-title">{{ host.api_host }}</h4>
-                <span class="muted">{{ t("stats_requests") }}: {{ formatNumber(host.requests) }}</span>
               </div>
               <div class="stats-metric-grid">
                 <div v-for="item in sectionMetrics(host)" :key="host.api_host + ':' + item.label" class="stats-metric">

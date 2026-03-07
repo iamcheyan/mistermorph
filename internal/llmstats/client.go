@@ -88,7 +88,6 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		InputTokens:   int64(res.Usage.InputTokens),
 		OutputTokens:  int64(res.Usage.OutputTokens),
 		TotalTokens:   int64(res.Usage.TotalTokens),
-		CostUSD:       res.Usage.Cost,
 		DurationMs:    durationMillis(res.Duration, c.now().Sub(start)),
 	})
 	if _, recErr := c.Journal.Append(rec); recErr != nil && c.Logger != nil {

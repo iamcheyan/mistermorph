@@ -21,7 +21,6 @@ func (stubUsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, e
 			InputTokens:  11,
 			OutputTokens: 7,
 			TotalTokens:  18,
-			Cost:         0.1234,
 		},
 		Duration: 250 * time.Millisecond,
 	}, nil

@@ -31,7 +31,6 @@ type RequestRecord struct {
 	InputTokens   int64   `json:"input_tokens"`
 	OutputTokens  int64   `json:"output_tokens"`
 	TotalTokens   int64   `json:"total_tokens"`
-	CostUSD       float64 `json:"cost_usd,omitempty"`
 	DurationMs    int64   `json:"duration_ms,omitempty"`
 }
 
@@ -40,7 +39,6 @@ type Totals struct {
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
 	TotalTokens  int64   `json:"total_tokens"`
-	CostUSD      float64 `json:"cost_usd,omitempty"`
 }
 
 type ModelSummary struct {
@@ -72,9 +70,6 @@ func (t *Totals) AddRecord(rec RequestRecord) {
 	t.InputTokens += nonNegative(rec.InputTokens)
 	t.OutputTokens += nonNegative(rec.OutputTokens)
 	t.TotalTokens += nonNegative(rec.TotalTokens)
-	if rec.CostUSD > 0 {
-		t.CostUSD += rec.CostUSD
-	}
 }
 
 func normalizeRequestRecord(rec RequestRecord) RequestRecord {
@@ -94,9 +89,6 @@ func normalizeRequestRecord(rec RequestRecord) RequestRecord {
 	rec.TotalTokens = nonNegative(rec.TotalTokens)
 	if rec.TotalTokens == 0 {
 		rec.TotalTokens = rec.InputTokens + rec.OutputTokens
-	}
-	if rec.CostUSD < 0 {
-		rec.CostUSD = 0
 	}
 	if rec.DurationMs < 0 {
 		rec.DurationMs = 0

@@ -57,7 +57,7 @@ Implication:
    - model
 
 6. Do not turn this into billing infrastructure.
-   Cost can be recorded when available, but pricing reconciliation is out of scope.
+   V1 tracks token usage only. Pricing reconciliation is out of scope.
 
 7. Do not rescan the whole raw journal on every stats request.
    Query paths should use a checkpointed projection and replay only the unprojected tail.
@@ -155,7 +155,6 @@ Proposed V1 record shape:
   "input_tokens": 123,
   "output_tokens": 45,
   "total_tokens": 168,
-  "cost_usd": 0,
   "duration_ms": 1840
 }
 ```
@@ -188,8 +187,6 @@ Field notes:
   - fallback to `unknown`
 - `input_tokens`, `output_tokens`, `total_tokens`
   - copied from `llm.Result.Usage`
-- `cost_usd`
-  - copied when available, otherwise `0`
 - `duration_ms`
   - request wall-clock duration
 
@@ -313,8 +310,7 @@ Proposed response shape:
     "requests": 120,
     "input_tokens": 120000,
     "output_tokens": 34000,
-    "total_tokens": 154000,
-    "cost_usd": 0
+    "total_tokens": 154000
   },
   "api_hosts": [
     {
@@ -323,23 +319,20 @@ Proposed response shape:
       "input_tokens": 80000,
       "output_tokens": 22000,
       "total_tokens": 102000,
-      "cost_usd": 0,
       "models": [
         {
           "model": "gpt-5.2",
           "requests": 50,
           "input_tokens": 54000,
           "output_tokens": 15000,
-          "total_tokens": 69000,
-          "cost_usd": 0
+          "total_tokens": 69000
         },
         {
           "model": "gpt-4.1",
           "requests": 30,
           "input_tokens": 26000,
           "output_tokens": 7000,
-          "total_tokens": 33000,
-          "cost_usd": 0
+          "total_tokens": 33000
         }
       ]
     }
@@ -350,8 +343,7 @@ Proposed response shape:
       "requests": 70,
       "input_tokens": 70000,
       "output_tokens": 19000,
-      "total_tokens": 89000,
-      "cost_usd": 0
+      "total_tokens": 89000
     }
   ]
 }

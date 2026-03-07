@@ -3,10 +3,6 @@
   gap: 12px;
 }
 
-.stats-card {
-  padding: 12px;
-}
-
 .stats-card-head {
   display: flex;
   align-items: baseline;
