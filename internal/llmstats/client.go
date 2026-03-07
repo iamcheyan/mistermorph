@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -48,6 +49,16 @@ func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
 		Logger:       opts.Logger,
 		now:          time.Now,
 	}
+}
+
+func WrapRuntimeClient(base llm.Client, provider, apiBase, defaultModel string, logger *slog.Logger) llm.Client {
+	return WrapClient(base, ClientOptions{
+		Provider:     provider,
+		APIBase:      apiBase,
+		DefaultModel: defaultModel,
+		JournalDir:   statepaths.LLMUsageJournalDir(),
+		Logger:       logger,
+	})
 }
 
 func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {

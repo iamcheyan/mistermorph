@@ -42,11 +42,6 @@ type Journal struct {
 	fileLine int64
 }
 
-type JournalRecord struct {
-	Offset Offset        `json:"offset"`
-	Record RequestRecord `json:"record"`
-}
-
 type journalSegmentFile struct {
 	Key        string
 	ActualName string

@@ -112,13 +112,7 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
-			client := llmstats.WrapClient(baseClient, llmstats.ClientOptions{
-				Provider:     provider,
-				APIBase:      endpoint,
-				DefaultModel: model,
-				JournalDir:   statepaths.LLMUsageJournalDir(),
-				Logger:       logger,
-			})
+			client := llmstats.WrapRuntimeClient(baseClient, provider, endpoint, model, logger)
 
 			logOpts := logutil.LogOptionsFromViper()
 

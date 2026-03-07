@@ -73,13 +73,13 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := llmstats.WrapClient(baseClient, llmstats.ClientOptions{
-				Provider:     provider,
-				APIBase:      llmutil.EndpointForProviderWithValues(provider, llmValues),
-				DefaultModel: model,
-				JournalDir:   statepaths.LLMUsageJournalDir(),
-				Logger:       logger,
-			})
+			client := llmstats.WrapRuntimeClient(
+				baseClient,
+				provider,
+				llmutil.EndpointForProviderWithValues(provider, llmValues),
+				model,
+				logger,
+			)
 			var reg *tools.Registry
 			if deps.RegistryFromViper != nil {
 				reg = deps.RegistryFromViper()

@@ -920,6 +920,17 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 
 			cmdWord, cmdArgs := splitCommand(text)
 			normalizedCmd := normalizeSlashCommand(cmdWord)
+			messageRunID := ""
+			if msg != nil && msg.MessageID > 0 {
+				messageRunID = telegramTaskID(chatID, msg.MessageID)
+			}
+			withMessageRunID := func(runCtx context.Context) context.Context {
+				return llmstats.WithRunID(runCtx, messageRunID)
+			}
+			newMessageTimeoutCtx := func() (context.Context, context.CancelFunc) {
+				runCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+				return withMessageRunID(runCtx), cancel
+			}
 			if shouldRunInitFlow(initRequired, normalizedCmd) {
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
@@ -944,8 +955,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						}
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
-						initCtx = llmstats.WithRunID(initCtx, telegramTaskID(chatID, msg.MessageID))
+						initCtx, cancel := newMessageTimeoutCtx()
 						questions, questionMsg, err := buildInitQuestions(initCtx, client, model, draft, text)
 						cancel()
 						typingStop()
@@ -988,8 +998,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						}
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
-						initCtx = llmstats.WithRunID(initCtx, telegramTaskID(chatID, msg.MessageID))
+						initCtx, cancel := newMessageTimeoutCtx()
 						applyResult, err := applyInitFromAnswer(initCtx, client, model, draft, initSession, text, fromUsername, fromDisplay)
 						cancel()
 						typingStop()
@@ -1004,8 +1013,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						}
 						mu.Unlock()
 						typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						greetCtx, greetCancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
-						greetCtx = llmstats.WithRunID(greetCtx, telegramTaskID(chatID, msg.MessageID))
+						greetCtx, greetCancel := newMessageTimeoutCtx()
 						greeting, greetErr := generatePostInitGreeting(greetCtx, client, model, draft, initSession, text, applyResult)
 						greetCancel()
 						typingStop2()
@@ -1041,8 +1049,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					continue
 				}
 				typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-				humanizeCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
-				humanizeCtx = llmstats.WithRunID(humanizeCtx, telegramTaskID(chatID, msg.MessageID))
+				humanizeCtx, cancel := newMessageTimeoutCtx()
 				updated, err := humanizeSoulProfile(humanizeCtx, client, model)
 				cancel()
 				typingStop()
@@ -1112,7 +1119,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					if api != nil && msg != nil && msg.MessageID > 0 {
 						addressingReactionTool = telegramtools.NewReactTool(newTelegramToolAPI(api), chatID, msg.MessageID, allowed)
 					}
-					decisionCtx := llmstats.WithRunID(context.Background(), telegramTaskID(chatID, msg.MessageID))
+					decisionCtx := withMessageRunID(context.Background())
 					dec, ok, decErr := groupTriggerDecision(decisionCtx, client, model, msg, botUser, botID, groupTriggerMode, addressingLLMTimeout, addressingConfidenceThreshold, addressingInterjectThreshold, historySnapshot, addressingReactionTool)
 					if addressingReactionTool != nil {
 						if reaction := addressingReactionTool.LastReaction(); reaction != nil {

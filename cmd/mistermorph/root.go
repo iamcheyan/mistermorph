@@ -28,7 +28,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -358,13 +357,7 @@ func (r *llmRuntimeResolver) CreateClient(provider, endpoint, apiKey, model stri
 	if err != nil {
 		return nil, err
 	}
-	return llmstats.WrapClient(base, llmstats.ClientOptions{
-		Provider:     provider,
-		APIBase:      endpoint,
-		DefaultModel: model,
-		JournalDir:   statepaths.LLMUsageJournalDir(),
-		Logger:       slog.Default(),
-	}), nil
+	return llmstats.WrapRuntimeClient(base, provider, endpoint, model, slog.Default()), nil
 }
 
 type skillsRuntimeResolver struct {

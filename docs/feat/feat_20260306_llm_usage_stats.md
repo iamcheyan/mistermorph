@@ -507,12 +507,12 @@ Acceptance criteria:
 ### 4. Console stats view
 
 - [x] add router entry `/stats`
-- [ ] add nav item
-- [ ] add `StatsView`
-- [ ] render summary cards
-- [ ] render by-domain table
-- [ ] render by-model table
-- [ ] render selected-domain model breakdown
+- [x] add nav item
+- [x] add `StatsView`
+- [x] render summary cards
+- [x] render by-domain table
+- [x] render by-model table
+- [x] render selected-domain model breakdown
 
 Acceptance criteria:
 
@@ -521,16 +521,22 @@ Acceptance criteria:
 
 ### 5. Tests
 
-- [ ] recorder tests
-- [ ] projection tests
-- [ ] daemon route tests
+- [x] recorder tests
+- [x] projection tests
+- [x] daemon route tests
 - [ ] Console smoke-level view test or manual verification notes
 
 Acceptance criteria:
 
 - [ ] no double-counting from stream usage
-- [ ] projection totals match fixture input
+- [x] projection totals match fixture input
 - [ ] tail replay matches full rebuild output
+
+Current remaining validation work:
+
+- manual Console smoke verification
+- explicit stream no-double-counting test
+- explicit tail-replay vs full-rebuild equivalence test
 
 ## 10) Risks and Decisions
 
