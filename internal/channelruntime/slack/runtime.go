@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -811,6 +812,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				mu.Lock()
 				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 				mu.Unlock()
+				decisionCtx := llmstats.WithRunID(context.Background(), slackTaskID(event.TeamID, event.ChannelID, event.MessageTS))
 				var addressingReactionTool *slacktools.ReactTool
 				if api != nil &&
 					strings.TrimSpace(event.ChannelID) != "" &&
@@ -818,7 +820,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					addressingReactionTool = slacktools.NewReactTool(newSlackToolAPI(api), event.ChannelID, event.MessageTS, allowedChannels, availableEmojiNames)
 				}
 				dec, accepted, err := decideSlackGroupTrigger(
-					context.Background(),
+					decisionCtx,
 					client,
 					model,
 					event,

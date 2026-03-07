@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
@@ -376,8 +377,9 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
+			decisionCtx := llmstats.WithMetadata(context.Background(), lineTaskID(inbound.ChatID, inbound.MessageID), inbound.EventID)
 			dec, accepted, decErr := decideLineGroupTrigger(
-				context.Background(),
+				decisionCtx,
 				client,
 				model,
 				inbound,

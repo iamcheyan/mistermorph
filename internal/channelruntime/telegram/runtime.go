@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
@@ -944,6 +945,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+						initCtx = llmstats.WithRunID(initCtx, telegramTaskID(chatID, msg.MessageID))
 						questions, questionMsg, err := buildInitQuestions(initCtx, client, model, draft, text)
 						cancel()
 						typingStop()
@@ -987,6 +989,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+						initCtx = llmstats.WithRunID(initCtx, telegramTaskID(chatID, msg.MessageID))
 						applyResult, err := applyInitFromAnswer(initCtx, client, model, draft, initSession, text, fromUsername, fromDisplay)
 						cancel()
 						typingStop()
@@ -1002,6 +1005,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						mu.Unlock()
 						typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						greetCtx, greetCancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+						greetCtx = llmstats.WithRunID(greetCtx, telegramTaskID(chatID, msg.MessageID))
 						greeting, greetErr := generatePostInitGreeting(greetCtx, client, model, draft, initSession, text, applyResult)
 						greetCancel()
 						typingStop2()
@@ -1038,6 +1042,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 				typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 				humanizeCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+				humanizeCtx = llmstats.WithRunID(humanizeCtx, telegramTaskID(chatID, msg.MessageID))
 				updated, err := humanizeSoulProfile(humanizeCtx, client, model)
 				cancel()
 				typingStop()
@@ -1107,7 +1112,8 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					if api != nil && msg != nil && msg.MessageID > 0 {
 						addressingReactionTool = telegramtools.NewReactTool(newTelegramToolAPI(api), chatID, msg.MessageID, allowed)
 					}
-					dec, ok, decErr := groupTriggerDecision(context.Background(), client, model, msg, botUser, botID, groupTriggerMode, addressingLLMTimeout, addressingConfidenceThreshold, addressingInterjectThreshold, historySnapshot, addressingReactionTool)
+					decisionCtx := llmstats.WithRunID(context.Background(), telegramTaskID(chatID, msg.MessageID))
+					dec, ok, decErr := groupTriggerDecision(decisionCtx, client, model, msg, botUser, botID, groupTriggerMode, addressingLLMTimeout, addressingConfidenceThreshold, addressingInterjectThreshold, historySnapshot, addressingReactionTool)
 					if addressingReactionTool != nil {
 						if reaction := addressingReactionTool.LastReaction(); reaction != nil {
 							logger.Info("telegram_group_addressing_reaction_applied",

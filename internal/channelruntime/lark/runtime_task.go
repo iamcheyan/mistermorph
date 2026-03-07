@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -59,6 +60,7 @@ func runLarkTask(
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
 ) (*agent.Final, *agent.Context, []string, error) {
+	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
@@ -101,11 +103,11 @@ func runLarkTask(
 	)
 
 	meta := map[string]any{
-		"trigger":          "lark",
-		"lark_chat_id":     job.ChatID,
-		"lark_chat_type":   job.ChatType,
-		"lark_open_id":     job.FromUserID,
-		"lark_message_id":  job.MessageID,
+		"trigger":           "lark",
+		"lark_chat_id":      job.ChatID,
+		"lark_chat_type":    job.ChatType,
+		"lark_open_id":      job.FromUserID,
+		"lark_message_id":   job.MessageID,
 		"lark_conversation": job.ConversationKey,
 	}
 	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{

@@ -23,10 +23,12 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -346,13 +348,23 @@ func (r *llmRuntimeResolver) ModelForProvider(provider string) string {
 }
 
 func (r *llmRuntimeResolver) CreateClient(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-	return llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
+	base, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
 		Provider:       provider,
 		Endpoint:       endpoint,
 		APIKey:         apiKey,
 		Model:          model,
 		RequestTimeout: timeout,
 	}, r.Values())
+	if err != nil {
+		return nil, err
+	}
+	return llmstats.WrapClient(base, llmstats.ClientOptions{
+		Provider:     provider,
+		APIBase:      endpoint,
+		DefaultModel: model,
+		JournalDir:   statepaths.LLMUsageJournalDir(),
+		Logger:       slog.Default(),
+	}), nil
 }
 
 type skillsRuntimeResolver struct {

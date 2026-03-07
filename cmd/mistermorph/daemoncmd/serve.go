@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
@@ -62,7 +63,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			provider := strings.TrimSpace(llmValues.Provider)
 			model := llmutil.ModelForProviderWithValues(provider, llmValues)
 			requestTimeout := viper.GetDuration("llm.request_timeout")
-			client, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
+			baseClient, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
 				Provider:       provider,
 				Endpoint:       llmutil.EndpointForProviderWithValues(provider, llmValues),
 				APIKey:         llmutil.APIKeyForProviderWithValues(provider, llmValues),
@@ -72,6 +73,13 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			client := llmstats.WrapClient(baseClient, llmstats.ClientOptions{
+				Provider:     provider,
+				APIBase:      llmutil.EndpointForProviderWithValues(provider, llmValues),
+				DefaultModel: model,
+				JournalDir:   statepaths.LLMUsageJournalDir(),
+				Logger:       logger,
+			})
 			var reg *tools.Registry
 			if deps.RegistryFromViper != nil {
 				reg = deps.RegistryFromViper()
@@ -437,6 +445,7 @@ func errorsIsContextDeadline(ctx context.Context, err error) bool {
 }
 
 func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, task string, model string, meta map[string]any, skillsCfg skillsutil.SkillsConfig, requireSkillProfiles bool) (*agent.Final, *agent.Context, error) {
+	ctx = llmstats.WithRunID(ctx, llmstats.NewSyntheticRunID("daemon"))
 	skillsCfg.Roots = append([]string(nil), skillsCfg.Roots...)
 	skillsCfg.Requested = append([]string(nil), skillsCfg.Requested...)
 	promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)

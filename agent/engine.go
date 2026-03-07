@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimeclock"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -150,7 +151,11 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		model = "gpt-5.2"
 	}
 
-	runID := newRunID()
+	runID := llmstats.RunIDFromContext(ctx)
+	if runID == "" {
+		runID = newRunID()
+	}
+	ctx = llmstats.WithRunID(ctx, runID)
 	log := e.log.With("run_id", runID, "model", model)
 	log.Info("run_start", "task_len", len(task))
 

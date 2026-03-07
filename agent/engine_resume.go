@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/secrets"
 )
 
@@ -51,6 +52,7 @@ func (e *Engine) Resume(ctx context.Context, approvalRequestID string) (*Final, 
 	}
 
 	ctx = secrets.WithSkillAuthProfilePolicy(ctx, rs.SkillAuthProfiles, rs.EnforceSkillAuth)
+	ctx = llmstats.WithRunID(ctx, rs.RunID)
 
 	// Verify action hash binding.
 	h, err := guard.ActionHash(guard.Action{

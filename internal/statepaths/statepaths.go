@@ -1,6 +1,7 @@
 package statepaths
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -39,6 +40,18 @@ func ContactsDir() string {
 		viper.GetString("contacts.dir_name"),
 		"contacts",
 	)
+}
+
+func StatsDir() string {
+	return filepath.Clean(filepath.Join(FileStateDir(), "stats"))
+}
+
+func LLMUsageJournalDir() string {
+	return filepath.Clean(filepath.Join(StatsDir(), "llm_usage"))
+}
+
+func LLMUsageProjectionPath() string {
+	return filepath.Clean(filepath.Join(StatsDir(), "llm_usage_projection.json"))
 }
 
 func HeartbeatChecklistPath() string {

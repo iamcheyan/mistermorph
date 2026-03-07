@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -52,6 +53,7 @@ func runSlackTask(
 	runtimeOpts runtimeTaskOptions,
 	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
+	ctx = llmstats.WithRunID(ctx, job.TaskID)
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")

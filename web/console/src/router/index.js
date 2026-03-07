@@ -8,6 +8,7 @@ import {
   MemoryView,
   OverviewView,
   SettingsView,
+  StatsView,
   StateFilesView,
   TasksView,
   TaskDetailView,
@@ -19,6 +20,7 @@ const routes = [
   { path: "/dashboard", component: DashboardView },
   { path: "/tasks", component: TasksView },
   { path: "/tasks/:id", component: TaskDetailView },
+  { path: "/stats", component: StatsView },
   { path: "/audit", component: AuditView },
   { path: "/memory", component: MemoryView },
   { path: "/files", component: StateFilesView },
@@ -34,6 +36,7 @@ const router = createRouter({
 const NAV_ITEMS_META = [
   { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
   { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
+  { id: "/stats", titleKey: "nav_stats", icon: "QIconGrid" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "/memory", titleKey: "nav_memory", icon: "QIconBookOpen" },
   { id: "/files", titleKey: "nav_files", icon: "QIconBookOpen" },

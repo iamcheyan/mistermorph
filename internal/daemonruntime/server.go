@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
@@ -169,6 +170,34 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		ensureRuntimeMetrics(payload)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/stats/llm/usage", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		store := llmstats.NewProjectionStore(statepaths.LLMUsageJournalDir(), statepaths.LLMUsageProjectionPath())
+		proj, err := store.Refresh()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"generated_at":      time.Now().UTC().Format(time.RFC3339),
+			"updated_at":        proj.UpdatedAt,
+			"projected_offset":  proj.ProjectedOffset,
+			"projected_records": proj.ProjectedRecords,
+			"skipped_records":   proj.SkippedRecords,
+			"summary":           proj.Summary,
+			"api_hosts":         proj.APIHosts,
+			"models":            proj.Models,
+		})
 	})
 
 	mux.HandleFunc("/system/diagnostics", func(w http.ResponseWriter, r *http.Request) {

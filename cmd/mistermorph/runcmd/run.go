@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
@@ -91,7 +92,7 @@ func New(deps Dependencies) *cobra.Command {
 			}
 
 			requestTimeout := configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
-			client, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
+			baseClient, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
 				Provider:       provider,
 				Endpoint:       endpoint,
 				APIKey:         apiKey,
@@ -111,6 +112,13 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
+			client := llmstats.WrapClient(baseClient, llmstats.ClientOptions{
+				Provider:     provider,
+				APIBase:      endpoint,
+				DefaultModel: model,
+				JournalDir:   statepaths.LLMUsageJournalDir(),
+				Logger:       logger,
+			})
 
 			logOpts := logutil.LogOptionsFromViper()
 
@@ -196,6 +204,8 @@ func New(deps Dependencies) *cobra.Command {
 				opts...,
 			)
 
+			runID := llmstats.NewSyntheticRunID("cli")
+			ctx = llmstats.WithRunID(ctx, runID)
 			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, Meta: runMeta})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {

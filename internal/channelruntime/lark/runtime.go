@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -155,8 +156,8 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
-				Mode:      "lark",
-				AuthToken: strings.TrimSpace(opts.ServerAuthToken),
+				Mode:       "lark",
+				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
@@ -327,8 +328,9 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
+			decisionCtx := llmstats.WithMetadata(context.Background(), larkTaskID(inbound.ChatID, inbound.MessageID), inbound.EventID)
 			dec, accepted, decErr := decideLarkGroupTrigger(
-				context.Background(),
+				decisionCtx,
 				client,
 				model,
 				inbound,
@@ -412,11 +414,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				Timeout:   taskTimeout.String(),
 				CreatedAt: createdAt,
 				Result: map[string]any{
-					"source":             "lark",
-					"lark_chat_id":       inbound.ChatID,
-					"lark_message_id":    inbound.MessageID,
-					"lark_chat_type":     inbound.ChatType,
-					"lark_from_open_id":  inbound.FromUserID,
+					"source":            "lark",
+					"lark_chat_id":      inbound.ChatID,
+					"lark_message_id":   inbound.MessageID,
+					"lark_chat_type":    inbound.ChatType,
+					"lark_from_open_id": inbound.FromUserID,
 				},
 			})
 		}
