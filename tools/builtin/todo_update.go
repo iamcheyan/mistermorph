@@ -90,7 +90,7 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 				"description": "List of people mentioned in the content (required for add). " +
 					"If the speaker mentions theirselve (said `I` or `me`), resolve as '$SPEAKER' in the array." +
 					"If the speaker mentions `you`, resolve as '$AGENT' in the array. " +
-					"For other mentioned people, put their nickname or an ID in the arrary.",
+					"For others, put their nickname or an ID in the arrary.",
 				"items": map[string]any{
 					"type": "string",
 				},

@@ -51,10 +51,6 @@ func (t *planCreateTool) ParameterSchema() string {
 				"type":        "integer",
 				"description": fmt.Sprintf("Maximum number of steps (default: %d).", maxSteps),
 			},
-			"style": map[string]any{
-				"type":        "string",
-				"description": "Optional style hint (e.g., terse, detailed).",
-			},
 			"model": map[string]any{
 				"type":        "string",
 				"description": "Optional model override for plan generation.",
@@ -136,9 +132,6 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 		}
 	}
 
-	style, _ := params["style"].(string)
-	style = strings.TrimSpace(style)
-
 	model, _ := params["model"].(string)
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -151,7 +144,6 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 	payload := map[string]any{
 		"task":            task,
 		"max_steps":       maxSteps,
-		"style":           style,
 		"available_tools": t.toolNames,
 		"constraints": []string{
 			"Use only available_tools when describing steps that involve tools.",

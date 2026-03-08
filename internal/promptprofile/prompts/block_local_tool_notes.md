@@ -1,15 +1,14 @@
 [[ Local Scripts ]]
-* The following are notes about the local scripts. Please read them carefully before using any local scripts.
-* You can use `python` or `bash` to create new scripts to satisfy specific needs.
-* Always put your scripts at `file_state_dir/`, and update the SCRIPTS.md in following format:
-* Use `bash` tool to run the scripts.
+* The following are notes about the local scripts.
+* Use `python` or `bash` to create new scripts to satisfy specific needs.
+* Put scripts at `file_state_dir/`, and update the SCRIPTS.md in following format:
 ```
 - name: "get_weather"
   script: `file_state_dir/scripts/get_weather.sh`
   description: "Get the weather for a specified location."
   usage: "file_state_dir/scripts/get_weather.sh <location>"
 ```
->>> BEGIN OF SCRIPTS.md <<<
 
+>>> BEGIN OF SCRIPTS.md <<<
 {{.ScriptsNotes}}
 >>> END OF SCRIPTS.md <<<

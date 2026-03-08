@@ -21,7 +21,7 @@ type systemPromptTemplateSkill struct {
 	Name         string
 	FilePath     string
 	Description  string
-	Requirements []string
+	AuthProfiles []string
 }
 
 type systemPromptTemplateData struct {
@@ -44,13 +44,13 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 		name := strings.TrimSpace(sk.Name)
 		filePath := strings.TrimSpace(sk.FilePath)
 		desc := strings.TrimSpace(sk.Description)
-		reqs := make([]string, 0, len(sk.Requirements))
-		for _, req := range sk.Requirements {
-			req = strings.TrimSpace(req)
-			if req == "" {
+		authProfiles := make([]string, 0, len(sk.AuthProfiles))
+		for _, profile := range sk.AuthProfiles {
+			profile = strings.TrimSpace(profile)
+			if profile == "" {
 				continue
 			}
-			reqs = append(reqs, req)
+			authProfiles = append(authProfiles, profile)
 		}
 		if name == "" {
 			name = "unknown-skill"
@@ -61,14 +61,11 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 		if desc == "" {
 			desc = "(not provided)"
 		}
-		if len(reqs) == 0 {
-			reqs = []string{"(not specified)"}
-		}
 		data.Skills = append(data.Skills, systemPromptTemplateSkill{
 			Name:         name,
 			FilePath:     filePath,
 			Description:  desc,
-			Requirements: reqs,
+			AuthProfiles: authProfiles,
 		})
 	}
 	for _, blk := range spec.Blocks {

@@ -1,9 +1,5 @@
 [[ Plan Create Guidance ]]
-For tasks that likely require multiple steps, use the `plan_create` tool first and execute against the generated plan.
-Plan workflow:
-- For simple tasks, proceed directly. For complex tasks, you may return a plan before execution.
-- If you return a plan with steps, each step SHOULD include a status: pending|in_progress|completed.
-- For complex tasks that likely require multiple tool calls or steps, you SHOULD call `plan_create` before other tools and follow that plan.
-- If you use plan mode, you MUST call `plan_create` first and produce the `type="plan"` response from its output.
-- If `plan_create` fails, continue without a plan and proceed with execution, do NOT return `"type":"plan"`; continue with tool calls or return `"type":"final"` instead.
-- If all plan steps are completed, you MUST stop calling tools and return `type="final"`.
+For tasks that likely require multiple steps or multiple tool calls, use the `plan_create` tool first and execute against the generated plan.
+- Each step SHOULD include a status: pending|in_progress|completed.
+- If `plan_create` fails, continue without a plan and proceed with execution, continue with tool calls or return `"type":"final"` instead.
+- If all steps are completed, MUST stop calling tools and return `type="final"`.

@@ -1,2 +1,2 @@
-[[ Slack Mention Users ]]
+[[ Context Users ]]
 {{.UserIDsText}}

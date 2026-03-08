@@ -206,10 +206,8 @@ very long instructions that should not be injected
 	if sk.FilePath != "file_state_dir/skills/jsonbill/SKILL.md" {
 		t.Fatalf("unexpected skill file path: %q", sk.FilePath)
 	}
-	if len(sk.Requirements) != 2 ||
-		sk.Requirements[0] != "http_client" ||
-		sk.Requirements[1] != "optional: file_send (chat)" {
-		t.Fatalf("unexpected skill requirements: %#v", sk.Requirements)
+	if len(sk.AuthProfiles) != 1 || sk.AuthProfiles[0] != "jsonbill" {
+		t.Fatalf("unexpected skill auth profiles: %#v", sk.AuthProfiles)
 	}
 }
 

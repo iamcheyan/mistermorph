@@ -44,7 +44,7 @@ func NewContactsSendTool(opts ContactsSendToolOptions) *ContactsSendTool {
 func (t *ContactsSendTool) Name() string { return "contacts_send" }
 
 func (t *ContactsSendTool) Description() string {
-	return "Sends one message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability."
+	return "Sends a message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability."
 }
 
 func (t *ContactsSendTool) ParameterSchema() string {
@@ -55,21 +55,21 @@ func (t *ContactsSendTool) ParameterSchema() string {
 				"type":        "string",
 				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>.",
 			},
-			"chat_id": map[string]any{
-				"type":        "string",
-				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, line:<chat_id>, or lark:<chat_id>.",
-			},
-			"content_type": map[string]any{
-				"type":        "string",
-				"description": "Payload type (default application/json).",
-			},
 			"message_text": map[string]any{
 				"type":        "string",
 				"description": "Plain text body; tool wraps it into envelope JSON.",
 			},
 			"message_base64": map[string]any{
 				"type":        "string",
-				"description": "base64url JSON envelope payload when message_text is not used.",
+				"description": "Optional base64 JSON envelope payload when message_text is not used.",
+			},
+			"chat_id": map[string]any{
+				"type":        "string",
+				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, line:<chat_id>, or lark:<chat_id>.",
+			},
+			"content_type": map[string]any{
+				"type":        "string",
+				"description": "Optional Payload type (default application/json).",
 			},
 			"session_id": map[string]any{
 				"type":        "string",

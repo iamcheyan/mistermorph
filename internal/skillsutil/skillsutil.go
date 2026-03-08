@@ -149,22 +149,19 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 		if desc == "" {
 			desc = "(not provided)"
 		}
-		reqs := make([]string, 0, len(skillLoaded.Requirements))
-		for _, req := range skillLoaded.Requirements {
-			req = strings.TrimSpace(req)
-			if req == "" {
+		authProfiles := make([]string, 0, len(skillLoaded.AuthProfiles))
+		for _, profile := range skillLoaded.AuthProfiles {
+			profile = strings.TrimSpace(profile)
+			if profile == "" {
 				continue
 			}
-			reqs = append(reqs, req)
-		}
-		if len(reqs) == 0 {
-			reqs = []string{"(not specified)"}
+			authProfiles = append(authProfiles, profile)
 		}
 		spec.Skills = append(spec.Skills, agent.PromptSkill{
 			Name:         name,
 			FilePath:     skillPromptFilePath(skillLoaded.ID, dirName),
 			Description:  desc,
-			Requirements: reqs,
+			AuthProfiles: authProfiles,
 		})
 
 		log.Info("skill_loaded", "skills_enabled", cfg.Enabled, "name", name, "id", skillLoaded.ID, "path", skillLoaded.SkillMD)

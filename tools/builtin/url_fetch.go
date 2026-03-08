@@ -89,7 +89,10 @@ func NewURLFetchToolWithAuthLimits(enabled bool, timeout time.Duration, maxBytes
 func (t *URLFetchTool) Name() string { return "url_fetch" }
 
 func (t *URLFetchTool) Description() string {
-	return "Fetches an HTTP(S) URL (GET/POST/PUT/PATCH/DELETE) and returns the response body (truncated)."
+	return "Fetches an URL and returns the response body (truncated). " +
+		"For binary responses or files(`.pdf`, `.zip`, `.png`, `.jpg`, `.mp4`, etc), prefer `download_path` to save to a file instead of returning it's content. " +
+		"If file type is unclear, you may first issue a small-range GET using a `Range` header with a low `max_bytes` to confirm content type before downloading. " +
+		"If `url_fetch` fails (blocked, timeout, non-2xx), report the error."
 }
 
 func (t *URLFetchTool) ParameterSchema() string {
@@ -98,31 +101,31 @@ func (t *URLFetchTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"url": map[string]any{
 				"type":        "string",
-				"description": "URL to fetch (http/https).",
+				"description": "URL to fetch HTTP(S).",
 			},
 			"method": map[string]any{
 				"type":        "string",
-				"description": "Optional HTTP method (GET/POST/PUT/PATCH/DELETE). Defaults to GET.",
+				"description": "Optional HTTP method. Defaults to GET.",
 				"enum":        []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 			},
 			"auth_profile": map[string]any{
 				"type":        "string",
-				"description": "Optional auth profile id for credential injection (server-side). When set, secrets.enabled must be true and the profile must be allowlisted.",
+				"description": "Optional auth profile id for credential injection.",
 			},
 			"headers": map[string]any{
 				"type": "object",
 				"additionalProperties": map[string]any{
 					"type": "string",
 				},
-				"description": "Optional HTTP headers to send. Values must be strings. Allowlist enforced (default: Accept, Content-Type, User-Agent, If-None-Match, If-Modified-Since, Range). Sensitive headers (Authorization/Cookie/Host/Proxy-*/X-Forwarded-* and any *api[-_]?key*/*token*) are rejected.",
+				"description": "Optional HTTP headers to send.",
 			},
 			"body": map[string]any{
 				"type":        "string",
-				"description": "Optional request body (supported for POST, PUT, PATCH). For binary responses, prefer download_path to save to a file instead of returning in the observation.",
+				"description": "Optional request body (supported for POST, PUT, PATCH). ",
 			},
 			"download_path": map[string]any{
 				"type":        "string",
-				"description": "Optional: if set, saves the raw response body to this path (under file_cache_dir) and returns JSON metadata instead of including the body in the output. Recommended for PDFs/binary.",
+				"description": "Optional: if set, saves the raw response body to this path (under `file_cache_dir`) and returns JSON metadata instead of including the body in the output. Always use `download_path` for binary or non-text files.",
 			},
 			"timeout_seconds": map[string]any{
 				"type":        "number",
@@ -130,7 +133,7 @@ func (t *URLFetchTool) ParameterSchema() string {
 			},
 			"max_bytes": map[string]any{
 				"type":        "integer",
-				"description": "Optional max response bytes to read (truncates beyond this). Defaults to tools.url_fetch.max_bytes; when download_path is set, defaults to tools.url_fetch.max_bytes_download.",
+				"description": "Optional max response bytes to read (truncates beyond this). ",
 			},
 		},
 		"required": []string{"url"},

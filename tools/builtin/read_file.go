@@ -30,7 +30,7 @@ func NewReadFileToolWithDenyPaths(maxBytes int64, denyPaths []string, baseDirs .
 func (t *ReadFileTool) Name() string { return "read_file" }
 
 func (t *ReadFileTool) Description() string {
-	return "Reads a local text file from disk and returns its content (truncated to a maximum size)."
+	return "Reads a loca file from disk and returns its content (truncated to a maximum size)."
 }
 
 func (t *ReadFileTool) ParameterSchema() string {

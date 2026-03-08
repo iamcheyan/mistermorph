@@ -21,7 +21,7 @@ type PromptSkill struct {
 	Name         string
 	FilePath     string
 	Description  string
-	Requirements []string
+	AuthProfiles []string
 }
 
 func DefaultPromptSpec() PromptSpec {

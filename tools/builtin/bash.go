@@ -41,7 +41,8 @@ func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int,
 func (t *BashTool) Name() string { return "bash" }
 
 func (t *BashTool) Description() string {
-	return "Runs a bash command in the local environment and returns stdout/stderr. Disabled by default for safety."
+	return "Runs a bash command and returns stdout/stderr." +
+		"For the `cmd` and `cwd`, supports path aliases file_cache_dir and file_state_dir."
 }
 
 func (t *BashTool) ParameterSchema() string {
@@ -50,15 +51,15 @@ func (t *BashTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"cmd": map[string]any{
 				"type":        "string",
-				"description": "Bash command to execute. Supports path aliases file_cache_dir and file_state_dir.",
+				"description": "Bash command to execute.",
 			},
 			"cwd": map[string]any{
 				"type":        "string",
-				"description": "Optional working directory. Supports path aliases file_cache_dir and file_state_dir.",
+				"description": "Optional working directory.",
 			},
 			"timeout_seconds": map[string]any{
 				"type":        "number",
-				"description": "Optional timeout override in seconds.",
+				"description": "Optional timeout in seconds.",
 			},
 		},
 		"required": []string{"cmd"},

@@ -90,13 +90,11 @@ var larkRuntimePromptBlockTemplate = prompttmpl.MustParse(
 )
 
 type telegramRuntimePromptBlockData struct {
-	IsGroup   bool
-	EmojiList string
+	IsGroup bool
 }
 
 type slackRuntimePromptBlockData struct {
-	IsGroup   bool
-	EmojiList string
+	IsGroup bool
 }
 
 type lineRuntimePromptBlockData struct {
@@ -193,9 +191,9 @@ func AppendMemorySummariesBlock(spec *agent.PromptSpec, content string) {
 }
 
 func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string, emojiList string) {
+	_ = emojiList
 	content, err := prompttmpl.Render(telegramRuntimePromptBlockTemplate, telegramRuntimePromptBlockData{
-		IsGroup:   isGroup,
-		EmojiList: strings.TrimSpace(emojiList),
+		IsGroup: isGroup,
 	})
 	if err == nil {
 		content = strings.TrimSpace(content)
@@ -227,9 +225,9 @@ func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUs
 }
 
 func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string, emojiList string) {
+	_ = emojiList
 	content, err := prompttmpl.Render(slackRuntimePromptBlockTemplate, slackRuntimePromptBlockData{
-		IsGroup:   isGroup,
-		EmojiList: strings.TrimSpace(emojiList),
+		IsGroup: isGroup,
 	})
 	if err == nil {
 		content = strings.TrimSpace(content)

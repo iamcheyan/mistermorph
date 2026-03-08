@@ -23,14 +23,14 @@ func TestAppendSlackRuntimeBlocks_Group(t *testing.T) {
 	if !strings.Contains(spec.Blocks[0].Content, "[[ Slack Group Policies ]]") {
 		t.Fatalf("group policy block missing marker: %q", spec.Blocks[0].Content)
 	}
-	if !strings.Contains(spec.Blocks[0].Content, "Use only these emoji names for `message_react`: party_parrot,thumbsup,wave") {
-		t.Fatalf("emoji names csv line missing expected values: %q", spec.Blocks[0].Content)
+	if strings.Contains(spec.Blocks[0].Content, "Use only these emoji names for `message_react`:") {
+		t.Fatalf("slack emoji allow list should not be injected: %q", spec.Blocks[0].Content)
 	}
-	if !strings.Contains(spec.Blocks[1].Content, "[[ Slack Mention Users ]]") {
-		t.Fatalf("mention heading missing: %q", spec.Blocks[1].Content)
+	if !strings.Contains(spec.Blocks[1].Content, "U111") || !strings.Contains(spec.Blocks[1].Content, "U222") {
+		t.Fatalf("mention block missing expected user ids: %q", spec.Blocks[1].Content)
 	}
-	if spec.Blocks[1].Content != "[[ Slack Mention Users ]]\nU111\nU222" {
-		t.Fatalf("mention block content = %q, want %q", spec.Blocks[1].Content, "[[ Slack Mention Users ]]\nU111\nU222")
+	if strings.TrimSpace(spec.Blocks[1].Content) == "" {
+		t.Fatalf("mention block should not be empty")
 	}
 }
 
@@ -50,6 +50,22 @@ func TestAppendSlackRuntimeBlocks_DM(t *testing.T) {
 	}
 	if strings.Contains(spec.Blocks[0].Content, "Use only these emoji names for `message_react`:") {
 		t.Fatalf("emoji list line should be omitted when list is empty: %q", spec.Blocks[0].Content)
+	}
+}
+
+func TestAppendTelegramRuntimeBlocks_DoesNotInjectEmojiAllowList(t *testing.T) {
+	spec := agent.PromptSpec{}
+
+	AppendTelegramRuntimeBlocks(&spec, false, nil, "party_parrot,thumbsup,wave")
+
+	if len(spec.Blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Telegram Policies ]]") {
+		t.Fatalf("telegram policy heading missing: %q", spec.Blocks[0].Content)
+	}
+	if strings.Contains(spec.Blocks[0].Content, "Use only these emoji names for `message_react`:") {
+		t.Fatalf("telegram emoji allow list should not be injected: %q", spec.Blocks[0].Content)
 	}
 }
 

@@ -111,3 +111,29 @@ func TestPlanCreateExecuteInjectsPersonaIdentity(t *testing.T) {
 		t.Fatalf("system prompt missing soul content: %q", systemPrompt)
 	}
 }
+
+func TestPlanCreateExecuteOmitsStyleFromSchemaAndPayload(t *testing.T) {
+	client := &stubPlanCreateLLMClient{
+		reply: `{"plan":{"steps":[{"step":"collect data"}]}}`,
+	}
+	tool := NewPlanCreateTool(client, "gpt-5.2", []string{"bash"}, 6)
+
+	schema := tool.ParameterSchema()
+	if strings.Contains(schema, `"style"`) {
+		t.Fatalf("schema should not contain style field: %s", schema)
+	}
+
+	if _, err := tool.Execute(context.Background(), map[string]any{
+		"task":  "t",
+		"style": "terse",
+	}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(client.lastReq.Messages) < 2 {
+		t.Fatalf("expected user payload message")
+	}
+	if strings.Contains(client.lastReq.Messages[1].Content, `"style"`) {
+		t.Fatalf("payload should not contain style field: %s", client.lastReq.Messages[1].Content)
+	}
+}

@@ -35,7 +35,8 @@ func NewSendVoiceTool(api API, defaultChatID int64, cacheDir string, maxBytes in
 func (t *SendVoiceTool) Name() string { return "telegram_send_voice" }
 
 func (t *SendVoiceTool) Description() string {
-	return "Sends a Telegram voice message from a local audio file under file_cache_dir. Use chat_id when not running in an active chat context."
+	return "Sends a Telegram voice message from a local audio file under `file_cache_dir`. Use chat_id when not running in an active chat context." +
+		"It only sends an existing local voice file. If you do not have a file path, try to generate one."
 }
 
 func (t *SendVoiceTool) ParameterSchema() string {
