@@ -19,6 +19,10 @@ const (
 )
 
 func buildLineHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
+	return buildLineCurrentMessage(content, model, imagePaths, logger)
+}
+
+func buildLineCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
 	msg := llm.Message{Role: "user", Content: content}
 	if !llm.ModelSupportsImageParts(model) || len(imagePaths) == 0 {
 		return msg, nil

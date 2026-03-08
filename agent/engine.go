@@ -167,15 +167,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	}
 
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	for _, m := range opts.History {
-		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
-			continue
-		}
-		if strings.TrimSpace(m.Content) == "" && len(m.Parts) == 0 {
-			continue
-		}
-		messages = append(messages, m)
-	}
 
 	injectedMeta := runtimeclock.WithRuntimeClockMeta(opts.Meta, time.Now())
 	if metaMsg, ok := buildInjectedMetaMessage(injectedMeta); ok {
@@ -193,7 +184,23 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		)
 	}
 
-	if !opts.SkipTaskMessage {
+	for _, m := range opts.History {
+		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
+			continue
+		}
+		if strings.TrimSpace(m.Content) == "" && len(m.Parts) == 0 {
+			continue
+		}
+		messages = append(messages, m)
+	}
+
+	if opts.CurrentMessage != nil {
+		current := *opts.CurrentMessage
+		current.Role = "user"
+		if strings.TrimSpace(current.Content) != "" || len(current.Parts) > 0 {
+			messages = append(messages, current)
+		}
+	} else if !opts.SkipTaskMessage {
 		if strings.TrimSpace(task) != "" {
 			messages = append(messages, llm.Message{Role: "user", Content: task})
 		}

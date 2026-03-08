@@ -2,7 +2,6 @@ package line
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -51,23 +50,14 @@ func runLineTask(
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")
 	}
-	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
-	historyWithCurrent = append(historyWithCurrent, newLineInboundHistoryItem(job))
-	historyRaw, err := json.MarshalIndent(map[string]any{
-		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelLine, historyWithCurrent),
-	}, "", "  ")
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("render line history context: %w", err)
-	}
-	imagePaths := append([]string(nil), job.ImagePaths...)
-	if !runtimeOpts.ImageRecognitionEnabled {
-		imagePaths = nil
-	}
-	historyMsg, err := buildLineHistoryMessage(string(historyRaw), model, imagePaths, logger)
+	historyMsg, currentMsg, err := buildLinePromptMessages(history, job, model, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	llmHistory := []llm.Message{historyMsg}
+	var llmHistory []llm.Message
+	if historyMsg != nil {
+		llmHistory = append(llmHistory, *historyMsg)
+	}
 
 	if baseReg == nil {
 		return nil, nil, nil, fmt.Errorf("base registry is nil")
@@ -104,15 +94,44 @@ func runLineTask(
 		"line_message_id": job.MessageID,
 	}
 	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:           model,
-		History:         llmHistory,
-		Meta:            meta,
-		SkipTaskMessage: true,
+		Model:          model,
+		History:        llmHistory,
+		Meta:           meta,
+		CurrentMessage: currentMsg,
 	})
 	if err != nil {
 		return final, runCtx, loadedSkills, err
 	}
 	return final, runCtx, loadedSkills, nil
+}
+
+func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLine, history)
+	if err != nil {
+		return nil, nil, fmt.Errorf("render line history context: %w", err)
+	}
+	var historyMsg *llm.Message
+	if strings.TrimSpace(historyRaw) != "" {
+		msg, buildErr := buildLineHistoryMessage(historyRaw, model, nil, logger)
+		if buildErr != nil {
+			return nil, nil, buildErr
+		}
+		historyMsg = &msg
+	}
+
+	currentRaw, err := chathistory.RenderCurrentMessage(newLineInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, fmt.Errorf("render line current message: %w", err)
+	}
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !imageRecognitionEnabled {
+		imagePaths = nil
+	}
+	currentMsg, err := buildLineCurrentMessage(currentRaw, model, imagePaths, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	return historyMsg, &currentMsg, nil
 }
 
 func todoResolveContextForLine(job lineJob) todo.AddResolveContext {

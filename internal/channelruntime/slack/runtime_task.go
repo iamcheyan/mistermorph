@@ -2,7 +2,6 @@ package slack
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -58,15 +57,14 @@ func runSlackTask(
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
 	}
-	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
-	historyWithCurrent = append(historyWithCurrent, newSlackInboundHistoryItem(job))
-	historyRaw, err := json.MarshalIndent(map[string]any{
-		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelSlack, historyWithCurrent),
-	}, "", "  ")
+	historyMsg, currentMsg, err := buildSlackPromptMessages(history, job)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("render slack history context: %w", err)
+		return nil, nil, nil, nil, err
 	}
-	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
+	var llmHistory []llm.Message
+	if historyMsg != nil {
+		llmHistory = append(llmHistory, *historyMsg)
+	}
 
 	if baseReg == nil {
 		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
@@ -152,10 +150,10 @@ func runSlackTask(
 		"slack_from_user_id": job.UserID,
 	}
 	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:           model,
-		History:         llmHistory,
-		Meta:            meta,
-		SkipTaskMessage: true,
+		Model:          model,
+		History:        llmHistory,
+		Meta:           meta,
+		CurrentMessage: currentMsg,
 	})
 	if err != nil {
 		return final, runCtx, loadedSkills, nil, err
@@ -201,6 +199,24 @@ func runSlackTask(
 	}
 
 	return final, runCtx, loadedSkills, reaction, nil
+}
+
+func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob) (*llm.Message, *llm.Message, error) {
+	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelSlack, history)
+	if err != nil {
+		return nil, nil, fmt.Errorf("render slack history context: %w", err)
+	}
+	var historyMsg *llm.Message
+	if strings.TrimSpace(historyRaw) != "" {
+		msg := llm.Message{Role: "user", Content: historyRaw}
+		historyMsg = &msg
+	}
+	currentRaw, err := chathistory.RenderCurrentMessage(newSlackInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, fmt.Errorf("render slack current message: %w", err)
+	}
+	current := llm.Message{Role: "user", Content: currentRaw}
+	return historyMsg, &current, nil
 }
 
 func todoResolveContextForSlack(job slackJob) todo.AddResolveContext {

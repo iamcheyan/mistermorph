@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -60,23 +59,14 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
 	}
 	task := job.Text
-	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
-	historyWithCurrent = append(historyWithCurrent, newTelegramInboundHistoryItem(job))
-	historyRaw, err := json.MarshalIndent(map[string]any{
-		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelTelegram, historyWithCurrent),
-	}, "", "  ")
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("render telegram history context: %w", err)
-	}
-	imagePaths := append([]string(nil), job.ImagePaths...)
-	if !runtimeOpts.ImageRecognitionEnabled {
-		imagePaths = nil
-	}
-	historyMsg, err := buildTelegramHistoryMessage(string(historyRaw), model, imagePaths, logger)
+	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, model, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	llmHistory := []llm.Message{historyMsg}
+	var llmHistory []llm.Message
+	if historyMsg != nil {
+		llmHistory = append(llmHistory, *historyMsg)
+	}
 	if baseReg == nil {
 		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
@@ -181,11 +171,11 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		meta["telegram_bot_username"] = botUsername
 	}
 	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:           model,
-		History:         llmHistory,
-		Meta:            meta,
-		OnStream:        streamHandler,
-		SkipTaskMessage: true,
+		Model:          model,
+		History:        llmHistory,
+		Meta:           meta,
+		CurrentMessage: currentMsg,
+		OnStream:       streamHandler,
 	})
 	if err != nil {
 		return final, agentCtx, loadedSkills, nil, err
@@ -218,6 +208,35 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		}
 	}
 	return final, agentCtx, loadedSkills, reaction, nil
+}
+
+func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelTelegram, history)
+	if err != nil {
+		return nil, nil, fmt.Errorf("render telegram history context: %w", err)
+	}
+	var historyMsg *llm.Message
+	if strings.TrimSpace(historyRaw) != "" {
+		msg, buildErr := buildTelegramHistoryMessage(historyRaw, model, nil, logger)
+		if buildErr != nil {
+			return nil, nil, buildErr
+		}
+		historyMsg = &msg
+	}
+
+	currentRaw, err := chathistory.RenderCurrentMessage(newTelegramInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, fmt.Errorf("render telegram current message: %w", err)
+	}
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !imageRecognitionEnabled {
+		imagePaths = nil
+	}
+	currentMsg, err := buildTelegramCurrentMessage(currentRaw, model, imagePaths, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	return historyMsg, &currentMsg, nil
 }
 
 func shouldWriteMemory(publishText bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
@@ -482,6 +501,10 @@ func decodeJSONStringPrefix(raw string) (string, bool) {
 }
 
 func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
+	return buildTelegramCurrentMessage(content, model, imagePaths, logger)
+}
+
+func buildTelegramCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
 	msg := llm.Message{Role: "user", Content: content}
 	if !llm.ModelSupportsImageParts(model) {
 		return msg, nil

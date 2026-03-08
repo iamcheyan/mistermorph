@@ -109,9 +109,11 @@ type RunOptions struct {
 	Model   string
 	History []llm.Message
 	Meta    map[string]any
+	// CurrentMessage, when set, is appended as the final user turn after meta and history.
+	CurrentMessage *llm.Message
 	// OnStream receives provider stream events for each model call in this run.
 	OnStream llm.StreamHandler
 	// SkipTaskMessage suppresses appending task as a trailing user message.
-	// Useful when the current user input is already represented in structured History.
+	// Useful when the current user input is represented elsewhere and no raw task fallback should be added.
 	SkipTaskMessage bool
 }

@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
 var tinyPNG = []byte{
@@ -67,6 +70,84 @@ func TestBuildLineHistoryMessageUnsupportedModel(t *testing.T) {
 	}
 	if len(msg.Parts) != 0 {
 		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
+	}
+}
+
+func TestBuildLinePromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, tinyPNG, 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	historyMsg, currentMsg, err := buildLinePromptMessages([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelLine,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "101",
+		SentAt:    time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
+		Text:      "earlier",
+	}}, lineJob{
+		ChatID:       "C123",
+		ChatType:     "group",
+		MessageID:    "102",
+		ReplyToken:   "rtok_1",
+		FromUserID:   "U1",
+		FromUsername: "alice",
+		DisplayName:  "Alice",
+		Text:         "latest",
+		ImagePaths:   []string{path},
+		SentAt:       time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	}, "gpt-5.2", true, nil)
+	if err != nil {
+		t.Fatalf("buildLinePromptMessages() error = %v", err)
+	}
+	if historyMsg == nil {
+		t.Fatalf("historyMsg = nil")
+	}
+	if strings.Contains(historyMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("history should not contain latest message: %s", historyMsg.Content)
+	}
+	if !strings.Contains(historyMsg.Content, "\"text\": \"earlier\"") {
+		t.Fatalf("history should contain prior message: %s", historyMsg.Content)
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should contain latest text: %s", currentMsg.Content)
+	}
+	if len(historyMsg.Parts) != 0 {
+		t.Fatalf("history parts len = %d, want 0", len(historyMsg.Parts))
+	}
+	if len(currentMsg.Parts) != 2 {
+		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+}
+
+func TestBuildLinePromptMessagesOmitsEmptyHistory(t *testing.T) {
+	t.Parallel()
+
+	historyMsg, currentMsg, err := buildLinePromptMessages(nil, lineJob{
+		ChatID:       "C123",
+		ChatType:     "group",
+		MessageID:    "102",
+		ReplyToken:   "rtok_1",
+		FromUserID:   "U1",
+		FromUsername: "alice",
+		DisplayName:  "Alice",
+		Text:         "latest",
+		SentAt:       time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	}, "gpt-5.2", false, nil)
+	if err != nil {
+		t.Fatalf("buildLinePromptMessages() error = %v", err)
+	}
+	if historyMsg != nil {
+		t.Fatalf("historyMsg should be nil when history is empty")
+	}
+	if currentMsg == nil || !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should still be present: %#v", currentMsg)
 	}
 }
 

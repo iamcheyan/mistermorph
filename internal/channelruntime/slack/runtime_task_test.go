@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -43,5 +44,72 @@ func TestNewSlackOutboundReactionHistoryItem(t *testing.T) {
 	}
 	if item.Text != "[reacted: :thumbsup:]" {
 		t.Fatalf("text = %q, want %q", item.Text, "[reacted: :thumbsup:]")
+	}
+}
+
+func TestBuildSlackPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
+	t.Parallel()
+
+	historyMsg, currentMsg, err := buildSlackPromptMessages([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelSlack,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "101",
+		SentAt:    time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
+		Text:      "earlier",
+	}}, slackJob{
+		TeamID:      "T1",
+		ChannelID:   "C1",
+		ChatType:    "channel",
+		MessageTS:   "102.0001",
+		ThreadTS:    "102.0001",
+		UserID:      "U1",
+		Username:    "alice",
+		DisplayName: "Alice",
+		Text:        "latest",
+		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("buildSlackPromptMessages() error = %v", err)
+	}
+	if historyMsg == nil {
+		t.Fatalf("historyMsg = nil")
+	}
+	if strings.Contains(historyMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("history should not contain latest message: %s", historyMsg.Content)
+	}
+	if !strings.Contains(historyMsg.Content, "\"text\": \"earlier\"") {
+		t.Fatalf("history should contain prior message: %s", historyMsg.Content)
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should contain latest text: %s", currentMsg.Content)
+	}
+}
+
+func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
+	t.Parallel()
+
+	historyMsg, currentMsg, err := buildSlackPromptMessages(nil, slackJob{
+		TeamID:      "T1",
+		ChannelID:   "C1",
+		ChatType:    "channel",
+		MessageTS:   "102.0001",
+		ThreadTS:    "102.0001",
+		UserID:      "U1",
+		Username:    "alice",
+		DisplayName: "Alice",
+		Text:        "latest",
+		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("buildSlackPromptMessages() error = %v", err)
+	}
+	if historyMsg != nil {
+		t.Fatalf("historyMsg should be nil when history is empty")
+	}
+	if currentMsg == nil || !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should still be present: %#v", currentMsg)
 	}
 }

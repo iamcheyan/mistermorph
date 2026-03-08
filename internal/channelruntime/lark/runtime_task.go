@@ -2,7 +2,6 @@ package lark
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -65,15 +64,14 @@ func runLarkTask(
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
 	}
-	historyWithCurrent := append([]chathistory.ChatHistoryItem(nil), history...)
-	historyWithCurrent = append(historyWithCurrent, newLarkInboundHistoryItem(job))
-	historyRaw, err := json.MarshalIndent(map[string]any{
-		"chat_history_messages": chathistory.BuildMessages(chathistory.ChannelLark, historyWithCurrent),
-	}, "", "  ")
+	historyMsg, currentMsg, err := buildLarkPromptMessages(history, job)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("render lark history context: %w", err)
+		return nil, nil, nil, err
 	}
-	llmHistory := []llm.Message{{Role: "user", Content: string(historyRaw)}}
+	var llmHistory []llm.Message
+	if historyMsg != nil {
+		llmHistory = append(llmHistory, *historyMsg)
+	}
 
 	if baseReg == nil {
 		return nil, nil, nil, fmt.Errorf("base registry is nil")
@@ -111,15 +109,33 @@ func runLarkTask(
 		"lark_conversation": job.ConversationKey,
 	}
 	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:           model,
-		History:         llmHistory,
-		Meta:            meta,
-		SkipTaskMessage: true,
+		Model:          model,
+		History:        llmHistory,
+		Meta:           meta,
+		CurrentMessage: currentMsg,
 	})
 	if err != nil {
 		return final, runCtx, loadedSkills, err
 	}
 	return final, runCtx, loadedSkills, nil
+}
+
+func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob) (*llm.Message, *llm.Message, error) {
+	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
+	if err != nil {
+		return nil, nil, fmt.Errorf("render lark history context: %w", err)
+	}
+	var historyMsg *llm.Message
+	if strings.TrimSpace(historyRaw) != "" {
+		msg := llm.Message{Role: "user", Content: historyRaw}
+		historyMsg = &msg
+	}
+	currentRaw, err := chathistory.RenderCurrentMessage(newLarkInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, fmt.Errorf("render lark current message: %w", err)
+	}
+	current := llm.Message{Role: "user", Content: currentRaw}
+	return historyMsg, &current, nil
 }
 
 func todoResolveContextForLark(job larkJob) todo.AddResolveContext {

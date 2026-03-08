@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -258,6 +260,82 @@ func TestBuildTelegramHistoryMessageWithImageParts(t *testing.T) {
 	}
 	if msg.Parts[1].DataBase64 != base64.StdEncoding.EncodeToString([]byte("webp-bytes")) {
 		t.Fatalf("image part data mismatch")
+	}
+}
+
+func TestBuildTelegramPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
+	orig := encodeImageToWebP
+	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("webp-bytes"), nil }
+	t.Cleanup(func() { encodeImageToWebP = orig })
+
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "x.jpg")
+	if err := os.WriteFile(imgPath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	historyMsg, currentMsg, err := buildTelegramPromptMessages([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelTelegram,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "101",
+		SentAt:    time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
+		Text:      "earlier",
+	}}, telegramJob{
+		ChatID:          42,
+		MessageID:       102,
+		SentAt:          time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+		ChatType:        "private",
+		FromUserID:      7,
+		FromUsername:    "alice",
+		FromDisplayName: "Alice",
+		Text:            "latest",
+		ImagePaths:      []string{imgPath},
+	}, "gpt-5.2", true, nil)
+	if err != nil {
+		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
+	}
+	if historyMsg == nil {
+		t.Fatalf("historyMsg = nil")
+	}
+	if strings.Contains(historyMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("history should not contain latest message: %s", historyMsg.Content)
+	}
+	if !strings.Contains(historyMsg.Content, "\"text\": \"earlier\"") {
+		t.Fatalf("history should contain prior message: %s", historyMsg.Content)
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should contain latest text: %s", currentMsg.Content)
+	}
+	if len(historyMsg.Parts) != 0 {
+		t.Fatalf("history parts len = %d, want 0", len(historyMsg.Parts))
+	}
+	if len(currentMsg.Parts) != 2 {
+		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+}
+
+func TestBuildTelegramPromptMessagesOmitsEmptyHistory(t *testing.T) {
+	historyMsg, currentMsg, err := buildTelegramPromptMessages(nil, telegramJob{
+		ChatID:          42,
+		MessageID:       102,
+		SentAt:          time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+		ChatType:        "private",
+		FromUserID:      7,
+		FromUsername:    "alice",
+		FromDisplayName: "Alice",
+		Text:            "latest",
+	}, "gpt-5.2", false, nil)
+	if err != nil {
+		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
+	}
+	if historyMsg != nil {
+		t.Fatalf("historyMsg should be nil when history is empty")
+	}
+	if currentMsg == nil || !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
+		t.Fatalf("current message should still be present: %#v", currentMsg)
 	}
 }
 
