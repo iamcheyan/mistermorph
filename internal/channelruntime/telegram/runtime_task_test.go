@@ -126,15 +126,44 @@ func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing
 	}
 }
 
+func TestGenerateTelegramPlanProgressMessageForPlanCreatedUsesStartedStep(t *testing.T) {
+	plan := &agent.Plan{
+		Steps: []agent.PlanStep{
+			{Step: "collect data", Status: agent.PlanStatusInProgress},
+			{Step: "summarize", Status: agent.PlanStatusPending},
+		},
+	}
+	msg, err := generateTelegramPlanProgressMessage(
+		context.Background(),
+		nil,
+		"",
+		"fix this flow",
+		plan,
+		agent.PlanStepUpdate{
+			CompletedIndex: -1,
+			StartedIndex:   0,
+			StartedStep:    "collect data",
+			Reason:         "plan_created",
+		},
+		0,
+	)
+	if err != nil {
+		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
+	}
+	if msg != "collect data" {
+		t.Fatalf("message = %q, want %q", msg, "collect data")
+	}
+}
+
 func TestTelegramOutputStreamExtractorPartialOutput(t *testing.T) {
 	var ex telegramOutputStreamExtractor
-	if changed := ex.Append(`{"type":"final","final":{"output":"hello`); !changed {
+	if changed := ex.Append(`{"type":"final","output":"hello`); !changed {
 		t.Fatalf("expected changed on first append")
 	}
 	if got := ex.Output(); got != "hello" {
 		t.Fatalf("output = %q, want hello", got)
 	}
-	if changed := ex.Append(` world"}}`); !changed {
+	if changed := ex.Append(` world"}`); !changed {
 		t.Fatalf("expected changed on second append")
 	}
 	if got := ex.Output(); got != "hello world" {
@@ -143,7 +172,7 @@ func TestTelegramOutputStreamExtractorPartialOutput(t *testing.T) {
 }
 
 func TestExtractTelegramFinalOutputFromJSONStreamEscapes(t *testing.T) {
-	got, complete := extractTelegramFinalOutputFromJSONStream(`{"type":"final","final":{"output":"line1\nline2 \u4f60\u597d"}}`)
+	got, complete := extractTelegramFinalOutputFromJSONStream(`{"type":"final","output":"line1\nline2 \u4f60\u597d"}`)
 	if !complete {
 		t.Fatalf("complete = false, want true")
 	}
@@ -171,10 +200,10 @@ func TestTelegramDraftStreamPublisherPublishesDraftUpdates(t *testing.T) {
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
 	p := newTelegramDraftStreamPublisher(nil, api, 42, 77, "private", "gpt-5.2")
-	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"he`}); err != nil {
+	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","output":"he`}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
-	if err := p.OnStream(llm.StreamEvent{Delta: `llo"}}`}); err != nil {
+	if err := p.OnStream(llm.StreamEvent{Delta: `llo"}`}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
 	if err := p.OnStream(llm.StreamEvent{Done: true}); err != nil {
@@ -210,7 +239,7 @@ func TestTelegramDraftStreamPublisherDisabledForGroupChat(t *testing.T) {
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
 	p := newTelegramDraftStreamPublisher(nil, api, -1003824466118, 236, "supergroup", "gpt-5.2")
-	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","final":{"output":"hello"}}`, Done: true}); err != nil {
+	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","output":"hello"}`, Done: true}); err != nil {
 		t.Fatalf("OnStream() error = %v", err)
 	}
 	if len(calls) != 0 {

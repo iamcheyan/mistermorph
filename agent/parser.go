@@ -89,21 +89,38 @@ func unmarshalAndValidate(data []byte) (*AgentResponse, error) {
 		return nil, err
 	}
 
-	if resp.Type == TypeFinal || resp.Type == TypeFinalAnswer {
-		var raw struct {
-			Final       json.RawMessage `json:"final,omitempty"`
-			FinalAnswer json.RawMessage `json:"final_answer,omitempty"`
+	switch resp.Type {
+	case TypePlan:
+		var plan Plan
+		if err := json.Unmarshal(data, &plan); err != nil {
+			return nil, err
 		}
-		if json.Unmarshal(data, &raw) == nil {
-			if len(raw.FinalAnswer) > 0 {
-				resp.RawFinalAnswer = raw.FinalAnswer
-			} else {
-				resp.RawFinalAnswer = raw.Final
-			}
+		resp.Plan = &plan
+	case TypeFinal, TypeFinalAnswer:
+		var final Final
+		if err := json.Unmarshal(data, &final); err != nil {
+			return nil, err
+		}
+		if resp.Type == TypeFinalAnswer {
+			resp.FinalAnswer = &final
+		} else {
+			resp.Final = &final
+		}
+		if raw, err := rawResponsePayload(data); err == nil {
+			resp.RawFinalAnswer = raw
 		}
 	}
 
 	return validate(&resp)
+}
+
+func rawResponsePayload(data []byte) (json.RawMessage, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	delete(payload, "type")
+	return json.Marshal(payload)
 }
 
 func validate(resp *AgentResponse) (*AgentResponse, error) {

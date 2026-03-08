@@ -133,7 +133,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					}
 					st.messages = append(st.messages,
 						llm.Message{Role: "assistant", Content: result.Text},
-						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\" (or \"final_answer\"). Try again."},
+						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\". Try again."},
 					)
 					continue
 				}
@@ -156,8 +156,19 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		switch resp.Type {
 		case TypePlan:
 			p := resp.PlanPayload()
+			NormalizePlanSteps(p)
 			st.agentCtx.Plan = p
 			log.Info("plan", "step", step, "steps", len(p.Steps))
+			if e.onPlanStepUpdate != nil {
+				if startedIdx, startedStep, ok := CurrentPlanStep(p); ok {
+					e.onPlanStepUpdate(st.agentCtx, PlanStepUpdate{
+						CompletedIndex: -1,
+						StartedIndex:   startedIdx,
+						StartedStep:    startedStep,
+						Reason:         "plan_created",
+					})
+				}
+			}
 			if e.logOpts.IncludeThoughts {
 				thought := truncateString(p.Thought, e.logOpts.MaxThoughtChars)
 				log.Info("plan_thought", "step", step, "thought", thought)
@@ -330,8 +341,19 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 
 				if toolErr == nil && tc.Name == "plan_create" && st.agentCtx.Plan == nil {
 					if plan := parsePlanCreateObservation(observation); plan != nil {
+						NormalizePlanSteps(plan)
 						st.agentCtx.Plan = plan
 						log.Info("plan", "step", step, "steps", len(plan.Steps))
+						if e.onPlanStepUpdate != nil {
+							if startedIdx, startedStep, ok := CurrentPlanStep(plan); ok {
+								e.onPlanStepUpdate(st.agentCtx, PlanStepUpdate{
+									CompletedIndex: -1,
+									StartedIndex:   startedIdx,
+									StartedStep:    startedStep,
+									Reason:         "plan_created",
+								})
+							}
+						}
 					} else {
 						log.Warn("plan_create_parse_failed", "step", step)
 					}

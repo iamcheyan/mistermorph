@@ -253,7 +253,7 @@ func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate
 	if runCtx == nil || runCtx.Plan == nil {
 		return ""
 	}
-	if update.CompletedIndex < 0 {
+	if update.CompletedIndex < 0 && update.StartedIndex < 0 {
 		return ""
 	}
 	total := len(runCtx.Plan.Steps)

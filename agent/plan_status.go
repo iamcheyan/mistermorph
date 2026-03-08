@@ -88,6 +88,24 @@ func AdvancePlanOnSuccess(p *Plan) (completedIndex int, completedStep string, st
 	return completedIndex, completedStep, startedIndex, startedStep, cur != -1
 }
 
+func CurrentPlanStep(p *Plan) (index int, step string, ok bool) {
+	if p == nil || len(p.Steps) == 0 {
+		return -1, "", false
+	}
+
+	for i := range p.Steps {
+		if p.Steps[i].Status == PlanStatusInProgress {
+			return i, p.Steps[i].Step, true
+		}
+	}
+	for i := range p.Steps {
+		if p.Steps[i].Status == PlanStatusPending {
+			return i, p.Steps[i].Step, true
+		}
+	}
+	return -1, "", false
+}
+
 func CompleteAllPlanSteps(p *Plan) {
 	if p == nil {
 		return

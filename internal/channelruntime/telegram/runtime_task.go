@@ -269,7 +269,10 @@ func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client,
 	_ = task
 	_ = requestTimeout
 
-	if plan == nil || update.CompletedIndex < 0 {
+	if plan == nil {
+		return "", nil
+	}
+	if update.CompletedIndex < 0 && update.StartedIndex < 0 {
 		return "", nil
 	}
 	stepText := firstNonEmpty(

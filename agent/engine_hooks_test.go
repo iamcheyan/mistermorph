@@ -110,7 +110,7 @@ func (t *scriptedTool) Execute(_ context.Context, _ map[string]any) (string, err
 
 func finalResponse(output string) llm.Result {
 	return llm.Result{
-		Text: fmt.Sprintf(`{"type":"final","final":{"thought":"t","output":"%s"}}`, output),
+		Text: fmt.Sprintf(`{"type":"final","reasoning":"t","output":"%s"}`, output),
 	}
 }
 
@@ -570,7 +570,7 @@ func TestOnToolSuccess_NotCalledForUnknownTool(t *testing.T) {
 }
 
 func TestRawFinalAnswer_SetOnContext(t *testing.T) {
-	resp := `{"type":"final","final":{"thought":"done","output":"result","custom_field":42}}`
+	resp := `{"type":"final","reasoning":"done","output":"result","custom_field":42}`
 	client := newMockClient(llm.Result{Text: resp})
 
 	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
@@ -593,7 +593,7 @@ func TestRawFinalAnswer_SetOnContext(t *testing.T) {
 }
 
 func TestRawFinalAnswer_SetForFinalAnswerType(t *testing.T) {
-	resp := `{"type":"final_answer","final_answer":{"thought":"done","output":"result","domain_data":"x"}}`
+	resp := `{"type":"final_answer","reasoning":"done","output":"result","domain_data":"x"}`
 	client := newMockClient(llm.Result{Text: resp})
 
 	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
@@ -612,6 +612,80 @@ func TestRawFinalAnswer_SetForFinalAnswerType(t *testing.T) {
 	}
 	if m["domain_data"] != "x" {
 		t.Errorf("expected domain_data='x', got %v", m["domain_data"])
+	}
+}
+
+func TestPlanStepUpdate_CalledWhenPlanResponseArrives(t *testing.T) {
+	client := newMockClient(
+		llm.Result{Text: `{"type":"plan","reasoning":"plan it","steps":[{"step":"collect data"},{"step":"summarize"}]}`},
+		finalResponse("done"),
+	)
+
+	var updates []PlanStepUpdate
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(),
+		WithPlanStepUpdate(func(_ *Context, update PlanStepUpdate) {
+			updates = append(updates, update)
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(updates) == 0 {
+		t.Fatal("expected at least one plan update")
+	}
+	if updates[0].CompletedIndex != -1 {
+		t.Fatalf("completed index = %d, want -1 for initial plan", updates[0].CompletedIndex)
+	}
+	if updates[0].StartedIndex != 0 {
+		t.Fatalf("started index = %d, want 0", updates[0].StartedIndex)
+	}
+	if updates[0].StartedStep != "collect data" {
+		t.Fatalf("started step = %q, want %q", updates[0].StartedStep, "collect data")
+	}
+	if updates[0].Reason != "plan_created" {
+		t.Fatalf("reason = %q, want %q", updates[0].Reason, "plan_created")
+	}
+}
+
+func TestPlanStepUpdate_CalledWhenPlanCreateSucceeds(t *testing.T) {
+	reg := baseRegistry()
+	reg.Register(&mockTool{
+		name:   "plan_create",
+		result: `{"plan":{"steps":[{"step":"collect data"},{"step":"summarize"}]}}`,
+	})
+
+	client := newMockClient(
+		toolCallResponse("plan_create"),
+		finalResponse("done"),
+	)
+
+	var updates []PlanStepUpdate
+	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
+		WithPlanStepUpdate(func(_ *Context, update PlanStepUpdate) {
+			updates = append(updates, update)
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(updates) == 0 {
+		t.Fatal("expected at least one plan update")
+	}
+	if updates[0].CompletedIndex != -1 {
+		t.Fatalf("completed index = %d, want -1 for initial plan", updates[0].CompletedIndex)
+	}
+	if updates[0].StartedIndex != 0 {
+		t.Fatalf("started index = %d, want 0", updates[0].StartedIndex)
+	}
+	if updates[0].StartedStep != "collect data" {
+		t.Fatalf("started step = %q, want %q", updates[0].StartedStep, "collect data")
+	}
+	if updates[0].Reason != "plan_created" {
+		t.Fatalf("reason = %q, want %q", updates[0].Reason, "plan_created")
 	}
 }
 
@@ -692,8 +766,8 @@ func TestFallbackFinal_UsedOnParseError(t *testing.T) {
 func TestFallbackFinal_UsedOnInvalidType(t *testing.T) {
 	// forceConclusion gets valid JSON but with non-final type → fallback used
 	client := newMockClient(
-		llm.Result{Text: "not json"},                            // main loop parse fail
-		llm.Result{Text: `{"type":"plan","plan":{"steps":[]}}`}, // forceConclusion: valid but wrong type
+		llm.Result{Text: "not json"},                   // main loop parse fail
+		llm.Result{Text: `{"type":"plan","steps":[]}`}, // forceConclusion: valid but wrong type
 	)
 	e := New(client, baseRegistry(), Config{MaxSteps: 5, ParseRetries: 0}, DefaultPromptSpec(),
 		WithFallbackFinal(func() *Final {
@@ -715,7 +789,7 @@ func TestFallbackFinal_UsedOnInvalidType(t *testing.T) {
 
 func TestForceConclusion_RawFinalAnswer_Set(t *testing.T) {
 	// Main loop exhausts with parse failure, forceConclusion succeeds with final
-	resp := `{"type":"final","final":{"thought":"forced","output":"result","extra":true}}`
+	resp := `{"type":"final","reasoning":"forced","output":"result","extra":true}`
 	client := newMockClient(
 		llm.Result{Text: "not json"}, // main loop parse fail
 		llm.Result{Text: resp},       // forceConclusion succeeds

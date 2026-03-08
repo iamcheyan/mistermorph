@@ -17,11 +17,9 @@ func TestAgentResponseHasRawFinalAnswerField(t *testing.T) {
 func TestParseFinalAnswerPopulatesRawFinalAnswer(t *testing.T) {
 	input := `{
 		"type": "final_answer",
-		"final_answer": {
-			"thought": "done",
-			"output": "hello",
-			"sources": ["a", "b"]
-		}
+		"reasoning": "done",
+		"output": "hello",
+		"sources": ["a", "b"]
 	}`
 	result := llm.Result{Text: input}
 	resp, err := ParseResponse(result)
@@ -32,13 +30,13 @@ func TestParseFinalAnswerPopulatesRawFinalAnswer(t *testing.T) {
 		t.Fatal("expected RawFinalAnswer to be populated")
 	}
 
-	// RawFinalAnswer should contain the raw JSON of the final_answer object
+	// RawFinalAnswer should contain the raw JSON payload without the top-level type.
 	var m map[string]any
 	if err := json.Unmarshal(resp.RawFinalAnswer, &m); err != nil {
 		t.Fatalf("RawFinalAnswer is not valid JSON: %v", err)
 	}
-	if m["thought"] != "done" {
-		t.Errorf("expected thought='done', got %v", m["thought"])
+	if m["reasoning"] != "done" {
+		t.Errorf("expected reasoning='done', got %v", m["reasoning"])
 	}
 	// Domain-specific field should be preserved
 	sources, ok := m["sources"]
@@ -54,11 +52,9 @@ func TestParseFinalAnswerPopulatesRawFinalAnswer(t *testing.T) {
 func TestParseFinalPopulatesRawFinalAnswer(t *testing.T) {
 	input := `{
 		"type": "final",
-		"final": {
-			"thought": "done",
-			"output": "result",
-			"truth_assessment": 0.95
-		}
+		"reasoning": "done",
+		"output": "result",
+		"truth_assessment": 0.95
 	}`
 	result := llm.Result{Text: input}
 	resp, err := ParseResponse(result)
