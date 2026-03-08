@@ -79,3 +79,33 @@ func TestTelegramMemoryParticipantsFallbackToNumericSenderID(t *testing.T) {
 		t.Fatalf("sender participant = %#v, want id=28036192 nickname=Lyric protocol=tg", got[0])
 	}
 }
+
+func TestBuildMemoryCounterpartyLabel(t *testing.T) {
+	t.Run("formats markdown ref from contact meta", func(t *testing.T) {
+		got := buildMemoryCounterpartyLabel(memory.WriteMeta{
+			ContactIDs:       []string{"tg:@alice"},
+			ContactNicknames: []string{"Alice"},
+		}, MemoryDraftContext{})
+		if got != "[Alice](tg:@alice)" {
+			t.Fatalf("counterparty_label = %q, want %q", got, "[Alice](tg:@alice)")
+		}
+	})
+
+	t.Run("falls back to handle in display ref style", func(t *testing.T) {
+		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, MemoryDraftContext{
+			CounterpartyHandle: "@alice",
+		})
+		if got != "[alice](tg:@alice)" {
+			t.Fatalf("counterparty_label = %q, want %q", got, "[alice](tg:@alice)")
+		}
+	})
+
+	t.Run("keeps plain nickname when no reference id exists", func(t *testing.T) {
+		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, MemoryDraftContext{
+			CounterpartyName: "Alice",
+		})
+		if got != "Alice" {
+			t.Fatalf("counterparty_label = %q, want %q", got, "Alice")
+		}
+	})
+}

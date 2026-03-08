@@ -200,6 +200,7 @@ func New(deps Dependencies) *cobra.Command {
 
 			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
+			ctx = llmstats.WithScene(ctx, "cli.loop")
 			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, Meta: runMeta})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {

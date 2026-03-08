@@ -37,6 +37,8 @@ type memoryDraftUserPromptData struct {
 	ExistingSummaryItems []memory.SummaryItem
 }
 
+const memoryDraftExistingSummaryItemsLimit = 5
+
 func renderMemoryDraftPrompts(
 	ctxInfo MemoryDraftContext,
 	history []chathistory.ChatHistoryItem,
@@ -53,10 +55,20 @@ func renderMemoryDraftPrompts(
 		ChatHistoryMessages:  chathistory.BuildMessages(chathistory.ChannelTelegram, history),
 		CurrentTask:          task,
 		CurrentOutput:        output,
-		ExistingSummaryItems: existing.SummaryItems,
+		ExistingSummaryItems: recentSummaryItems(existing.SummaryItems, memoryDraftExistingSummaryItemsLimit),
 	})
 	if err != nil {
 		return "", "", err
 	}
 	return systemPrompt, userPrompt, nil
+}
+
+func recentSummaryItems(items []memory.SummaryItem, limit int) []memory.SummaryItem {
+	if len(items) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(items) <= limit {
+		return append([]memory.SummaryItem(nil), items...)
+	}
+	return append([]memory.SummaryItem(nil), items[len(items)-limit:]...)
 }

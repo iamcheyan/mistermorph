@@ -246,22 +246,26 @@ type MemoryDraftContext struct {
 func buildMemoryCounterpartyLabel(meta memory.WriteMeta, ctxInfo MemoryDraftContext) string {
 	contactID := firstNonEmptyString(meta.ContactIDs...)
 	if contactID == "" {
-		contactID = strings.TrimSpace(ctxInfo.CounterpartyHandle)
+		handle := strings.TrimPrefix(strings.TrimSpace(ctxInfo.CounterpartyHandle), "@")
+		if handle != "" {
+			contactID = "tg:@" + handle
+		}
 	}
 	nickname := firstNonEmptyString(meta.ContactNicknames...)
 	if nickname == "" {
 		nickname = strings.TrimSpace(ctxInfo.CounterpartyName)
 	}
+	if nickname == "" {
+		nickname = strings.TrimPrefix(strings.TrimPrefix(contactID, "tg:@"), "tg:")
+	}
+	nickname = sanitizeTelegramReferenceLabel(nickname)
 	if nickname != "" && contactID != "" {
-		if strings.EqualFold(nickname, contactID) {
-			return nickname
-		}
-		return nickname + "(" + contactID + ")"
+		return "[" + nickname + "](" + contactID + ")"
 	}
 	if nickname != "" {
 		return nickname
 	}
-	return contactID
+	return strings.TrimSpace(contactID)
 }
 
 func firstNonEmptyString(values ...string) string {

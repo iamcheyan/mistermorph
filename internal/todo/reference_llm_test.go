@@ -64,7 +64,7 @@ func TestLLMReferenceResolverResolveAddContentOK(t *testing.T) {
 	if runtime == nil {
 		t.Fatalf("missing runtime payload")
 	}
-	for _, key := range []string{"now_utc", "now_local", "timezone", "utc_offset"} {
+	for _, key := range []string{"now_utc", "now_local"} {
 		v, _ := runtime[key].(string)
 		if strings.TrimSpace(v) == "" {
 			t.Fatalf("missing runtime clock field %q in runtime payload: %#v", key, runtime)

@@ -119,7 +119,7 @@ func (r *LLMReferenceResolver) ResolveAddContent(ctx context.Context, content st
 		"Use `content` as the target text to rewrite.",
 		"Use `contacts` as the primary list of people to resolve.",
 		"Use `input_raw` and `runtime` context for disambiguation.",
-		"If `input_raw` mentions a time (explicit or relative), resolve it with current time context in `runtime` (now_local/timezone/utc_offset) and rewrite it as exact `YYYY-MM-DD hh:mm`.",
+		"If `input_raw` mentions a time (explicit or relative), resolve it with current time context in `runtime` (now_local/now_utc) and rewrite it as exact `YYYY-MM-DD hh:mm`.",
 		"Must consider first-person references with speaker context: ",
 		"- if the speaker mention themselves (like 'I', 'me', '$SPEAKER'), resolve to their own contact if available; similarly, resolve mentions of the speaker's direct interlocutors to those contacts if available;",
 		"Attach IDs as `[Name](protocol:id)`, where id may be from reachable_ids, example input:",

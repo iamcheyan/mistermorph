@@ -446,6 +446,7 @@ func errorsIsContextDeadline(ctx context.Context, err error) bool {
 
 func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, task string, model string, meta map[string]any, skillsCfg skillsutil.SkillsConfig, requireSkillProfiles bool) (*agent.Final, *agent.Context, error) {
 	ctx = llmstats.WithRunID(ctx, llmstats.NewSyntheticRunID("daemon"))
+	ctx = llmstats.WithScene(ctx, "daemon.loop")
 	skillsCfg.Roots = append([]string(nil), skillsCfg.Roots...)
 	skillsCfg.Requested = append([]string(nil), skillsCfg.Requested...)
 	promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
@@ -469,6 +470,7 @@ func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptio
 }
 
 func resumeOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, approvalRequestID string) (*agent.Final, *agent.Context, error) {
+	ctx = llmstats.WithScene(ctx, "daemon.resume")
 	promptSpec := agent.DefaultPromptSpec()
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)

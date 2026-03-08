@@ -46,6 +46,7 @@ func runLineTask(
 	runtimeOpts runtimeTaskOptions,
 ) (*agent.Final, *agent.Context, []string, error) {
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = llmstats.WithScene(ctx, "line.loop")
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")

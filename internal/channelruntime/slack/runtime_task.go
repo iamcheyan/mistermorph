@@ -53,6 +53,7 @@ func runSlackTask(
 	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = llmstats.WithScene(ctx, "slack.loop")
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
