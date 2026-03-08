@@ -45,8 +45,11 @@ func TestAppendSlackRuntimeBlocks_DM(t *testing.T) {
 	if !strings.Contains(spec.Blocks[0].Content, "[[ Slack Policies ]]") {
 		t.Fatalf("slack policy heading missing: %q", spec.Blocks[0].Content)
 	}
-	if !strings.Contains(spec.Blocks[0].Content, "[[ Slack DM Policies ]]") {
-		t.Fatalf("dm policy block missing marker: %q", spec.Blocks[0].Content)
+	if strings.Contains(spec.Blocks[0].Content, "[[ Slack Group Policies ]]") {
+		t.Fatalf("group policy block should be omitted in dm: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "Be direct and actionable.") {
+		t.Fatalf("dm policy text missing: %q", spec.Blocks[0].Content)
 	}
 	if strings.Contains(spec.Blocks[0].Content, "Use only these emoji names for `message_react`:") {
 		t.Fatalf("emoji list line should be omitted when list is empty: %q", spec.Blocks[0].Content)
@@ -96,8 +99,11 @@ func TestAppendLineRuntimeBlocks_Private(t *testing.T) {
 	if !strings.Contains(spec.Blocks[0].Content, "[[ LINE Policies ]]") {
 		t.Fatalf("line policy heading missing: %q", spec.Blocks[0].Content)
 	}
-	if !strings.Contains(spec.Blocks[0].Content, "[[ LINE Private Policies ]]") {
-		t.Fatalf("private policy block missing marker: %q", spec.Blocks[0].Content)
+	if strings.Contains(spec.Blocks[0].Content, "[[ LINE Group Policies ]]") {
+		t.Fatalf("group policy block should be omitted in private chat: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "Reply in concise, natural language.") {
+		t.Fatalf("private policy text missing: %q", spec.Blocks[0].Content)
 	}
 }
 
@@ -128,7 +134,10 @@ func TestAppendLarkRuntimeBlocks_Private(t *testing.T) {
 	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Policies ]]") {
 		t.Fatalf("lark policy heading missing: %q", spec.Blocks[0].Content)
 	}
-	if !strings.Contains(spec.Blocks[0].Content, "[[ Lark Private Policies ]]") {
-		t.Fatalf("private policy block missing marker: %q", spec.Blocks[0].Content)
+	if strings.Contains(spec.Blocks[0].Content, "[[ Lark Group Policies ]]") {
+		t.Fatalf("group policy block should be omitted in private chat: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "Send one coherent reply per inbound message; avoid fragmented follow-ups.") {
+		t.Fatalf("private policy text missing: %q", spec.Blocks[0].Content)
 	}
 }
