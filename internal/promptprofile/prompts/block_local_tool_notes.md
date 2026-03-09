@@ -9,6 +9,5 @@
   usage: "file_state_dir/scripts/get_weather.sh <location>"
 ```
 
->>> BEGIN OF SCRIPTS.md <<<
+[SCRIPTS.md]
 {{.ScriptsNotes}}
->>> END OF SCRIPTS.md <<<
