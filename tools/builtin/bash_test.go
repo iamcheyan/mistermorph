@@ -143,3 +143,43 @@ func TestBashTool_Execute_UsesWhitelistedEnvOnly(t *testing.T) {
 		t.Fatalf("bash env leaked mistermorph secret env: %q", out)
 	}
 }
+
+func TestBashTool_Execute_AllowsConfiguredExtraEnvVars(t *testing.T) {
+	t.Setenv("CUSTOM_API_BASE", "https://example.com")
+	t.Setenv("CUSTOM_HTTP_TIMEOUT", "15s")
+
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool.InjectedEnvVars = []string{"CUSTOM_API_BASE"}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "env | sort",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, "CUSTOM_API_BASE=https://example.com") {
+		t.Fatalf("expected allowed env var to be present, got %q", out)
+	}
+	if strings.Contains(out, "CUSTOM_HTTP_TIMEOUT=15s") {
+		t.Fatalf("unexpected non-allowed env var leaked: %q", out)
+	}
+}
+
+func TestNormalizeInjectedEnvVarName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{in: "FOO_BAR", want: "FOO_BAR"},
+		{in: " FOO_BAR ", want: "FOO_BAR"},
+		{in: "FOO1", want: "FOO1"},
+		{in: "1FOO", want: ""},
+		{in: "FOO-BAR", want: ""},
+		{in: "FOO BAR", want: ""},
+	}
+	for _, tc := range cases {
+		if got := normalizeInjectedEnvVarName(tc.in); got != tc.want {
+			t.Fatalf("normalizeInjectedEnvVarName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

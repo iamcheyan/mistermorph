@@ -45,6 +45,7 @@ func applyViperDefaults(v *viper.Viper) {
 	v.SetDefault("tools.bash.timeout", 30*time.Second)
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	v.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
+	v.SetDefault("tools.bash.injected_env_vars", []string{})
 	v.SetDefault("tools.url_fetch.enabled", true)
 	v.SetDefault("tools.url_fetch.timeout", 30*time.Second)
 	v.SetDefault("tools.url_fetch.max_bytes", int64(512*1024))

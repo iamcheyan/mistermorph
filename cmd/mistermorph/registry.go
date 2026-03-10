@@ -31,6 +31,7 @@ type registryConfig struct {
 	ToolsBashTimeout              time.Duration
 	ToolsBashMaxOutputBytes       int
 	ToolsBashDenyPaths            []string
+	ToolsBashInjectedEnvVars      []string
 	ToolsURLFetchEnabled          bool
 	ToolsURLFetchTimeout          time.Duration
 	ToolsURLFetchMaxBytes         int64
@@ -64,6 +65,7 @@ func applyRegistryViperDefaults() {
 	viper.SetDefault("tools.bash.timeout", 30*time.Second)
 	viper.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	viper.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
+	viper.SetDefault("tools.bash.injected_env_vars", []string{})
 
 	viper.SetDefault("tools.url_fetch.enabled", true)
 	viper.SetDefault("tools.url_fetch.timeout", 30*time.Second)
@@ -109,6 +111,7 @@ func loadRegistryConfigFromViper() registryConfig {
 		ToolsBashTimeout:              viper.GetDuration("tools.bash.timeout"),
 		ToolsBashMaxOutputBytes:       viper.GetInt("tools.bash.max_output_bytes"),
 		ToolsBashDenyPaths:            append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
+		ToolsBashInjectedEnvVars:      append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
 		ToolsURLFetchEnabled:          viper.GetBool("tools.url_fetch.enabled"),
 		ToolsURLFetchTimeout:          viper.GetDuration("tools.url_fetch.timeout"),
 		ToolsURLFetchMaxBytes:         viper.GetInt64("tools.url_fetch.max_bytes"),
@@ -195,10 +198,11 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			MaxBytes: cfg.ToolsWriteFileMaxBytes,
 		},
 		Bash: toolsutil.StaticBashConfig{
-			Enabled:        cfg.ToolsBashEnabled,
-			Timeout:        cfg.ToolsBashTimeout,
-			MaxOutputBytes: cfg.ToolsBashMaxOutputBytes,
-			DenyPaths:      append([]string(nil), cfg.ToolsBashDenyPaths...),
+			Enabled:         cfg.ToolsBashEnabled,
+			Timeout:         cfg.ToolsBashTimeout,
+			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
+			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
+			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
 		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,

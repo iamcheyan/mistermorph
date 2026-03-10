@@ -85,10 +85,11 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			MaxBytes: cfg.ToolsWriteFileMaxBytes,
 		},
 		Bash: toolsutil.StaticBashConfig{
-			Enabled:        cfg.ToolsBashEnabled,
-			Timeout:        cfg.ToolsBashTimeout,
-			MaxOutputBytes: cfg.ToolsBashMaxOutputBytes,
-			DenyPaths:      append([]string(nil), cfg.ToolsBashDenyPaths...),
+			Enabled:         cfg.ToolsBashEnabled,
+			Timeout:         cfg.ToolsBashTimeout,
+			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
+			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
+			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
 		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,

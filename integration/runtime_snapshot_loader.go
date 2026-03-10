@@ -94,6 +94,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsBashTimeout:              v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:       v.GetInt("tools.bash.max_output_bytes"),
 			ToolsBashDenyPaths:            append([]string(nil), v.GetStringSlice("tools.bash.deny_paths")...),
+			ToolsBashInjectedEnvVars:      append([]string(nil), v.GetStringSlice("tools.bash.injected_env_vars")...),
 			ToolsURLFetchEnabled:          v.GetBool("tools.url_fetch.enabled"),
 			ToolsURLFetchTimeout:          v.GetDuration("tools.url_fetch.timeout"),
 			ToolsURLFetchMaxBytes:         v.GetInt64("tools.url_fetch.max_bytes"),

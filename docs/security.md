@@ -47,7 +47,7 @@ Guard is a lightweight, content/workflow safety layer designed to complement (no
 M1 focuses on three high-value capabilities:
 
 - outbound destination allowlists (primarily `url_fetch`)
-- redaction for tool outputs and final outputs
+- redaction for tool outputs, final outputs, and audit summaries
 - async approvals and an audit trail (JSONL)
 
 ### Outbound allowlists
@@ -84,8 +84,65 @@ Guard redacts secret-like content **before it enters context/logs**:
 
 - tool observations (`ToolCallPost`)
 - final output (`OutputPublish`)
+- redacted audit summaries for selected actions (`read_file` path, `web_search` query, `url_fetch` URL, `bash` command, and `OutputPublish`)
 
-Built-in redactors cover common patterns (private key blocks, JWT-like strings, bearer tokens, and sensitive `key=value` forms). You can add extra regex patterns under `guard.redaction.patterns`.
+ASCII flow:
+
+```text
+                      +----------------------+
+                      |   tool pre summary   |
+                      | read_file/web_search |
+                      | url_fetch/bash params|
+                      +----------+-----------+
+                                 |
+                                 v
+                      +----------------------+
+                      | redactAuditValue(...)|
+                      +----------+-----------+
+                                 |
+                                 v
+                            audit JSONL
+
+
+tool output / final output
+          |
+          v
+  +----------------------+
+  | Guard Redactor       |
+  | - private keys       |
+  | - JWT-like strings   |
+  | - Bearer tokens      |
+  | - sensitive key=value|
+  | - MISTER_MORPH_* env |
+  +----------+-----------+
+             |
+             v
+   allow_with_redaction + redacted content
+             |
+             +--> model context / final publish / audit
+```
+
+Built-in redactors cover common patterns:
+
+- private key blocks
+- JWT-like strings
+- bearer tokens
+- sensitive `key=value` forms
+- `MISTER_MORPH_*` environment variable names and assignments
+
+For `MISTER_MORPH_*`, Guard redacts both the variable name and its value. For example:
+
+```text
+MISTER_MORPH_API_KEY=...
+```
+
+becomes:
+
+```text
+[redacted_env]=[redacted]
+```
+
+You can add extra regex patterns under `guard.redaction.patterns`.
 
 ### Async approvals and audit
 
@@ -194,6 +251,8 @@ MISTER_MORPH_SERVER_AUTH_TOKEN="..."
 - `url_fetch` rejects sensitive headers in user-provided `headers` to reduce accidental leaks.
 - `url_fetch` supports saving binary responses to `file_cache_dir` (instead of inlining bytes in the LLM context), which is recommended for PDFs.
 - When `secrets.enabled=true`, `bash` can still be enabled for local automation, but `curl` is rejected by default to avoid “bash + curl” carrying authenticated HTTP requests.
+- `bash` does not inherit the full daemon/parent environment. It runs with a small built-in allowlist (`PATH`, locale, shell/home, temp, XDG, and SSL cert vars) so `MISTER_MORPH_*` secrets are not exposed to subprocesses by default.
+- If a local workflow needs extra variables, inject them explicitly with `tools.bash.injected_env_vars`.
 
 ### Filesystem sandboxing
 

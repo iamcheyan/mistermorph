@@ -58,10 +58,11 @@ type StaticWriteFileConfig struct {
 }
 
 type StaticBashConfig struct {
-	Enabled        bool
-	Timeout        time.Duration
-	MaxOutputBytes int
-	DenyPaths      []string
+	Enabled         bool
+	Timeout         time.Duration
+	MaxOutputBytes  int
+	DenyPaths       []string
+	InjectedEnvVars []string
 }
 
 type StaticURLFetchConfig struct {
@@ -138,6 +139,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			strings.TrimSpace(cfg.Common.FileStateDir),
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
+		bt.InjectedEnvVars = append([]string(nil), cfg.Bash.InjectedEnvVars...)
 		if cfg.Common.SecretsEnabled {
 			// Safety default: allow bash for local automation, but deny curl to avoid "bash + curl" carrying auth.
 			bt.DenyTokens = append(bt.DenyTokens, "curl")

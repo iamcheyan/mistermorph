@@ -16,12 +16,13 @@ import (
 )
 
 type BashTool struct {
-	Enabled        bool
-	DefaultTimeout time.Duration
-	MaxOutputBytes int
-	BaseDirs       []string
-	DenyPaths      []string
-	DenyTokens     []string
+	Enabled         bool
+	DefaultTimeout  time.Duration
+	MaxOutputBytes  int
+	BaseDirs        []string
+	DenyPaths       []string
+	DenyTokens      []string
+	InjectedEnvVars []string
 }
 
 func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, baseDirs ...string) *BashTool {
@@ -113,7 +114,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = bashToolEnv()
+	cmd.Env = bashToolEnv(t.InjectedEnvVars)
 
 	var stdout limitedBuffer
 	var stderr limitedBuffer
@@ -150,12 +151,13 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	return b.String(), nil
 }
 
-func bashToolEnv() []string {
+func bashToolEnv(injected []string) []string {
 	pathValue := strings.TrimSpace(os.Getenv("PATH"))
 	if pathValue == "" {
 		pathValue = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	}
 	env := []string{"PATH=" + pathValue}
+	seen := map[string]bool{"PATH": true}
 	for _, key := range []string{
 		"HOME",
 		"LANG",
@@ -174,13 +176,46 @@ func bashToolEnv() []string {
 		"SSL_CERT_FILE",
 		"SSL_CERT_DIR",
 	} {
+		seen[key] = true
 		value, ok := os.LookupEnv(key)
 		if !ok || strings.TrimSpace(value) == "" {
 			continue
 		}
 		env = append(env, key+"="+value)
 	}
+	for _, raw := range injected {
+		key := normalizeInjectedEnvVarName(raw)
+		if key == "" || seen[key] {
+			continue
+		}
+		value, ok := os.LookupEnv(key)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		seen[key] = true
+		env = append(env, key+"="+value)
+	}
 	return env
+}
+
+func normalizeInjectedEnvVarName(raw string) string {
+	key := strings.TrimSpace(raw)
+	if key == "" {
+		return ""
+	}
+	for i, r := range key {
+		switch {
+		case r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'):
+			if i == 0 {
+				continue
+			}
+		case i > 0 && r >= '0' && r <= '9':
+			continue
+		default:
+			return ""
+		}
+	}
+	return key
 }
 
 func (t *BashTool) resolveCWD(raw string) (string, error) {

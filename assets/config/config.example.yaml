@@ -200,6 +200,9 @@ tools:
     # (Best-effort string match; not a full sandbox.)
     deny_paths:
       - "config.yaml"
+    # Extra environment variable names to inject into bash execution.
+    # These are added on top of the built-in safe env allowlist.
+    injected_env_vars: [] # e.g. ["OPENAI_API_BASE", "HTTP_TIMEOUT"]
 
 # Markdown-based memory
 memory:

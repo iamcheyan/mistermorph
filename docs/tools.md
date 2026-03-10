@@ -138,6 +138,8 @@ Constraints:
 
 - Can be disabled via `tools.bash.enabled`.
 - Restricted by `tools.bash.deny_paths` and internal deny-token rules.
+- Runs with an allowlisted environment instead of inheriting the full parent process environment.
+- Extra environment variables can be injected explicitly via `tools.bash.injected_env_vars`.
 
 ## `url_fetch`
 
