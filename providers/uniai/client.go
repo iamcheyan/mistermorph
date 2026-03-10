@@ -22,7 +22,10 @@ type Config struct {
 	APIKey   string
 	Model    string
 
-	RequestTimeout time.Duration
+	RequestTimeout  time.Duration
+	Temperature     *float64
+	ReasoningEffort string
+	ReasoningBudget *int
 
 	ToolsEmulationMode  string
 	AzureAPIKey         string
@@ -43,6 +46,9 @@ type Client struct {
 	provider           string
 	model              string
 	requestTimeout     time.Duration
+	temperature        *float64
+	reasoningEffort    string
+	reasoningBudget    *int
 	toolsEmulationMode uniaiapi.ToolsEmulationMode
 	client             *uniaiapi.Client
 	debugFn            func(label, payload string)
@@ -91,6 +97,9 @@ func New(cfg Config) *Client {
 		provider:           provider,
 		model:              strings.TrimSpace(cfg.Model),
 		requestTimeout:     cfg.RequestTimeout,
+		temperature:        cloneFloat64(cfg.Temperature),
+		reasoningEffort:    strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort)),
+		reasoningBudget:    cloneInt(cfg.ReasoningBudget),
 		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
 		client:             uniaiapi.New(uCfg),
 	}
@@ -104,13 +113,13 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		defer cancel()
 	}
 
-	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.debugFn, req.OnStream)
+	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget, c.debugFn, req.OnStream)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
 		c.emitChatError(err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.debugFn, req.OnStream)
+		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget, c.debugFn, req.OnStream)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
 			c.emitChatError(err, false, 2)
@@ -148,7 +157,7 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, debugFn func(label, payload string), onStream llm.StreamHandler) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int, debugFn func(label, payload string), onStream llm.StreamHandler) []uniaiapi.ChatOption {
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
@@ -219,8 +228,14 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 			opts = append(opts, uniaiapi.WithUser(strings.TrimSpace(v)))
 		}
 	}
-	if !appliedTemperature {
-		opts = append(opts, uniaiapi.WithTemperature(0))
+	if !appliedTemperature && defaultTemperature != nil {
+		opts = append(opts, uniaiapi.WithTemperature(*defaultTemperature))
+	}
+	if effort := strings.TrimSpace(defaultReasoningEffort); effort != "" {
+		opts = append(opts, uniaiapi.WithReasoningEffort(uniaiapi.ReasoningEffort(effort)))
+	}
+	if defaultReasoningBudget != nil {
+		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
 	if forceJSON {
@@ -258,6 +273,22 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	}
 
 	return opts
+}
+
+func cloneFloat64(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
+}
+
+func cloneInt(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
 }
 
 func normalizeToolsEmulationMode(mode string) uniaiapi.ToolsEmulationMode {

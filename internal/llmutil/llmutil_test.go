@@ -71,3 +71,45 @@ func TestClientFromConfigWithValues_InvalidToolsMode(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestClientFromConfigWithValues_InvalidTemperature(t *testing.T) {
+	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider: "openai",
+	}, RuntimeValues{
+		TemperatureRaw: "abc",
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid temperature")
+	}
+	if !strings.Contains(err.Error(), "llm.temperature") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClientFromConfigWithValues_InvalidReasoningEffort(t *testing.T) {
+	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider: "openai",
+	}, RuntimeValues{
+		ReasoningEffortRaw: "extreme",
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid reasoning effort")
+	}
+	if !strings.Contains(err.Error(), "llm.reasoning_effort") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClientFromConfigWithValues_InvalidReasoningBudget(t *testing.T) {
+	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider: "openai",
+	}, RuntimeValues{
+		ReasoningBudgetRaw: "8k",
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid reasoning budget")
+	}
+	if !strings.Contains(err.Error(), "llm.reasoning_budget_tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

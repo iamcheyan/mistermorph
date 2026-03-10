@@ -21,6 +21,13 @@ llm:
   api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
+  # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
+  # temperature: 0.2
+  # Optional default reasoning effort. If empty/unset, do not call uniai.WithReasoningEffort(...).
+  # Values: none | minimal | low | medium | high | max | xhigh
+  reasoning_effort: ""
+  # Optional default reasoning budget tokens. If empty/unset, do not call uniai.WithReasoningBudgetTokens(...).
+  # reasoning_budget_tokens: 8192
   # Tool-call emulation mode for providers/models without native tool calling.
   # Values: off | fallback | force
   tools_emulation_mode: "off"

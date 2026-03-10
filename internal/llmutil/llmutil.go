@@ -2,6 +2,7 @@ package llmutil
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -21,6 +22,9 @@ type RuntimeValues struct {
 	Model              string
 	AzureDeployment    string
 	ToolsEmulationMode string
+	TemperatureRaw     string
+	ReasoningEffortRaw string
+	ReasoningBudgetRaw string
 
 	BedrockAWSKey       string
 	BedrockAWSSecret    string
@@ -41,6 +45,9 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Model:               strings.TrimSpace(r.GetString("llm.model")),
 		AzureDeployment:     strings.TrimSpace(r.GetString("llm.azure.deployment")),
 		ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
 		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
 		BedrockAWSSecret:    firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
 		BedrockAWSRegion:    firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
@@ -101,6 +108,18 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if err != nil {
 		return nil, err
 	}
+	temperature, err := optionalFloat64FromValue(values.TemperatureRaw, "llm.temperature")
+	if err != nil {
+		return nil, err
+	}
+	reasoningEffort, err := reasoningEffortFromValue(values.ReasoningEffortRaw)
+	if err != nil {
+		return nil, err
+	}
+	reasoningBudget, err := optionalIntFromValue(values.ReasoningBudgetRaw, "llm.reasoning_budget_tokens")
+	if err != nil {
+		return nil, err
+	}
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "openai", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c := uniaiProvider.New(uniaiProvider.Config{
@@ -110,6 +129,9 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Model:              strings.TrimSpace(cfg.Model),
 			RequestTimeout:     cfg.RequestTimeout,
 			ToolsEmulationMode: toolsEmulationMode,
+			Temperature:        temperature,
+			ReasoningEffort:    reasoningEffort,
+			ReasoningBudget:    reasoningBudget,
 			AzureAPIKey:        strings.TrimSpace(cfg.APIKey),
 			AzureEndpoint:      strings.TrimSpace(cfg.Endpoint),
 			AzureDeployment:    strings.TrimSpace(cfg.Model),
@@ -142,6 +164,43 @@ func toolsEmulationModeFromValue(raw string) (string, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("invalid llm.tools_emulation_mode %q (expected off|fallback|force)", mode)
+	}
+}
+
+func optionalFloat64FromValue(raw, path string) (*float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s %q", path, raw)
+	}
+	return &v, nil
+}
+
+func optionalIntFromValue(raw, path string) (*int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s %q", path, raw)
+	}
+	return &v, nil
+}
+
+func reasoningEffortFromValue(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return "", nil
+	}
+	switch value {
+	case "none", "minimal", "low", "medium", "high", "max", "xhigh":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid llm.reasoning_effort %q (expected none|minimal|low|medium|high|max|xhigh)", raw)
 	}
 }
 
