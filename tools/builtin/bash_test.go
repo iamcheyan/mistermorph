@@ -120,3 +120,26 @@ func TestBashTool_Execute_PathAliasMissingBaseDir(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestBashTool_Execute_UsesWhitelistedEnvOnly(t *testing.T) {
+	t.Setenv("HOME", "/tmp/mm-home")
+	t.Setenv("LANG", "C.UTF-8")
+	t.Setenv("MISTER_MORPH_API_KEY", "secret_value_should_not_leak")
+
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "env | sort",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, "HOME=/tmp/mm-home") {
+		t.Fatalf("expected HOME to be preserved, got %q", out)
+	}
+	if !strings.Contains(out, "LANG=C.UTF-8") {
+		t.Fatalf("expected LANG to be preserved, got %q", out)
+	}
+	if strings.Contains(out, "MISTER_MORPH_API_KEY") || strings.Contains(out, "secret_value_should_not_leak") {
+		t.Fatalf("bash env leaked mistermorph secret env: %q", out)
+	}
+}

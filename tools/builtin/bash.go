@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -112,6 +113,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	cmd.Env = bashToolEnv()
 
 	var stdout limitedBuffer
 	var stderr limitedBuffer
@@ -146,6 +148,39 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 		return b.String(), fmt.Errorf("bash exited with code %d", exitCode)
 	}
 	return b.String(), nil
+}
+
+func bashToolEnv() []string {
+	pathValue := strings.TrimSpace(os.Getenv("PATH"))
+	if pathValue == "" {
+		pathValue = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	}
+	env := []string{"PATH=" + pathValue}
+	for _, key := range []string{
+		"HOME",
+		"LANG",
+		"LC_ALL",
+		"LC_CTYPE",
+		"TERM",
+		"TZ",
+		"TMPDIR",
+		"USER",
+		"LOGNAME",
+		"SHELL",
+		"XDG_CONFIG_HOME",
+		"XDG_CACHE_HOME",
+		"XDG_DATA_HOME",
+		"XDG_RUNTIME_DIR",
+		"SSL_CERT_FILE",
+		"SSL_CERT_DIR",
+	} {
+		value, ok := os.LookupEnv(key)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		env = append(env, key+"="+value)
+	}
+	return env
 }
 
 func (t *BashTool) resolveCWD(raw string) (string, error) {

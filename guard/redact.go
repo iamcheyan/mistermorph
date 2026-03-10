@@ -22,6 +22,8 @@ func NewRedactor(cfg RedactionConfig) *Redactor {
 		mustNamed("private_key_block", regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)),
 		mustNamed("jwt_like", regexp.MustCompile(`(?m)\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)),
 		mustNamed("bearer_line", regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._-]{10,}\b`)),
+		mustNamed("mister_morph_env_kv", regexp.MustCompile(`\b(MISTER_MORPH_[A-Za-z0-9_]{1,64})(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s]+)`)),
+		mustNamed("mister_morph_env_name", regexp.MustCompile(`\bMISTER_MORPH_[A-Za-z0-9_]{1,64}\b`)),
 		mustNamed("simple_kv", regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]{1,32})(\s*[:=]\s*)([A-Za-z0-9._-]{12,})`)),
 	)
 
@@ -59,12 +61,14 @@ func (r *Redactor) RedactString(s string) (string, bool) {
 	redacted = r.replacePrivateKeyBlocks(redacted)
 	redacted = r.replaceJWT(redacted)
 	redacted = r.replaceBearer(redacted)
+	redacted = r.replaceMisterMorphEnvKV(redacted)
 	redacted = r.replaceSensitiveKV(redacted)
+	redacted = r.replaceMisterMorphEnvNames(redacted)
 
 	// Apply custom patterns last.
 	for _, p := range r.patterns {
 		switch p.name {
-		case "private_key_block", "jwt_like", "bearer_line", "simple_kv":
+		case "private_key_block", "jwt_like", "bearer_line", "mister_morph_env_kv", "mister_morph_env_name", "simple_kv":
 			continue
 		default:
 			redacted = p.re.ReplaceAllString(redacted, "[redacted]")
@@ -98,6 +102,20 @@ func (r *Redactor) replaceBearer(s string) string {
 	return re.ReplaceAllString(s, "Bearer [redacted]")
 }
 
+func (r *Redactor) replaceMisterMorphEnvKV(s string) string {
+	re := r.find("mister_morph_env_kv")
+	if re == nil {
+		return s
+	}
+	return re.ReplaceAllStringFunc(s, func(m string) string {
+		sub := re.FindStringSubmatch(m)
+		if len(sub) != 4 {
+			return m
+		}
+		return "[redacted_env]" + sub[2] + "[redacted]"
+	})
+}
+
 func (r *Redactor) replaceSensitiveKV(s string) string {
 	re := r.find("simple_kv")
 	if re == nil {
@@ -114,6 +132,14 @@ func (r *Redactor) replaceSensitiveKV(s string) string {
 		}
 		return key + sub[2] + "[redacted]"
 	})
+}
+
+func (r *Redactor) replaceMisterMorphEnvNames(s string) string {
+	re := r.find("mister_morph_env_name")
+	if re == nil {
+		return s
+	}
+	return re.ReplaceAllString(s, "[redacted_env]")
 }
 
 func (r *Redactor) find(name string) *regexp.Regexp {
