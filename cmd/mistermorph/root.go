@@ -22,7 +22,6 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -106,25 +105,12 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(daemoncmd.NewSubmitCmd())
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
-		Logger:     logutil.LoggerFromViper,
-		LogOptions: logutil.LogOptionsFromViper,
-		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-			return telegramLLM.CreateClient(provider, endpoint, apiKey, model, timeout)
-		},
-		LLMProvider: func() string {
-			return telegramLLM.Provider()
-		},
-		LLMEndpointForProvider: func(provider string) string {
-			return telegramLLM.EndpointForProvider(provider)
-		},
-		LLMAPIKeyForProvider: func(provider string) string {
-			return telegramLLM.APIKeyForProvider(provider)
-		},
-		LLMModelForProvider: func(provider string) string {
-			return telegramLLM.ModelForProvider(provider)
-		},
-		Registry: registryResolver.Registry,
-		Guard:    guardResolver.Guard,
+		Logger:          logutil.LoggerFromViper,
+		LogOptions:      logutil.LogOptionsFromViper,
+		ResolveLLMRoute: telegramLLM.ResolveRoute,
+		CreateLLMClient: telegramLLM.CreateClient,
+		Registry:        registryResolver.Registry,
+		Guard:           guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := telegramSkills.Config()
 			if len(stickySkills) > 0 {
@@ -146,25 +132,12 @@ func newRootCmd() *cobra.Command {
 	larkSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
-		Logger:     logutil.LoggerFromViper,
-		LogOptions: logutil.LogOptionsFromViper,
-		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-			return slackLLM.CreateClient(provider, endpoint, apiKey, model, timeout)
-		},
-		LLMProvider: func() string {
-			return slackLLM.Provider()
-		},
-		LLMEndpointForProvider: func(provider string) string {
-			return slackLLM.EndpointForProvider(provider)
-		},
-		LLMAPIKeyForProvider: func(provider string) string {
-			return slackLLM.APIKeyForProvider(provider)
-		},
-		LLMModelForProvider: func(provider string) string {
-			return slackLLM.ModelForProvider(provider)
-		},
-		Registry: registryResolver.Registry,
-		Guard:    guardResolver.Guard,
+		Logger:          logutil.LoggerFromViper,
+		LogOptions:      logutil.LogOptionsFromViper,
+		ResolveLLMRoute: slackLLM.ResolveRoute,
+		CreateLLMClient: slackLLM.CreateClient,
+		Registry:        registryResolver.Registry,
+		Guard:           guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := slackSkills.Config()
 			if len(stickySkills) > 0 {
@@ -178,25 +151,12 @@ func newRootCmd() *cobra.Command {
 		},
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
-		Logger:     logutil.LoggerFromViper,
-		LogOptions: logutil.LogOptionsFromViper,
-		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-			return lineLLM.CreateClient(provider, endpoint, apiKey, model, timeout)
-		},
-		LLMProvider: func() string {
-			return lineLLM.Provider()
-		},
-		LLMEndpointForProvider: func(provider string) string {
-			return lineLLM.EndpointForProvider(provider)
-		},
-		LLMAPIKeyForProvider: func(provider string) string {
-			return lineLLM.APIKeyForProvider(provider)
-		},
-		LLMModelForProvider: func(provider string) string {
-			return lineLLM.ModelForProvider(provider)
-		},
-		Registry: registryResolver.Registry,
-		Guard:    guardResolver.Guard,
+		Logger:          logutil.LoggerFromViper,
+		LogOptions:      logutil.LogOptionsFromViper,
+		ResolveLLMRoute: lineLLM.ResolveRoute,
+		CreateLLMClient: lineLLM.CreateClient,
+		Registry:        registryResolver.Registry,
+		Guard:           guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := lineSkills.Config()
 			if len(stickySkills) > 0 {
@@ -210,25 +170,12 @@ func newRootCmd() *cobra.Command {
 		},
 	}))
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
-		Logger:     logutil.LoggerFromViper,
-		LogOptions: logutil.LogOptionsFromViper,
-		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-			return larkLLM.CreateClient(provider, endpoint, apiKey, model, timeout)
-		},
-		LLMProvider: func() string {
-			return larkLLM.Provider()
-		},
-		LLMEndpointForProvider: func(provider string) string {
-			return larkLLM.EndpointForProvider(provider)
-		},
-		LLMAPIKeyForProvider: func(provider string) string {
-			return larkLLM.APIKeyForProvider(provider)
-		},
-		LLMModelForProvider: func(provider string) string {
-			return larkLLM.ModelForProvider(provider)
-		},
-		Registry: registryResolver.Registry,
-		Guard:    guardResolver.Guard,
+		Logger:          logutil.LoggerFromViper,
+		LogOptions:      logutil.LogOptionsFromViper,
+		ResolveLLMRoute: larkLLM.ResolveRoute,
+		CreateLLMClient: larkLLM.CreateClient,
+		Registry:        registryResolver.Registry,
+		Guard:           guardResolver.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
 			cfg := larkSkills.Config()
 			if len(stickySkills) > 0 {
@@ -330,34 +277,17 @@ func (r *llmRuntimeResolver) Values() llmutil.RuntimeValues {
 	return r.values
 }
 
-func (r *llmRuntimeResolver) Provider() string {
-	return strings.TrimSpace(r.Values().Provider)
-}
-
-func (r *llmRuntimeResolver) EndpointForProvider(provider string) string {
-	return llmutil.EndpointForProviderWithValues(provider, r.Values())
-}
-
-func (r *llmRuntimeResolver) APIKeyForProvider(provider string) string {
-	return llmutil.APIKeyForProviderWithValues(provider, r.Values())
-}
-
-func (r *llmRuntimeResolver) ModelForProvider(provider string) string {
-	return llmutil.ModelForProviderWithValues(provider, r.Values())
-}
-
-func (r *llmRuntimeResolver) CreateClient(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-	base, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
-		Provider:       provider,
-		Endpoint:       endpoint,
-		APIKey:         apiKey,
-		Model:          model,
-		RequestTimeout: timeout,
-	}, r.Values())
+func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Client, error) {
+	base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
 	if err != nil {
 		return nil, err
 	}
-	return llmstats.WrapRuntimeClient(base, provider, endpoint, model, slog.Default()), nil
+	return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, slog.Default()), nil
+}
+
+func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {
+	values := r.Values()
+	return llmutil.ResolveRoute(values, purpose)
 }
 
 type skillsRuntimeResolver struct {

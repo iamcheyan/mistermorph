@@ -57,17 +57,12 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 	}
 	logOpts := cloneLogOptions(logutil.LogOptionsFromConfig(logutil.LogOptionsConfigFromReader(v)))
 	llmValues := llmutil.RuntimeValuesFromReader(v)
-	provider := strings.TrimSpace(llmValues.Provider)
 
 	return runtimeSnapshot{
 		Logger:            logger,
 		LoggerInitErr:     loggerErr,
 		LogOptions:        logOpts,
 		LLMValues:         llmValues,
-		LLMProvider:       provider,
-		LLMEndpoint:       llmutil.EndpointForProviderWithValues(provider, llmValues),
-		LLMAPIKey:         llmutil.APIKeyForProviderWithValues(provider, llmValues),
-		LLMModel:          llmutil.ModelForProviderWithValues(provider, llmValues),
 		LLMRequestTimeout: v.GetDuration("llm.request_timeout"),
 		AgentLimits: agent.Limits{
 			MaxSteps:        v.GetInt("max_steps"),

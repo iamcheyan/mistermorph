@@ -40,6 +40,8 @@ type runtimeTaskOptions struct {
 	MemoryInjectionMaxItems     int
 	SecretsRequireSkillProfiles bool
 	ImageRecognitionEnabled     bool
+	PlanCreateClient            llm.Client
+	PlanCreateModel             string
 	MemoryManager               *memory.Manager
 	MemoryOrchestrator          *memoryruntime.Orchestrator
 	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
@@ -74,7 +76,12 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 
 	// Per-run registry.
 	reg := buildTelegramRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient:    client,
+		DefaultModel:     model,
+		PlanCreateClient: runtimeOpts.PlanCreateClient,
+		PlanCreateModel:  runtimeOpts.PlanCreateModel,
+	})
 	toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
 		Channel:          "telegram",
 		ChatType:         job.ChatType,

@@ -16,7 +16,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -60,26 +59,23 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			slog.SetDefault(logger)
 
 			llmValues := llmutil.RuntimeValuesFromViper()
-			provider := strings.TrimSpace(llmValues.Provider)
-			model := llmutil.ModelForProviderWithValues(provider, llmValues)
-			requestTimeout := viper.GetDuration("llm.request_timeout")
-			baseClient, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
-				Provider:       provider,
-				Endpoint:       llmutil.EndpointForProviderWithValues(provider, llmValues),
-				APIKey:         llmutil.APIKeyForProviderWithValues(provider, llmValues),
-				Model:          model,
-				RequestTimeout: requestTimeout,
-			}, llmValues)
+			mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
+			if err != nil {
+				return err
+			}
+			baseClient, err := llmutil.ClientFromConfigWithValues(mainRoute.ClientConfig, mainRoute.Values)
 			if err != nil {
 				return err
 			}
 			client := llmstats.WrapRuntimeClient(
 				baseClient,
-				provider,
-				llmutil.EndpointForProviderWithValues(provider, llmValues),
-				model,
+				mainRoute.ClientConfig.Provider,
+				mainRoute.ClientConfig.Endpoint,
+				mainRoute.ClientConfig.Model,
 				logger,
 			)
+			mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+			mainProvider := strings.TrimSpace(mainRoute.ClientConfig.Provider)
 			var reg *tools.Registry
 			if deps.RegistryFromViper != nil {
 				reg = deps.RegistryFromViper()
@@ -87,7 +83,26 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
-			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), client, model)
+			planClient := client
+			planModel := mainModel
+			planRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposePlanCreate)
+			if err != nil {
+				return err
+			}
+			if !planRoute.SameProfile(mainRoute) {
+				planBaseClient, err := llmutil.ClientFromConfigWithValues(planRoute.ClientConfig, planRoute.Values)
+				if err != nil {
+					return err
+				}
+				planClient = llmstats.WrapRuntimeClient(planBaseClient, planRoute.ClientConfig.Provider, planRoute.ClientConfig.Endpoint, planRoute.ClientConfig.Model, logger)
+			}
+			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
+			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
+				DefaultClient:    client,
+				DefaultModel:     strings.TrimSpace(mainRoute.ClientConfig.Model),
+				PlanCreateClient: planClient,
+				PlanCreateModel:  planModel,
+			})
 
 			logOpts := logutil.LogOptionsFromViper()
 			skillsCfg := skillsutil.SkillsConfigFromViper()
@@ -222,7 +237,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 									"queue_len": store.QueueLen(),
 								})
 								timeout := viper.GetDuration("timeout")
-								if _, err := store.EnqueueHeartbeat(context.Background(), task, model, timeout, meta, hbState); err != nil {
+								if _, err := store.EnqueueHeartbeat(context.Background(), task, mainModel, timeout, meta, hbState); err != nil {
 									return err.Error()
 								}
 								return ""
@@ -270,8 +285,8 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
-							"provider": provider,
-							"model":    model,
+							"provider": mainProvider,
+							"model":    mainModel,
 						},
 						"channel": map[string]any{
 							"configured":          false,
@@ -295,7 +310,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					}
 					taskModel := strings.TrimSpace(req.Model)
 					if taskModel == "" {
-						taskModel = llmutil.ModelForProviderWithValues(provider, llmValues)
+						taskModel = strings.TrimSpace(mainRoute.ClientConfig.Model)
 					}
 					info, err := store.Enqueue(context.Background(), req.Task, taskModel, timeout)
 					if err != nil {

@@ -77,16 +77,13 @@ func buildLarkRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 ) larkruntime.Dependencies {
 	return larkruntime.Dependencies{
-		Logger:                 d.Logger,
-		LogOptions:             d.LogOptions,
-		CreateLLMClient:        d.CreateLLMClient,
-		LLMProvider:            d.LLMProvider,
-		LLMEndpointForProvider: d.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
-		LLMModelForProvider:    d.LLMModelForProvider,
-		Registry:               d.Registry,
-		RuntimeToolsConfig:     runtimeToolsConfig,
-		Guard:                  d.Guard,
-		PromptSpec:             d.PromptSpec,
+		Logger:             d.Logger,
+		LogOptions:         d.LogOptions,
+		ResolveLLMRoute:    d.ResolveLLMRoute,
+		CreateLLMClient:    d.CreateLLMClient,
+		Registry:           d.Registry,
+		RuntimeToolsConfig: runtimeToolsConfig,
+		Guard:              d.Guard,
+		PromptSpec:         d.PromptSpec,
 	}
 }

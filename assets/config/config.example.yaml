@@ -14,11 +14,13 @@ llm:
   # LLM provider name. Supported: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
   provider: openai
   # Default model used by the main agent loop.
-  model: "gpt-5.2"
+  model: "gpt-5.4"
   # Base URL for providers that use OpenAI-compatible endpoints.
   endpoint: "https://api.openai.com"
   # Provider API key. Prefer env var to avoid committing secrets.
   api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
+  # Optional env var name for the API key. If set, this takes precedence over api_key.
+  api_key_env_ref: ""
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -37,13 +39,32 @@ llm:
   # Provider-specific settings for AWS Bedrock.
   bedrock:
     aws_key: ""
+    aws_key_env_ref: ""
     aws_secret: ""
+    aws_secret_env_ref: ""
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.
   cloudflare:
     account_id: ""
     api_token: ""
+    api_token_env_ref: ""
+  # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
+  # profiles:
+  #   cheap:
+  #     model: "gpt-4.1-mini"
+  #   reasoning:
+  #     provider: xai
+  #     model: "grok-4.1-fast-reasoning"
+  #     api_key_env_ref: XAI_API_KEY
+  #     reasoning_effort: "high"
+  # Optional route map. Supported purposes:
+  #   main_loop | addressing | heartbeat | plan_create
+  # routes:
+  #   main_loop: default
+  #   addressing: cheap
+  #   heartbeat: cheap
+  #   plan_create: reasoning
 
 # Multimodal input policy (cross-channel, cross-source).
 multimodal:

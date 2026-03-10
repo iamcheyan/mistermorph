@@ -20,13 +20,11 @@ import (
 	"github.com/quailyquaily/mistermorph/assets"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/skills"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
 
@@ -780,22 +778,20 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 
 func llmClientForRemoteSkillReview() (llm.Client, string, error) {
 	values := llmutil.RuntimeValuesFromViper()
-	provider := strings.TrimSpace(values.Provider)
-	model := llmutil.ModelForProviderWithValues(provider, values)
+	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return nil, "", err
+	}
+	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
 		model = "gpt-5.2"
 	}
-	cfg := llmconfig.ClientConfig{
-		Provider:       provider,
-		Endpoint:       llmutil.EndpointForProviderWithValues(provider, values),
-		APIKey:         llmutil.APIKeyForProviderWithValues(provider, values),
-		Model:          model,
-		RequestTimeout: viper.GetDuration("llm.request_timeout"),
-	}
+	cfg := route.ClientConfig
+	cfg.Model = model
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, "", fmt.Errorf("missing llm.api_key (required to review remote skills safely)")
 	}
-	c, err := llmutil.ClientFromConfigWithValues(cfg, values)
+	c, err := llmutil.ClientFromConfigWithValues(cfg, route.Values)
 	if err != nil {
 		return nil, "", err
 	}

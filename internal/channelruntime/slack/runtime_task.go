@@ -29,6 +29,8 @@ type runtimeTaskOptions struct {
 	MemoryEnabled               bool
 	MemoryInjectionEnabled      bool
 	MemoryInjectionMaxItems     int
+	PlanCreateClient            llm.Client
+	PlanCreateModel             string
 	MemoryOrchestrator          *memoryruntime.Orchestrator
 	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
 }
@@ -71,7 +73,12 @@ func runSlackTask(
 		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 	reg := buildSlackRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient:    client,
+		DefaultModel:     model,
+		PlanCreateClient: runtimeOpts.PlanCreateClient,
+		PlanCreateModel:  runtimeOpts.PlanCreateModel,
+	})
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 	var reactTool *slacktools.ReactTool
 	if api != nil &&

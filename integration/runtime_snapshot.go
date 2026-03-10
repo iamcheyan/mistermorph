@@ -17,10 +17,6 @@ type runtimeSnapshot struct {
 	LoggerInitErr               error
 	LogOptions                  agent.LogOptions
 	LLMValues                   llmutil.RuntimeValues
-	LLMProvider                 string
-	LLMEndpoint                 string
-	LLMAPIKey                   string
-	LLMModel                    string
 	LLMRequestTimeout           time.Duration
 	AgentLimits                 agent.Limits
 	SecretsRequireSkillProfiles bool

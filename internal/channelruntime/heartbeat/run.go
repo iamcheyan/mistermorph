@@ -13,7 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -57,18 +57,15 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}
 	logOpts := depsutil.LogOptionsFromCommon(common)
 
-	provider := strings.TrimSpace(depsutil.ProviderFromCommon(common))
-	client, err := depsutil.CreateClientFromCommon(common, llmconfig.ClientConfig{
-		Provider:       provider,
-		Endpoint:       depsutil.EndpointForProviderFromCommon(common, provider),
-		APIKey:         depsutil.APIKeyForProviderFromCommon(common, provider),
-		Model:          depsutil.ModelForProviderFromCommon(common, provider),
-		RequestTimeout: opts.RequestTimeout,
-	})
+	route, err := depsutil.ResolveLLMRouteFromCommon(common, llmutil.RoutePurposeHeartbeat)
 	if err != nil {
 		return err
 	}
-	model := strings.TrimSpace(depsutil.ModelForProviderFromCommon(common, provider))
+	client, err := depsutil.CreateClient(d.CreateLLMClient, route)
+	if err != nil {
+		return err
+	}
+	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
 		return fmt.Errorf("missing model")
 	}
@@ -228,7 +225,10 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	}
 
 	reg := cloneRegistry(opts.BaseRegistry)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, opts.Client, strings.TrimSpace(opts.Model))
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient: opts.Client,
+		DefaultModel:  strings.TrimSpace(opts.Model),
+	})
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)

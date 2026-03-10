@@ -9,12 +9,10 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
-	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -119,20 +117,59 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	slog.SetDefault(logger)
 	logOpts := cloneLogOptions(snap.LogOptions)
 
-	client, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
-		Provider:       snap.LLMProvider,
-		Endpoint:       snap.LLMEndpoint,
-		APIKey:         snap.LLMAPIKey,
-		Model:          snap.LLMModel,
-		RequestTimeout: snap.LLMRequestTimeout,
-	}, snap.LLMValues)
+	mainRoute, err := llmutil.ResolveRoute(snap.LLMValues, llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return nil, err
 	}
-
-	client, inspectCleanup, err := rt.wrapClientWithInspect(client, task, rt.inspect)
+	client, err := llmutil.ClientFromConfigWithValues(mainRoute.ClientConfig, mainRoute.Values)
 	if err != nil {
 		return nil, err
+	}
+	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	mainClient := client
+	var requestInspector *llminspect.RequestInspector
+	var promptInspector *llminspect.PromptInspector
+	inspectCleanup := func() error {
+		var firstErr error
+		if promptInspector != nil {
+			if err := promptInspector.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if requestInspector != nil {
+			if err := requestInspector.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	}
+	if rt.inspect.Request {
+		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
+			Mode:            strings.TrimSpace(rt.inspect.Mode),
+			Task:            strings.TrimSpace(task),
+			TimestampFormat: strings.TrimSpace(rt.inspect.TimestampFormat),
+			DumpDir:         strings.TrimSpace(rt.inspect.DumpDir),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := llminspect.SetDebugHook(mainClient, requestInspector.Dump); err != nil {
+			_ = inspectCleanup()
+			return nil, err
+		}
+	}
+	if rt.inspect.Prompt {
+		promptInspector, err = llminspect.NewPromptInspector(llminspect.Options{
+			Mode:            strings.TrimSpace(rt.inspect.Mode),
+			Task:            strings.TrimSpace(task),
+			TimestampFormat: strings.TrimSpace(rt.inspect.TimestampFormat),
+			DumpDir:         strings.TrimSpace(rt.inspect.DumpDir),
+		})
+		if err != nil {
+			_ = inspectCleanup()
+			return nil, err
+		}
+		client = &llminspect.PromptClient{Base: mainClient, Inspector: promptInspector}
 	}
 
 	reg := cloneRegistry(baseReg)
@@ -142,6 +179,30 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 
 	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
 	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
+	planClient := client
+	planModel := model
+	planRoute, err := llmutil.ResolveRoute(snap.LLMValues, llmutil.RoutePurposePlanCreate)
+	if err != nil {
+		_ = inspectCleanup()
+		return nil, err
+	}
+	if !planRoute.SameProfile(mainRoute) {
+		planClient, err = llmutil.ClientFromConfigWithValues(planRoute.ClientConfig, planRoute.Values)
+		if err != nil {
+			_ = inspectCleanup()
+			return nil, err
+		}
+		if requestInspector != nil {
+			if err := llminspect.SetDebugHook(planClient, requestInspector.Dump); err != nil {
+				_ = inspectCleanup()
+				return nil, err
+			}
+		}
+		if promptInspector != nil {
+			planClient = &llminspect.PromptClient{Base: planClient, Inspector: promptInspector}
+		}
+	}
+	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
 	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{
 		PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
 		TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
@@ -150,12 +211,17 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			TODOPathDone: snap.Registry.TODOPathDone,
 			ContactsDir:  snap.Registry.ContactsDir,
 		},
-	}, client, snap.LLMModel)
+	}, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient:    client,
+		DefaultModel:     model,
+		PlanCreateClient: planClient,
+		PlanCreateModel:  planModel,
+	})
 
 	skillAuthProfiles := []string{}
 	promptSpec := agent.DefaultPromptSpec()
 	if rt.features.Skills {
-		spec, _, authProfiles, err := rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, snap.LLMModel, snap.SkillsConfig, nil)
+		spec, _, authProfiles, err := rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, nil)
 		if err != nil {
 			_ = inspectCleanup()
 			return nil, err
@@ -186,7 +252,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 
 	return &PreparedRun{
 		Engine: engine,
-		Model:  snap.LLMModel,
+		Model:  model,
 		Cleanup: func() error {
 			return inspectCleanup()
 		},
@@ -233,57 +299,6 @@ func (rt *Runtime) isBuiltinToolSelected(name string) bool {
 		}
 	}
 	return false
-}
-
-func (rt *Runtime) wrapClientWithInspect(client llm.Client, task string, inspect InspectOptions) (llm.Client, func() error, error) {
-	if client == nil {
-		return nil, func() error { return nil }, fmt.Errorf("llm client is nil")
-	}
-
-	closers := make([]func() error, 0, 2)
-	cleanup := func() error {
-		var firstErr error
-		for i := len(closers) - 1; i >= 0; i-- {
-			if err := closers[i](); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-		return firstErr
-	}
-
-	if inspect.Request {
-		inspector, err := llminspect.NewRequestInspector(llminspect.Options{
-			Mode:            strings.TrimSpace(inspect.Mode),
-			Task:            strings.TrimSpace(task),
-			TimestampFormat: strings.TrimSpace(inspect.TimestampFormat),
-			DumpDir:         strings.TrimSpace(inspect.DumpDir),
-		})
-		if err != nil {
-			return nil, cleanup, err
-		}
-		closers = append(closers, inspector.Close)
-		if err := llminspect.SetDebugHook(client, inspector.Dump); err != nil {
-			_ = cleanup()
-			return nil, cleanup, err
-		}
-	}
-
-	if inspect.Prompt {
-		inspector, err := llminspect.NewPromptInspector(llminspect.Options{
-			Mode:            strings.TrimSpace(inspect.Mode),
-			Task:            strings.TrimSpace(task),
-			TimestampFormat: strings.TrimSpace(inspect.TimestampFormat),
-			DumpDir:         strings.TrimSpace(inspect.DumpDir),
-		})
-		if err != nil {
-			_ = cleanup()
-			return nil, cleanup, err
-		}
-		closers = append(closers, inspector.Close)
-		client = &llminspect.PromptClient{Base: client, Inspector: inspector}
-	}
-
-	return client, cleanup, nil
 }
 
 func (rt *Runtime) RequestTimeout() time.Duration {

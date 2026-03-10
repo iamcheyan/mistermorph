@@ -13,7 +13,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -250,17 +249,14 @@ func (r *slackBotRunner) runtimeHooks() slackruntime.Hooks {
 }
 
 type runtimeSharedDependencies struct {
-	Logger                 func() (*slog.Logger, error)
-	LogOptions             func() agent.LogOptions
-	CreateLLMClient        func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error)
-	LLMProvider            func() string
-	LLMEndpointForProvider func(provider string) string
-	LLMAPIKeyForProvider   func(provider string) string
-	LLMModelForProvider    func(provider string) string
-	Registry               func() *tools.Registry
-	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
-	Guard                  func(logger *slog.Logger) *guard.Guard
-	PromptSpec             func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
+	Logger             func() (*slog.Logger, error)
+	LogOptions         func() agent.LogOptions
+	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
+	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
+	Registry           func() *tools.Registry
+	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
+	Guard              func(logger *slog.Logger) *guard.Guard
+	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
 }
 
 func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDependencies {
@@ -274,20 +270,13 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return slog.Default(), nil
 		},
 		LogOptions: func() agent.LogOptions { return cloneLogOptions(snap.LogOptions) },
-		CreateLLMClient: func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error) {
-			return llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
-				Provider:       provider,
-				Endpoint:       endpoint,
-				APIKey:         apiKey,
-				Model:          model,
-				RequestTimeout: timeout,
-			}, snap.LLMValues)
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRoute(snap.LLMValues, purpose)
 		},
-		LLMProvider:            func() string { return snap.LLMProvider },
-		LLMEndpointForProvider: func(_ string) string { return snap.LLMEndpoint },
-		LLMAPIKeyForProvider:   func(_ string) string { return snap.LLMAPIKey },
-		LLMModelForProvider:    func(_ string) string { return snap.LLMModel },
-		Registry:               func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			return llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
+		},
+		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
 		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
 			PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
 			TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
@@ -307,34 +296,28 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return telegramruntime.Dependencies{
-		Logger:                 base.Logger,
-		LogOptions:             base.LogOptions,
-		CreateLLMClient:        base.CreateLLMClient,
-		LLMProvider:            base.LLMProvider,
-		LLMEndpointForProvider: base.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   base.LLMAPIKeyForProvider,
-		LLMModelForProvider:    base.LLMModelForProvider,
-		Registry:               base.Registry,
-		RuntimeToolsConfig:     base.RuntimeToolsConfig,
-		Guard:                  base.Guard,
-		PromptSpec:             base.PromptSpec,
+		Logger:             base.Logger,
+		LogOptions:         base.LogOptions,
+		ResolveLLMRoute:    base.ResolveLLMRoute,
+		CreateLLMClient:    base.CreateLLMClient,
+		Registry:           base.Registry,
+		RuntimeToolsConfig: base.RuntimeToolsConfig,
+		Guard:              base.Guard,
+		PromptSpec:         base.PromptSpec,
 	}
 }
 
 func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return slackruntime.Dependencies{
-		Logger:                 base.Logger,
-		LogOptions:             base.LogOptions,
-		CreateLLMClient:        base.CreateLLMClient,
-		LLMProvider:            base.LLMProvider,
-		LLMEndpointForProvider: base.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   base.LLMAPIKeyForProvider,
-		LLMModelForProvider:    base.LLMModelForProvider,
-		Registry:               base.Registry,
-		RuntimeToolsConfig:     base.RuntimeToolsConfig,
-		Guard:                  base.Guard,
-		PromptSpec:             base.PromptSpec,
+		Logger:             base.Logger,
+		LogOptions:         base.LogOptions,
+		ResolveLLMRoute:    base.ResolveLLMRoute,
+		CreateLLMClient:    base.CreateLLMClient,
+		Registry:           base.Registry,
+		RuntimeToolsConfig: base.RuntimeToolsConfig,
+		Guard:              base.Guard,
+		PromptSpec:         base.PromptSpec,
 	}
 }
 

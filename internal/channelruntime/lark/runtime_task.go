@@ -25,6 +25,8 @@ import (
 
 type runtimeTaskOptions struct {
 	SecretsRequireSkillProfiles bool
+	PlanCreateClient            llm.Client
+	PlanCreateModel             string
 }
 
 type larkJob struct {
@@ -78,7 +80,12 @@ func runLarkTask(
 		return nil, nil, nil, fmt.Errorf("base registry is nil")
 	}
 	reg := buildLarkRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, client, model)
+	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient:    client,
+		DefaultModel:     model,
+		PlanCreateClient: runtimeOpts.PlanCreateClient,
+		PlanCreateModel:  runtimeOpts.PlanCreateModel,
+	})
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)

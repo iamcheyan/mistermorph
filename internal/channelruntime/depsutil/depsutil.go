@@ -9,7 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -19,48 +19,39 @@ import (
 type PromptSpecFunc func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
 
 type CommonDependencies struct {
-	Logger                 func() (*slog.Logger, error)
-	LogOptions             func() agent.LogOptions
-	CreateLLMClient        func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error)
-	LLMProvider            func() string
-	LLMEndpointForProvider func(provider string) string
-	LLMAPIKeyForProvider   func(provider string) string
-	LLMModelForProvider    func(provider string) string
-	Registry               func() *tools.Registry
-	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
-	Guard                  func(logger *slog.Logger) *guard.Guard
-	PromptSpec             PromptSpecFunc
+	Logger             func() (*slog.Logger, error)
+	LogOptions         func() agent.LogOptions
+	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
+	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
+	Registry           func() *tools.Registry
+	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
+	Guard              func(logger *slog.Logger) *guard.Guard
+	PromptSpec         PromptSpecFunc
 }
 
 type HeartbeatDependencies struct {
-	Logger                 func() (*slog.Logger, error)
-	LogOptions             func() agent.LogOptions
-	CreateLLMClient        func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error)
-	LLMProvider            func() string
-	LLMEndpointForProvider func(provider string) string
-	LLMAPIKeyForProvider   func(provider string) string
-	LLMModelForProvider    func(provider string) string
-	Registry               func() *tools.Registry
-	RuntimeToolsConfig     toolsutil.RuntimeToolsRegisterConfig
-	Guard                  func(logger *slog.Logger) *guard.Guard
-	PromptSpec             PromptSpecFunc
-	BuildHeartbeatTask     func(checklistPath string) (string, bool, error)
-	BuildHeartbeatMeta     func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any
+	Logger             func() (*slog.Logger, error)
+	LogOptions         func() agent.LogOptions
+	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
+	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
+	Registry           func() *tools.Registry
+	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
+	Guard              func(logger *slog.Logger) *guard.Guard
+	PromptSpec         PromptSpecFunc
+	BuildHeartbeatTask func(checklistPath string) (string, bool, error)
+	BuildHeartbeatMeta func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any
 }
 
 func CommonFromHeartbeat(d HeartbeatDependencies) CommonDependencies {
 	return CommonDependencies{
-		Logger:                 d.Logger,
-		LogOptions:             d.LogOptions,
-		CreateLLMClient:        d.CreateLLMClient,
-		LLMProvider:            d.LLMProvider,
-		LLMEndpointForProvider: d.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
-		LLMModelForProvider:    d.LLMModelForProvider,
-		Registry:               d.Registry,
-		RuntimeToolsConfig:     d.RuntimeToolsConfig,
-		Guard:                  d.Guard,
-		PromptSpec:             d.PromptSpec,
+		Logger:             d.Logger,
+		LogOptions:         d.LogOptions,
+		ResolveLLMRoute:    d.ResolveLLMRoute,
+		CreateLLMClient:    d.CreateLLMClient,
+		Registry:           d.Registry,
+		RuntimeToolsConfig: d.RuntimeToolsConfig,
+		Guard:              d.Guard,
+		PromptSpec:         d.PromptSpec,
 	}
 }
 
@@ -78,25 +69,18 @@ func LogOptions(fn func() agent.LogOptions) agent.LogOptions {
 	return fn()
 }
 
-func Provider(fn func() string) string {
-	if fn == nil {
-		return ""
-	}
-	return fn()
-}
-
-func ProviderField(fn func(provider string) string, provider string) string {
-	if fn == nil {
-		return ""
-	}
-	return fn(provider)
-}
-
-func CreateClient(fn func(provider, endpoint, apiKey, model string, timeout time.Duration) (llm.Client, error), cfg llmconfig.ClientConfig) (llm.Client, error) {
+func CreateClient(fn func(route llmutil.ResolvedRoute) (llm.Client, error), route llmutil.ResolvedRoute) (llm.Client, error) {
 	if fn == nil {
 		return nil, fmt.Errorf("CreateLLMClient dependency missing")
 	}
-	return fn(cfg.Provider, cfg.Endpoint, cfg.APIKey, cfg.Model, cfg.RequestTimeout)
+	return fn(route)
+}
+
+func ResolveLLMRoute(fn func(purpose string) (llmutil.ResolvedRoute, error), purpose string) (llmutil.ResolvedRoute, error) {
+	if fn == nil {
+		return llmutil.ResolvedRoute{}, fmt.Errorf("ResolveLLMRoute dependency missing")
+	}
+	return fn(purpose)
 }
 
 func Registry(fn func() *tools.Registry) *tools.Registry {
@@ -164,36 +148,12 @@ func LogOptionsFromCommon(d CommonDependencies) agent.LogOptions {
 	return LogOptions(d.LogOptions)
 }
 
-func ProviderFromCommon(d CommonDependencies) string {
-	return Provider(d.LLMProvider)
+func CreateClientFromCommon(d CommonDependencies, route llmutil.ResolvedRoute) (llm.Client, error) {
+	return CreateClient(d.CreateLLMClient, route)
 }
 
-func EndpointForProviderFromCommon(d CommonDependencies, provider string) string {
-	return ProviderField(d.LLMEndpointForProvider, provider)
-}
-
-func APIKeyForProviderFromCommon(d CommonDependencies, provider string) string {
-	return ProviderField(d.LLMAPIKeyForProvider, provider)
-}
-
-func ModelForProviderFromCommon(d CommonDependencies, provider string) string {
-	return ProviderField(d.LLMModelForProvider, provider)
-}
-
-func EndpointFromCommon(d CommonDependencies) string {
-	return EndpointForProviderFromCommon(d, ProviderFromCommon(d))
-}
-
-func APIKeyFromCommon(d CommonDependencies) string {
-	return APIKeyForProviderFromCommon(d, ProviderFromCommon(d))
-}
-
-func ModelFromCommon(d CommonDependencies) string {
-	return ModelForProviderFromCommon(d, ProviderFromCommon(d))
-}
-
-func CreateClientFromCommon(d CommonDependencies, cfg llmconfig.ClientConfig) (llm.Client, error) {
-	return CreateClient(d.CreateLLMClient, cfg)
+func ResolveLLMRouteFromCommon(d CommonDependencies, purpose string) (llmutil.ResolvedRoute, error) {
+	return ResolveLLMRoute(d.ResolveLLMRoute, purpose)
 }
 
 func RegistryFromCommon(d CommonDependencies) *tools.Registry {

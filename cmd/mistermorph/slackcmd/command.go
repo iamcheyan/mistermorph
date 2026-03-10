@@ -84,19 +84,16 @@ func buildHeartbeatRuntime(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 ) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
 	hbDeps := heartbeatruntime.Dependencies{
-		Logger:                 d.Logger,
-		LogOptions:             d.LogOptions,
-		CreateLLMClient:        d.CreateLLMClient,
-		LLMProvider:            d.LLMProvider,
-		LLMEndpointForProvider: d.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
-		LLMModelForProvider:    d.LLMModelForProvider,
-		Registry:               d.Registry,
-		RuntimeToolsConfig:     runtimeToolsConfig,
-		Guard:                  d.Guard,
-		PromptSpec:             d.PromptSpec,
-		BuildHeartbeatTask:     d.BuildHeartbeatTask,
-		BuildHeartbeatMeta:     d.BuildHeartbeatMeta,
+		Logger:             d.Logger,
+		LogOptions:         d.LogOptions,
+		ResolveLLMRoute:    d.ResolveLLMRoute,
+		CreateLLMClient:    d.CreateLLMClient,
+		Registry:           d.Registry,
+		RuntimeToolsConfig: runtimeToolsConfig,
+		Guard:              d.Guard,
+		PromptSpec:         d.PromptSpec,
+		BuildHeartbeatTask: d.BuildHeartbeatTask,
+		BuildHeartbeatMeta: d.BuildHeartbeatMeta,
 	}
 	hbOpts := heartbeatruntime.RunOptions{
 		Interval:                    hbCfg.Interval,
@@ -120,17 +117,14 @@ func buildSlackRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 ) slackruntime.Dependencies {
 	return slackruntime.Dependencies{
-		Logger:                 d.Logger,
-		LogOptions:             d.LogOptions,
-		CreateLLMClient:        d.CreateLLMClient,
-		LLMProvider:            d.LLMProvider,
-		LLMEndpointForProvider: d.LLMEndpointForProvider,
-		LLMAPIKeyForProvider:   d.LLMAPIKeyForProvider,
-		LLMModelForProvider:    d.LLMModelForProvider,
-		Registry:               d.Registry,
-		RuntimeToolsConfig:     runtimeToolsConfig,
-		Guard:                  d.Guard,
-		PromptSpec:             d.PromptSpec,
+		Logger:             d.Logger,
+		LogOptions:         d.LogOptions,
+		ResolveLLMRoute:    d.ResolveLLMRoute,
+		CreateLLMClient:    d.CreateLLMClient,
+		Registry:           d.Registry,
+		RuntimeToolsConfig: runtimeToolsConfig,
+		Guard:              d.Guard,
+		PromptSpec:         d.PromptSpec,
 	}
 }
 

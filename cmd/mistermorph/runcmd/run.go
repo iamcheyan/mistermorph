@@ -16,7 +16,6 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
-	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -74,31 +73,28 @@ func New(deps Dependencies) *cobra.Command {
 			}
 
 			llmValues := llmutil.RuntimeValuesFromViper()
-			provider := strings.TrimSpace(llmValues.Provider)
+			mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
+			if err != nil {
+				return err
+			}
+			mainCfg := mainRoute.ClientConfig
 			if cmd.Flags().Changed("provider") {
-				provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
+				mainCfg.Provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
 			}
-			endpoint := llmutil.EndpointForProviderWithValues(provider, llmValues)
 			if cmd.Flags().Changed("endpoint") {
-				endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
+				mainCfg.Endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
 			}
-			apiKey := llmutil.APIKeyForProviderWithValues(provider, llmValues)
 			if cmd.Flags().Changed("api-key") {
-				apiKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
+				mainCfg.APIKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
 			}
-			model := llmutil.ModelForProviderWithValues(provider, llmValues)
 			if cmd.Flags().Changed("model") {
-				model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
+				mainCfg.Model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
+			}
+			if cmd.Flags().Changed("llm-request-timeout") {
+				mainCfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
 			}
 
-			requestTimeout := configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
-			baseClient, err := llmutil.ClientFromConfigWithValues(llmconfig.ClientConfig{
-				Provider:       provider,
-				Endpoint:       endpoint,
-				APIKey:         apiKey,
-				Model:          model,
-				RequestTimeout: requestTimeout,
-			}, llmValues)
+			baseClient, err := llmutil.ClientFromConfigWithValues(mainCfg, mainRoute.Values)
 			if err != nil {
 				return err
 			}
@@ -112,32 +108,35 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
-			client := llmstats.WrapRuntimeClient(baseClient, provider, endpoint, model, logger)
+			client := llmstats.WrapRuntimeClient(baseClient, mainCfg.Provider, mainCfg.Endpoint, mainCfg.Model, logger)
+			mainClient := client
 
 			logOpts := logutil.LogOptionsFromViper()
+			var requestInspector *llminspect.RequestInspector
+			var promptInspector *llminspect.PromptInspector
 
 			if configutil.FlagOrViperBool(cmd, "inspect-request", "") {
-				inspector, err := llminspect.NewRequestInspector(llminspect.Options{
+				requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
 					Task: task,
 				})
 				if err != nil {
 					return err
 				}
-				defer func() { _ = inspector.Close() }()
-				if err := llminspect.SetDebugHook(client, inspector.Dump); err != nil {
+				defer func() { _ = requestInspector.Close() }()
+				if err := llminspect.SetDebugHook(mainClient, requestInspector.Dump); err != nil {
 					return fmt.Errorf("inspect-request requires uniai provider client")
 				}
 			}
 
 			if configutil.FlagOrViperBool(cmd, "inspect-prompt", "") {
-				inspector, err := llminspect.NewPromptInspector(llminspect.Options{
+				promptInspector, err = llminspect.NewPromptInspector(llminspect.Options{
 					Task: task,
 				})
 				if err != nil {
 					return err
 				}
-				defer func() { _ = inspector.Close() }()
-				client = &llminspect.PromptClient{Base: client, Inspector: inspector}
+				defer func() { _ = promptInspector.Close() }()
+				client = &llminspect.PromptClient{Base: mainClient, Inspector: promptInspector}
 			}
 
 			reg := (*tools.Registry)(nil)
@@ -147,9 +146,36 @@ func New(deps Dependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
-			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), client, model)
+			planClient := client
+			planModel := strings.TrimSpace(mainCfg.Model)
+			planRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposePlanCreate)
+			if err != nil {
+				return err
+			}
+			if !planRoute.SameProfile(mainRoute) {
+				planBaseClient, err := llmutil.ClientFromConfigWithValues(planRoute.ClientConfig, planRoute.Values)
+				if err != nil {
+					return err
+				}
+				planClient = llmstats.WrapRuntimeClient(planBaseClient, planRoute.ClientConfig.Provider, planRoute.ClientConfig.Endpoint, planRoute.ClientConfig.Model, logger)
+				if requestInspector != nil {
+					if err := llminspect.SetDebugHook(planClient, requestInspector.Dump); err != nil {
+						return fmt.Errorf("inspect-request requires uniai provider client")
+					}
+				}
+				if promptInspector != nil {
+					planClient = &llminspect.PromptClient{Base: planClient, Inspector: promptInspector}
+				}
+			}
+			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
+			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
+				DefaultClient:    client,
+				DefaultModel:     strings.TrimSpace(mainCfg.Model),
+				PlanCreateClient: planClient,
+				PlanCreateModel:  planModel,
+			})
 
-			promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsutil.SkillsConfigFromRunCmd(cmd))
+			promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
 			if err != nil {
 				return err
 			}
@@ -201,7 +227,7 @@ func New(deps Dependencies) *cobra.Command {
 			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
 			ctx = llmstats.WithScene(ctx, "cli.loop")
-			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, Meta: runMeta})
+			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: strings.TrimSpace(mainCfg.Model), Meta: runMeta})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {
 					return nil

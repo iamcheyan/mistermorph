@@ -284,7 +284,7 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 
 	cfg = replaceConfigLine(cfg, "  provider: openai", "  provider: "+strings.ToLower(strings.TrimSpace(setup.Provider)))
 	cfg = replaceConfigLine(cfg, `  endpoint: "https://api.openai.com"`, `  endpoint: `+yamlQuotedScalar(setup.Endpoint))
-	cfg = replaceConfigLine(cfg, `  model: "gpt-5.2"`, `  model: `+yamlQuotedScalar(setup.Model))
+	cfg = replaceConfigLinePrefix(cfg, "  model: ", `  model: `+yamlQuotedScalar(setup.Model))
 
 	switch strings.ToLower(strings.TrimSpace(setup.Provider)) {
 	case "cloudflare":
@@ -315,6 +315,20 @@ func replaceConfigLine(cfg string, from string, to string) string {
 		return cfg
 	}
 	return strings.Replace(cfg, from, to, 1)
+}
+
+func replaceConfigLinePrefix(cfg string, prefix string, to string) string {
+	if strings.TrimSpace(cfg) == "" || strings.TrimSpace(prefix) == "" {
+		return cfg
+	}
+	lines := strings.Split(cfg, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			lines[i] = to
+			return strings.Join(lines, "\n")
+		}
+	}
+	return cfg
 }
 
 func yamlQuotedScalar(v string) string {
