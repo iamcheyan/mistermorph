@@ -41,10 +41,10 @@ type StaticRegistryConfig struct {
 }
 
 type StaticCommonConfig struct {
-	UserAgent      string
-	FileCacheDir   string
-	FileStateDir   string
-	SecretsEnabled bool
+	UserAgent                   string
+	FileCacheDir                string
+	FileStateDir                string
+	AuthenticatedHTTPConfigured bool
 }
 
 type StaticReadFileConfig struct {
@@ -140,8 +140,8 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
 		bt.InjectedEnvVars = append([]string(nil), cfg.Bash.InjectedEnvVars...)
-		if cfg.Common.SecretsEnabled {
-			// Safety default: allow bash for local automation, but deny curl to avoid "bash + curl" carrying auth.
+		if cfg.Common.AuthenticatedHTTPConfigured {
+			// Safety default: allow bash for local automation, but deny curl when authenticated HTTP is configured.
 			bt.DenyTokens = append(bt.DenyTokens, "curl")
 		}
 		reg.Register(bt)

@@ -96,18 +96,17 @@ func buildHeartbeatRuntime(
 		BuildHeartbeatMeta: d.BuildHeartbeatMeta,
 	}
 	hbOpts := heartbeatruntime.RunOptions{
-		Interval:                    hbCfg.Interval,
-		TaskTimeout:                 taskTimeout,
-		RequestTimeout:              slackCfg.RequestTimeout,
-		AgentLimits:                 slackCfg.AgentLimits,
-		Source:                      "slack",
-		ChecklistPath:               statepaths.HeartbeatChecklistPath(),
-		MemoryEnabled:               slackCfg.MemoryEnabled,
-		MemoryShortTermDays:         slackCfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:      slackCfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:     slackCfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles: slackCfg.SecretsRequireSkillProfiles,
-		Notifier:                    newSlackHeartbeatNotifier(botToken, baseURL, allowedChannelIDs),
+		Interval:                hbCfg.Interval,
+		TaskTimeout:             taskTimeout,
+		RequestTimeout:          slackCfg.RequestTimeout,
+		AgentLimits:             slackCfg.AgentLimits,
+		Source:                  "slack",
+		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		MemoryEnabled:           slackCfg.MemoryEnabled,
+		MemoryShortTermDays:     slackCfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:  slackCfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: slackCfg.MemoryInjectionMaxItems,
+		Notifier:                newSlackHeartbeatNotifier(botToken, baseURL, allowedChannelIDs),
 	}
 	return hbDeps, hbOpts
 }

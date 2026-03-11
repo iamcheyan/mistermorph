@@ -15,7 +15,7 @@ func TestPromptSpecWithSkills_LoadAllWildcard(t *testing.T) {
 	writeSkill(t, root, "alpha")
 	writeSkill(t, root, "beta")
 
-	spec, loaded, _, err := PromptSpecWithSkills(
+	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -45,7 +45,7 @@ func TestPromptSpecWithSkills_LoadAllWhenRequestedEmpty(t *testing.T) {
 	writeSkill(t, root, "alpha")
 	writeSkill(t, root, "beta")
 
-	spec, loaded, _, err := PromptSpecWithSkills(
+	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -74,7 +74,7 @@ func TestPromptSpecWithSkills_LoadAllWildcardIgnoresUnknownRequests(t *testing.T
 	writeSkill(t, root, "alpha")
 	writeSkill(t, root, "beta")
 
-	_, loaded, _, err := PromptSpecWithSkills(
+	_, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -101,7 +101,7 @@ func TestPromptSpecWithSkills_IgnoresUnknownRequests(t *testing.T) {
 	writeSkill(t, root, "alpha")
 	writeSkill(t, root, "beta")
 
-	spec, loaded, _, err := PromptSpecWithSkills(
+	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -130,7 +130,7 @@ func TestPromptSpecWithSkills_AllUnknownRequestsLoadNone(t *testing.T) {
 	writeSkill(t, root, "alpha")
 	writeSkill(t, root, "beta")
 
-	spec, loaded, _, err := PromptSpecWithSkills(
+	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -170,7 +170,7 @@ requirements:
 very long instructions that should not be injected
 `)
 
-	spec, loaded, _, err := PromptSpecWithSkills(
+	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),
@@ -219,7 +219,7 @@ description: d
 ---
 `)
 
-	spec, _, _, err := PromptSpecWithSkills(
+	spec, _, err := PromptSpecWithSkills(
 		context.Background(),
 		nil,
 		agent.DefaultLogOptions(),

@@ -104,7 +104,7 @@ Notes:
 - `default` is reserved and means the top-level `llm.*` config
 - named profiles inherit from top-level `llm.*`
 - a profile may override only the fields it needs
-- secret-like LLM fields remain backward compatible with plaintext values and also support `*_env_ref` in `llm` / `llm.profiles`
+- secret-like LLM fields remain backward compatible with plaintext values and also support `*_ref` in `llm` / `llm.profiles`
 
 ## Route Application Points
 

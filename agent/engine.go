@@ -12,7 +12,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimeclock"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -78,13 +77,6 @@ func WithFallbackFinal(fn func() *Final) Option {
 	}
 }
 
-func WithSkillAuthProfiles(authProfiles []string, enforce bool) Option {
-	return func(e *Engine) {
-		e.skillAuthProfiles = append([]string{}, authProfiles...)
-		e.enforceSkillAuth = enforce
-	}
-}
-
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
@@ -106,9 +98,6 @@ type Engine struct {
 	onToolSuccess    func(ctx *Context, toolName string)
 	onPlanStepUpdate func(ctx *Context, update PlanStepUpdate)
 	fallbackFinal    func() *Final
-
-	skillAuthProfiles []string
-	enforceSkillAuth  bool
 
 	guard *guard.Guard
 }
@@ -144,7 +133,6 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 
 func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final, *Context, error) {
 	agentCtx := NewContext(task, e.config.MaxSteps)
-	ctx = secrets.WithSkillAuthProfilePolicy(ctx, e.skillAuthProfiles, e.enforceSkillAuth)
 
 	model := strings.TrimSpace(opts.Model)
 	if model == "" {

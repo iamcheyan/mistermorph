@@ -10,12 +10,6 @@ import (
 	"strings"
 )
 
-type Config struct {
-	Enabled       bool              `mapstructure:"enabled"`
-	AllowProfiles []string          `mapstructure:"allow_profiles"`
-	Aliases       map[string]string `mapstructure:"aliases"`
-}
-
 type Credential struct {
 	Kind      string `mapstructure:"kind"`
 	SecretRef string `mapstructure:"secret_ref"`

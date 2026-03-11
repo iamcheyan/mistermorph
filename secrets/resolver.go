@@ -11,28 +11,19 @@ type Resolver interface {
 	Resolve(ctx context.Context, secretRef string) (string, error)
 }
 
-// EnvResolver resolves secrets from environment variables.
+// EnvResolver resolves secret_ref values directly from environment variables.
 //
 // The MVP behavior is fail-closed:
 // - missing/unset env var => error
 // - empty value => error
-type EnvResolver struct {
-	Aliases map[string]string
-}
+type EnvResolver struct{}
 
 func (r *EnvResolver) Resolve(ctx context.Context, secretRef string) (string, error) {
 	_ = ctx
 
-	ref := strings.TrimSpace(secretRef)
-	if ref == "" {
+	envName := strings.TrimSpace(secretRef)
+	if envName == "" {
 		return "", fmt.Errorf("empty secret_ref")
-	}
-
-	envName := ref
-	if r != nil && r.Aliases != nil {
-		if v, ok := r.Aliases[ref]; ok && strings.TrimSpace(v) != "" {
-			envName = strings.TrimSpace(v)
-		}
 	}
 
 	val, ok := os.LookupEnv(envName)

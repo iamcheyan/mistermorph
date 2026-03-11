@@ -191,7 +191,7 @@ mistermorph skills install <remote-skill-url>
 ### Skills のセキュリティ機構
 
 1. インストール監査: リモートスキルをインストールする際、Mister Morph は内容を事前表示し、基本的なセキュリティ監査（例: スクリプト内の危険コマンド検出）を行ったうえでユーザー確認を求めます。
-2. Auth profiles: スキルは `auth_profiles` フィールドで必要な認証プロファイルを宣言できます。ホスト側で対応する auth profile が設定されているスキルのみ Agent が利用するため、シークレット漏えいを防ぎやすくなります（`../../assets/skills/moltbook` と設定ファイル内の `secrets` / `auth_profiles` セクションを参照）。
+2. Auth profiles: スキルは `auth_profiles` フィールドで必要な認証プロファイルを宣言できます。これはあくまで宣言であり、権限境界ではありません。実際の許可はホスト側の `secrets.allow_profiles` と `auth_profiles` だけで決まります（`../../assets/skills/moltbook` と設定ファイル内の関連セクションを参照）。
 
 <a id="security"></a>
 ## セキュリティ

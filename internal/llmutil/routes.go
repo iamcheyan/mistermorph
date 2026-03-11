@@ -20,7 +20,7 @@ type ProfileConfig struct {
 	Provider           string `mapstructure:"provider"`
 	Endpoint           string `mapstructure:"endpoint"`
 	APIKey             string `mapstructure:"api_key"`
-	APIKeyEnvRef       string `mapstructure:"api_key_env_ref"`
+	APIKeyRef          string `mapstructure:"api_key_ref"`
 	Model              string `mapstructure:"model"`
 	RequestTimeoutRaw  string `mapstructure:"request_timeout"`
 	ToolsEmulationMode string `mapstructure:"tools_emulation_mode"`
@@ -31,17 +31,17 @@ type ProfileConfig struct {
 		Deployment string `mapstructure:"deployment"`
 	} `mapstructure:"azure"`
 	Bedrock struct {
-		AWSKey          string `mapstructure:"aws_key"`
-		AWSKeyEnvRef    string `mapstructure:"aws_key_env_ref"`
-		AWSSecret       string `mapstructure:"aws_secret"`
-		AWSSecretEnvRef string `mapstructure:"aws_secret_env_ref"`
-		Region          string `mapstructure:"region"`
-		ModelARN        string `mapstructure:"model_arn"`
+		AWSKey       string `mapstructure:"aws_key"`
+		AWSKeyRef    string `mapstructure:"aws_key_ref"`
+		AWSSecret    string `mapstructure:"aws_secret"`
+		AWSSecretRef string `mapstructure:"aws_secret_ref"`
+		Region       string `mapstructure:"region"`
+		ModelARN     string `mapstructure:"model_arn"`
 	} `mapstructure:"bedrock"`
 	Cloudflare struct {
-		AccountID      string `mapstructure:"account_id"`
-		APIToken       string `mapstructure:"api_token"`
-		APITokenEnvRef string `mapstructure:"api_token_env_ref"`
+		AccountID   string `mapstructure:"account_id"`
+		APIToken    string `mapstructure:"api_token"`
+		APITokenRef string `mapstructure:"api_token_ref"`
 	} `mapstructure:"cloudflare"`
 }
 
@@ -85,7 +85,7 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		}
 		resolvedValues = applyProfileOverride(resolvedValues, override)
 	}
-	resolvedValues, err := resolveEnvRefs(resolvedValues)
+	resolvedValues, err := resolveRefs(resolvedValues)
 	if err != nil {
 		return ResolvedRoute{}, err
 	}
@@ -155,7 +155,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Provider = strings.TrimSpace(cfg.Provider)
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
-	cfg.APIKeyEnvRef = strings.TrimSpace(cfg.APIKeyEnvRef)
+	cfg.APIKeyRef = strings.TrimSpace(cfg.APIKeyRef)
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
 	cfg.ToolsEmulationMode = strings.TrimSpace(cfg.ToolsEmulationMode)
@@ -164,14 +164,14 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.ReasoningBudgetRaw = strings.TrimSpace(cfg.ReasoningBudgetRaw)
 	cfg.Azure.Deployment = strings.TrimSpace(cfg.Azure.Deployment)
 	cfg.Bedrock.AWSKey = strings.TrimSpace(cfg.Bedrock.AWSKey)
-	cfg.Bedrock.AWSKeyEnvRef = strings.TrimSpace(cfg.Bedrock.AWSKeyEnvRef)
+	cfg.Bedrock.AWSKeyRef = strings.TrimSpace(cfg.Bedrock.AWSKeyRef)
 	cfg.Bedrock.AWSSecret = strings.TrimSpace(cfg.Bedrock.AWSSecret)
-	cfg.Bedrock.AWSSecretEnvRef = strings.TrimSpace(cfg.Bedrock.AWSSecretEnvRef)
+	cfg.Bedrock.AWSSecretRef = strings.TrimSpace(cfg.Bedrock.AWSSecretRef)
 	cfg.Bedrock.Region = strings.TrimSpace(cfg.Bedrock.Region)
 	cfg.Bedrock.ModelARN = strings.TrimSpace(cfg.Bedrock.ModelARN)
 	cfg.Cloudflare.AccountID = strings.TrimSpace(cfg.Cloudflare.AccountID)
 	cfg.Cloudflare.APIToken = strings.TrimSpace(cfg.Cloudflare.APIToken)
-	cfg.Cloudflare.APITokenEnvRef = strings.TrimSpace(cfg.Cloudflare.APITokenEnvRef)
+	cfg.Cloudflare.APITokenRef = strings.TrimSpace(cfg.Cloudflare.APITokenRef)
 	return cfg
 }
 
@@ -231,7 +231,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	out := cloneRuntimeValuesForRoute(base)
 	applyStringOverride(&out.Provider, override.Provider)
 	applyStringOverride(&out.Endpoint, override.Endpoint)
-	applyStringOrEnvRefOverride(&out.APIKey, &out.APIKeyEnvRef, override.APIKey, override.APIKeyEnvRef)
+	applyStringOrRefOverride(&out.APIKey, &out.APIKeyRef, override.APIKey, override.APIKeyRef)
 	applyStringOverride(&out.Model, override.Model)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
 	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
@@ -239,12 +239,12 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.ReasoningEffortRaw, override.ReasoningEffortRaw)
 	applyStringOverride(&out.ReasoningBudgetRaw, override.ReasoningBudgetRaw)
 	applyStringOverride(&out.AzureDeployment, override.Azure.Deployment)
-	applyStringOrEnvRefOverride(&out.BedrockAWSKey, &out.BedrockAWSKeyEnvRef, override.Bedrock.AWSKey, override.Bedrock.AWSKeyEnvRef)
-	applyStringOrEnvRefOverride(&out.BedrockAWSSecret, &out.BedrockAWSSecretEnvRef, override.Bedrock.AWSSecret, override.Bedrock.AWSSecretEnvRef)
+	applyStringOrRefOverride(&out.BedrockAWSKey, &out.BedrockAWSKeyRef, override.Bedrock.AWSKey, override.Bedrock.AWSKeyRef)
+	applyStringOrRefOverride(&out.BedrockAWSSecret, &out.BedrockAWSSecretRef, override.Bedrock.AWSSecret, override.Bedrock.AWSSecretRef)
 	applyStringOverride(&out.BedrockAWSRegion, override.Bedrock.Region)
 	applyStringOverride(&out.BedrockModelARN, override.Bedrock.ModelARN)
 	applyStringOverride(&out.CloudflareAccountID, override.Cloudflare.AccountID)
-	applyStringOrEnvRefOverride(&out.CloudflareAPIToken, &out.CloudflareAPITokenEnvRef, override.Cloudflare.APIToken, override.Cloudflare.APITokenEnvRef)
+	applyStringOrRefOverride(&out.CloudflareAPIToken, &out.CloudflareAPITokenRef, override.Cloudflare.APIToken, override.Cloudflare.APITokenRef)
 	return out
 }
 
@@ -257,16 +257,16 @@ func applyStringOverride(dst *string, value string) {
 	}
 }
 
-func applyStringOrEnvRefOverride(valueDst, envRefDst *string, value, envRef string) {
-	if valueDst == nil || envRefDst == nil {
+func applyStringOrRefOverride(valueDst, refDst *string, value, ref string) {
+	if valueDst == nil || refDst == nil {
 		return
 	}
 	if value = strings.TrimSpace(value); value != "" {
 		*valueDst = value
-		*envRefDst = ""
+		*refDst = ""
 	}
-	if envRef = strings.TrimSpace(envRef); envRef != "" {
+	if ref = strings.TrimSpace(ref); ref != "" {
 		*valueDst = ""
-		*envRefDst = envRef
+		*refDst = ref
 	}
 }

@@ -175,7 +175,7 @@ func New(deps Dependencies) *cobra.Command {
 				PlanCreateModel:  planModel,
 			})
 
-			promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
+			promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
 			if err != nil {
 				return err
 			}
@@ -197,7 +197,6 @@ func New(deps Dependencies) *cobra.Command {
 			}
 			opts = append(opts, agent.WithLogger(logger))
 			opts = append(opts, agent.WithLogOptions(logOpts))
-			opts = append(opts, agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")))
 			if !isHeartbeat {
 				opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 					if payload := formatPlanProgressUpdate(runCtx, update); payload != "" {

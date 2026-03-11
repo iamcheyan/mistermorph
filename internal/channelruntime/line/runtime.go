@@ -210,10 +210,9 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	sharedGuard := depsutil.GuardFromCommon(d, logger)
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
-		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
-		ImageRecognitionEnabled:     opts.ImageRecognitionEnabled,
-		PlanCreateClient:            planClient,
-		PlanCreateModel:             planModel,
+		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		PlanCreateClient:        planClient,
+		PlanCreateModel:         planModel,
 	}
 	lineImageCacheDir := ""
 	if opts.ImageRecognitionEnabled {

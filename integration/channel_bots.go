@@ -256,7 +256,7 @@ type runtimeSharedDependencies struct {
 	Registry           func() *tools.Registry
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
-	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
+	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error)
 }
 
 func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDependencies {
@@ -287,7 +287,7 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			},
 		},
 		Guard: func(logger *slog.Logger) *guard.Guard { return rt.buildGuard(snap.Guard, logger) },
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			return rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, stickySkills)
 		},
 	}
@@ -321,12 +321,12 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 	}
 }
 
-func (rt *Runtime) promptSpecWithSkillsFromConfig(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, base skillsutil.SkillsConfig, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+func (rt *Runtime) promptSpecWithSkillsFromConfig(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, base skillsutil.SkillsConfig, stickySkills []string) (agent.PromptSpec, []string, error) {
 	if rt == nil {
-		return agent.PromptSpec{}, nil, nil, fmt.Errorf("runtime is nil")
+		return agent.PromptSpec{}, nil, fmt.Errorf("runtime is nil")
 	}
 	if !rt.features.Skills {
-		return agent.DefaultPromptSpec(), nil, nil, nil
+		return agent.DefaultPromptSpec(), nil, nil
 	}
 	cfg := cloneSkillsConfig(base)
 	if len(stickySkills) > 0 {

@@ -8,7 +8,7 @@ import (
 	"unicode"
 )
 
-func resolveStructEnvRefs(target any) error {
+func resolveStructRefs(target any) error {
 	rv := reflect.ValueOf(target)
 	if !rv.IsValid() || rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("target must be a non-nil pointer")
@@ -16,10 +16,10 @@ func resolveStructEnvRefs(target any) error {
 	if rv.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("target must point to a struct")
 	}
-	return resolveStructEnvRefsValue(rv.Elem())
+	return resolveStructRefValues(rv.Elem())
 }
 
-func resolveStructEnvRefsValue(v reflect.Value) error {
+func resolveStructRefValues(v reflect.Value) error {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -29,14 +29,14 @@ func resolveStructEnvRefsValue(v reflect.Value) error {
 		}
 		switch fieldValue.Kind() {
 		case reflect.Struct:
-			if err := resolveStructEnvRefsValue(fieldValue); err != nil {
+			if err := resolveStructRefValues(fieldValue); err != nil {
 				return err
 			}
 		case reflect.String:
-			if !strings.HasSuffix(field.Name, "EnvRef") {
+			if !strings.HasSuffix(field.Name, "Ref") {
 				continue
 			}
-			baseName := strings.TrimSuffix(field.Name, "EnvRef")
+			baseName := strings.TrimSuffix(field.Name, "Ref")
 			baseValue := v.FieldByName(baseName)
 			if !baseValue.IsValid() || !baseValue.CanSet() || baseValue.Kind() != reflect.String {
 				continue

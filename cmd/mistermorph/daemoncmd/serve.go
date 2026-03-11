@@ -106,7 +106,6 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 
 			logOpts := logutil.LogOptionsFromViper()
 			skillsCfg := skillsutil.SkillsConfigFromViper()
-			requireSkillProfiles := viper.GetBool("secrets.require_skill_profiles")
 
 			baseCfg := agent.Config{
 				MaxSteps:        viper.GetInt("max_steps"),
@@ -151,7 +150,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 						qt.resumeApprovalID = ""
 						final, runCtx, runErr = resumeOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, resumeApprovalID)
 					} else {
-						final, runCtx, runErr = runOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, qt.info.Task, qt.info.Model, qt.meta, skillsCfg, requireSkillProfiles)
+						final, runCtx, runErr = runOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, qt.info.Task, qt.info.Model, qt.meta, skillsCfg)
 					}
 
 					if pendingID, ok := pendingApprovalID(final); ok && runErr == nil {
@@ -459,12 +458,12 @@ func errorsIsContextDeadline(ctx context.Context, err error) bool {
 	return daemonruntime.IsContextDeadline(ctx, err)
 }
 
-func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, task string, model string, meta map[string]any, skillsCfg skillsutil.SkillsConfig, requireSkillProfiles bool) (*agent.Final, *agent.Context, error) {
+func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, task string, model string, meta map[string]any, skillsCfg skillsutil.SkillsConfig) (*agent.Final, *agent.Context, error) {
 	ctx = llmstats.WithRunID(ctx, llmstats.NewSyntheticRunID("daemon"))
 	ctx = llmstats.WithScene(ctx, "daemon.loop")
 	skillsCfg.Roots = append([]string(nil), skillsCfg.Roots...)
 	skillsCfg.Requested = append([]string(nil), skillsCfg.Requested...)
-	promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
+	promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -478,7 +477,6 @@ func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptio
 		promptSpec,
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, requireSkillProfiles),
 		agent.WithGuard(sharedGuard),
 	)
 	return engine.Run(ctx, task, agent.RunOptions{Model: model, Meta: meta})

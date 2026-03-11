@@ -36,15 +36,14 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryInjectionEnabled      bool
-	MemoryInjectionMaxItems     int
-	SecretsRequireSkillProfiles bool
-	ImageRecognitionEnabled     bool
-	PlanCreateClient            llm.Client
-	PlanCreateModel             string
-	MemoryManager               *memory.Manager
-	MemoryOrchestrator          *memoryruntime.Orchestrator
-	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
+	ImageRecognitionEnabled bool
+	PlanCreateClient        llm.Client
+	PlanCreateModel         string
+	MemoryManager           *memory.Manager
+	MemoryOrchestrator      *memoryruntime.Orchestrator
+	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
 
 const (
@@ -104,7 +103,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		reg.Register(reactTool)
 	}
 
-	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
+	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -153,7 +152,6 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
 		agent.WithGuard(sharedGuard),
 		agent.WithPlanStepUpdate(planUpdateHook),
 	}

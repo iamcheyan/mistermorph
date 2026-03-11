@@ -61,7 +61,6 @@ Introduce a Secret Resolver (Credential Provider) interface:
 MVP implementation: `EnvResolver`
 
 - Default mapping: `secret_ref` maps directly to an environment variable name (e.g. `JSONBILL_API_KEY`)
-- Optional: alias mapping `secret_ref -> ENV_NAME` to ease migration/reuse
 - Failure policy: fail-closed (missing => error; do not “let the model guess”)
 
 ### 2.3 Injection Point (HTTP layer only)
@@ -115,7 +114,7 @@ To keep this both extensible and auditable, `bindings.<tool>` should remain stru
 
 “Which profiles can be used” must be a host policy, not an LLM decision:
 
-- **Skill declaration**: skill frontmatter declares `auth_profiles: ["jsonbill"]`.
+- **Skill declaration**: skill frontmatter may declare `auth_profiles: ["jsonbill"]` for prompt/context clarity only; it is not an authorization boundary.
 - **Runtime allowlist**: config/flags declare which `auth_profile` ids are allowed for the run.
 - **Tool-level constraints**: only selected tools may accept `auth_profile` (e.g. `url_fetch`); `bash` must not be used to carry authenticated HTTP (see TODO).
 
@@ -162,12 +161,9 @@ If user task text can influence `auth_profile`, validate strictly:
 
 - Extend skill frontmatter schema: allow `auth_profiles: ["..."]` (profile id only; no injection details).
 - Add policy config (recommend in `assets/config/config.example.yaml`):
-  - `secrets.enabled: true|false`
-  - `secrets.allow_refs: [...]` (optional: further restrict secret_ref values)
-  - `secrets.aliases: {JSONBILL_API_KEY: "SOME_ENV_NAME"}` (optional)
   - `secrets.allow_profiles: ["jsonbill", "..."]` (recommended main allowlist)
 - Default policy for `bash` (recommend hard-coded safe default):
-  - When `secrets.enabled=true`, allow `bash` for local automation, but deny `curl` by default to avoid “bash + curl” carrying authenticated HTTP; use `url_fetch + auth_profile` for HTTP.
+  - When allowlisted auth profiles are configured, allow `bash` for local automation, but deny `curl` by default to avoid “bash + curl” carrying authenticated HTTP; use `url_fetch + auth_profile` for HTTP.
   - If curl features are needed, prefer a structured subprocess tool (e.g. `exec`/`curl_fetch`) that takes `profile_id + argv + stdin` and injects secrets host-side with a minimal environment.
 - `auth_profiles` config (recommend in `assets/config/config.example.yaml`):
   - `auth_profiles.<id>.credential.secret_ref`
@@ -201,15 +197,13 @@ If user task text can influence `auth_profile`, validate strictly:
 **Config & Wiring (cmd/)**
 
 - [x] Add default fail-closed values in `cmd/mistermorph/defaults.go`:
-  - [x] `secrets.enabled=false`
   - [x] `secrets.allow_profiles=[]` (empty means “all profiles disabled”)
-  - [x] `secrets.aliases={}`
   - [x] `auth_profiles={}`
-- [x] Add full examples and comments for `secrets:` and `auth_profiles:` in `assets/config/config.example.yaml` (and clarify: bash disabled by default; when secrets enabled, curl denied by default).
+- [x] Add full examples and comments for `secrets:` and `auth_profiles:` in `assets/config/config.example.yaml` (and clarify: bash disabled by default; when allowlisted auth profiles are configured, curl is denied by default).
 - [x] In `cmd/mistermorph/registry.go`:
-  - [x] Build `EnvResolver` from viper (`secrets.aliases` supported)
+  - [x] Build `EnvResolver`
   - [x] Load/validate `auth_profiles` and build a read-only `ProfileStore` (discard invalid profiles)
-  - [x] When `secrets.enabled=true`, keep `bash` optional but deny `curl` by default
+  - [x] When allowlisted auth profiles are configured, keep `bash` optional but deny `curl` by default
   - [x] Inject `ProfileStore + Resolver` into the `url_fetch` tool constructor
 
 **Profile Schema (Go struct + viper unmarshal)**
@@ -243,7 +237,6 @@ If user task text can influence `auth_profile`, validate strictly:
   - [x] Explicitly reject sensitive headers: `Authorization`/`Cookie`/`Host`/`Proxy-*`/`X-Forwarded-*` and any `*api[-_]?key*` / `*token*`
 - [x] Update `Execute()`:
   - [x] If params include `auth_profile`:
-    - [x] require `secrets.enabled=true`
     - [x] require `auth_profile` is in `secrets.allow_profiles` and exists in `auth_profiles`
     - [x] validate URL matches profile allow policy (scheme/host/port/path prefix)
     - [x] resolve and inject secret per `bindings.url_fetch.inject` (MVP: header injection only)
@@ -267,8 +260,7 @@ If user task text can influence `auth_profile`, validate strictly:
 
 - [x] Add lightweight parsing of SKILL frontmatter in `skills/skills.go` (extract `auth_profiles: []` only)
 - [x] When skills are loaded, record which profiles were declared for the run (auditing + optional enforcement)
-- [x] Optional enforcement: when `secrets.require_skill_profiles=true`, `url_fetch(auth_profile=...)` must be in the set declared by loaded skills (still intersected with `secrets.allow_profiles`)
-- [ ] Clarify rule: a skill declaration is a “request”, but the actual permission boundary remains `secrets.allow_profiles` (avoid prompt injection expanding privileges via skill loading)
+- [ ] Clarify rule: a skill declaration is informational only; the actual permission boundary remains `secrets.allow_profiles` (avoid prompt injection expanding privileges via skill loading)
 
 **Tests**
 
@@ -287,7 +279,7 @@ If user task text can influence `auth_profile`, validate strictly:
 - `url_fetch` can access authenticated HTTP APIs without exposing the key (inject via `auth_profile`).
 - Any `auth_profile` not in the allowlist must fail (fail-closed), and errors must not contain the secret value.
 - Enabling `logging.include_tool_params=true` does not leak secrets: sensitive headers are rejected or redacted.
-- When `secrets.enabled=true`, authenticated HTTP must not be carried via `bash + curl` (default allow bash but deny curl, or require explicit approval policy).
+- When allowlisted auth profiles are configured, authenticated HTTP must not be carried via `bash + curl` (default allow bash but deny curl, or require explicit approval policy).
 
 ## 5. Samples (Configuration and Usage)
 
@@ -300,10 +292,7 @@ Note: `config.yaml` here refers to the main `mistermorph` config (passed via `--
 
 ```yaml
 secrets:
-  enabled: true
   allow_profiles: ["jsonbill"]
-  aliases:
-    JSONBILL_API_KEY: "JSONBILL_API_KEY"
 
 auth_profiles:
   jsonbill:

@@ -100,18 +100,17 @@ func buildHeartbeatRuntime(
 		BuildHeartbeatMeta: d.BuildHeartbeatMeta,
 	}
 	hbOpts := heartbeatruntime.RunOptions{
-		Interval:                    hbCfg.Interval,
-		TaskTimeout:                 taskTimeout,
-		RequestTimeout:              telegramCfg.RequestTimeout,
-		AgentLimits:                 telegramCfg.AgentLimits,
-		Source:                      "telegram",
-		ChecklistPath:               statepaths.HeartbeatChecklistPath(),
-		MemoryEnabled:               telegramCfg.MemoryEnabled,
-		MemoryShortTermDays:         telegramCfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:      telegramCfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:     telegramCfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles: telegramCfg.SecretsRequireSkillProfiles,
-		Notifier:                    newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
+		Interval:                hbCfg.Interval,
+		TaskTimeout:             taskTimeout,
+		RequestTimeout:          telegramCfg.RequestTimeout,
+		AgentLimits:             telegramCfg.AgentLimits,
+		Source:                  "telegram",
+		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		MemoryEnabled:           telegramCfg.MemoryEnabled,
+		MemoryShortTermDays:     telegramCfg.MemoryShortTermDays,
+		MemoryInjectionEnabled:  telegramCfg.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: telegramCfg.MemoryInjectionMaxItems,
+		Notifier:                newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
 	}
 	return hbDeps, hbOpts
 }

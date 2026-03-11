@@ -34,7 +34,6 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	SecretsRequireSkillProfiles   bool
 	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool

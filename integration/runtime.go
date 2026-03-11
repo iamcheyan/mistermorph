@@ -218,16 +218,14 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		PlanCreateModel:  planModel,
 	})
 
-	skillAuthProfiles := []string{}
 	promptSpec := agent.DefaultPromptSpec()
 	if rt.features.Skills {
-		spec, _, authProfiles, err := rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, nil)
+		spec, _, err := rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, nil)
 		if err != nil {
 			_ = inspectCleanup()
 			return nil, err
 		}
 		promptSpec = spec
-		skillAuthProfiles = authProfiles
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
@@ -236,7 +234,6 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	opts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, snap.SecretsRequireSkillProfiles),
 	}
 	if g := rt.buildGuard(snap.Guard, logger); g != nil {
 		opts = append(opts, agent.WithGuard(g))

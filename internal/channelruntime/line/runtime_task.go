@@ -24,10 +24,9 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	SecretsRequireSkillProfiles bool
-	ImageRecognitionEnabled     bool
-	PlanCreateClient            llm.Client
-	PlanCreateModel             string
+	ImageRecognitionEnabled bool
+	PlanCreateClient        llm.Client
+	PlanCreateModel         string
 }
 
 const lineStickySkillsCap = 16
@@ -74,7 +73,7 @@ func runLineTask(
 	})
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
 
-	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
+	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -90,7 +89,6 @@ func runLineTask(
 		promptSpec,
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
 		agent.WithGuard(sharedGuard),
 	)
 

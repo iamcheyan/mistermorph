@@ -40,10 +40,9 @@ func TestURLFetchTool_AuthProfileInjectsHeader(t *testing.T) {
 	})
 
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
-		Enabled:       true,
 		AllowProfiles: map[string]bool{"p1": true},
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
-		Resolver:      &secrets.EnvResolver{Aliases: map[string]string{"TEST_API_KEY": "TEST_API_KEY"}},
+		Resolver:      &secrets.EnvResolver{},
 	})
 	tool.HTTPClient = &http.Client{Transport: rt}
 
@@ -84,7 +83,6 @@ func TestURLFetchTool_AuthProfileNotAllowlisted(t *testing.T) {
 	})
 
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
-		Enabled:       true,
 		AllowProfiles: map[string]bool{}, // fail-closed
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
 		Resolver:      &secrets.EnvResolver{},
@@ -92,42 +90,6 @@ func TestURLFetchTool_AuthProfileNotAllowlisted(t *testing.T) {
 	tool.HTTPClient = &http.Client{Transport: rt}
 
 	out, err := tool.Execute(context.Background(), map[string]any{
-		"url":          "https://example.test/",
-		"auth_profile": "p1",
-	})
-	if err == nil {
-		t.Fatalf("expected error, got nil (out=%q)", out)
-	}
-}
-
-func TestURLFetchTool_AuthProfileRequiresSkillDeclaration_WhenEnabled(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "shh_secret")
-
-	profile := testProfileForURL(t, "p1", "https://example.test/", secrets.ToolBinding{
-		Inject: secrets.Inject{
-			Location: "header",
-			Name:     "Authorization",
-			Format:   "bearer",
-		},
-	})
-
-	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
-		Enabled:       true,
-		AllowProfiles: map[string]bool{"p1": true},
-		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
-		Resolver:      &secrets.EnvResolver{},
-	})
-	tool.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: 200,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("ok")),
-			Request:    r,
-		}, nil
-	})}
-
-	ctx := secrets.WithSkillAuthProfilePolicy(context.Background(), []string{"other"}, true)
-	out, err := tool.Execute(ctx, map[string]any{
 		"url":          "https://example.test/",
 		"auth_profile": "p1",
 	})
@@ -209,7 +171,6 @@ func TestURLFetchTool_AuthProfileRedirectSameOrigin307(t *testing.T) {
 	profile.Allow.Methods = []string{"POST"}
 
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
-		Enabled:       true,
 		AllowProfiles: map[string]bool{"p1": true},
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
 		Resolver:      &secrets.EnvResolver{},

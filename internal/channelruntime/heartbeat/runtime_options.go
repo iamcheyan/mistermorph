@@ -9,36 +9,34 @@ import (
 )
 
 type runtimeLoopOptions struct {
-	Interval                    time.Duration
-	InitialDelay                time.Duration
-	TaskTimeout                 time.Duration
-	RequestTimeout              time.Duration
-	AgentLimits                 agent.Limits
-	Source                      string
-	ChecklistPath               string
-	MemoryEnabled               bool
-	MemoryShortTermDays         int
-	MemoryInjectionEnabled      bool
-	MemoryInjectionMaxItems     int
-	SecretsRequireSkillProfiles bool
-	Notifier                    Notifier
+	Interval                time.Duration
+	InitialDelay            time.Duration
+	TaskTimeout             time.Duration
+	RequestTimeout          time.Duration
+	AgentLimits             agent.Limits
+	Source                  string
+	ChecklistPath           string
+	MemoryEnabled           bool
+	MemoryShortTermDays     int
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
+	Notifier                Notifier
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
 	out := runtimeLoopOptions{
-		Interval:                    opts.Interval,
-		InitialDelay:                opts.InitialDelay,
-		TaskTimeout:                 opts.TaskTimeout,
-		RequestTimeout:              opts.RequestTimeout,
-		AgentLimits:                 opts.AgentLimits,
-		Source:                      strings.TrimSpace(opts.Source),
-		ChecklistPath:               strings.TrimSpace(opts.ChecklistPath),
-		MemoryEnabled:               opts.MemoryEnabled,
-		MemoryShortTermDays:         opts.MemoryShortTermDays,
-		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
-		Notifier:                    opts.Notifier,
+		Interval:                opts.Interval,
+		InitialDelay:            opts.InitialDelay,
+		TaskTimeout:             opts.TaskTimeout,
+		RequestTimeout:          opts.RequestTimeout,
+		AgentLimits:             opts.AgentLimits,
+		Source:                  strings.TrimSpace(opts.Source),
+		ChecklistPath:           strings.TrimSpace(opts.ChecklistPath),
+		MemoryEnabled:           opts.MemoryEnabled,
+		MemoryShortTermDays:     opts.MemoryShortTermDays,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		Notifier:                opts.Notifier,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }

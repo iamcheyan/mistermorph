@@ -189,9 +189,8 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	sharedGuard := depsutil.GuardFromCommon(d, logger)
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
-		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
-		PlanCreateClient:            planClient,
-		PlanCreateModel:             planModel,
+		PlanCreateClient: planClient,
+		PlanCreateModel:  planModel,
 	}
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
 	if addressingLLMTimeout <= 0 {

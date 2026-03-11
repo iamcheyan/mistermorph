@@ -16,7 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
-type PromptSpecFunc func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error)
+type PromptSpecFunc func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error)
 
 type CommonDependencies struct {
 	Logger             func() (*slog.Logger, error)
@@ -97,9 +97,9 @@ func Guard(gf func(logger *slog.Logger) *guard.Guard, logger *slog.Logger) *guar
 	return gf(logger)
 }
 
-func PromptSpec(fn PromptSpecFunc, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+func PromptSpec(fn PromptSpecFunc, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 	if fn == nil {
-		return agent.PromptSpec{}, nil, nil, fmt.Errorf("PromptSpec dependency missing")
+		return agent.PromptSpec{}, nil, fmt.Errorf("PromptSpec dependency missing")
 	}
 	return fn(ctx, logger, logOpts, task, client, model, stickySkills)
 }
@@ -164,7 +164,7 @@ func GuardFromCommon(d CommonDependencies, logger *slog.Logger) *guard.Guard {
 	return Guard(d.Guard, logger)
 }
 
-func PromptSpecFromCommon(d CommonDependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+func PromptSpecFromCommon(d CommonDependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 	return PromptSpec(d.PromptSpec, ctx, logger, logOpts, task, client, model, stickySkills)
 }
 

@@ -38,9 +38,6 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 
 	fileStateDir := strings.TrimSpace(v.GetString("file_state_dir"))
 
-	secretsAliases := map[string]string{}
-	_ = v.UnmarshalKey("secrets.aliases", &secretsAliases)
-
 	authProfiles := map[string]secrets.AuthProfile{}
 	_ = v.UnmarshalKey("auth_profiles", &authProfiles)
 	for id, profile := range authProfiles {
@@ -70,14 +67,10 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			MaxTokenBudget:  v.GetInt("max_token_budget"),
 			ToolRepeatLimit: v.GetInt("tool_repeat_limit"),
 		},
-		SecretsRequireSkillProfiles: v.GetBool("secrets.require_skill_profiles"),
-		SkillsConfig:                cloneSkillsConfig(skillsutil.SkillsConfigFromReader(v)),
+		SkillsConfig: cloneSkillsConfig(skillsutil.SkillsConfigFromReader(v)),
 		Registry: registrySnapshot{
 			UserAgent:                     strings.TrimSpace(v.GetString("user_agent")),
-			SecretsEnabled:                v.GetBool("secrets.enabled"),
-			SecretsRequireSkillProfiles:   v.GetBool("secrets.require_skill_profiles"),
 			SecretsAllowProfiles:          append([]string(nil), v.GetStringSlice("secrets.allow_profiles")...),
-			SecretsAliases:                copyStringMap(secretsAliases),
 			AuthProfiles:                  copyAuthProfilesMap(authProfiles),
 			FileCacheDir:                  strings.TrimSpace(v.GetString("file_cache_dir")),
 			FileStateDir:                  fileStateDir,

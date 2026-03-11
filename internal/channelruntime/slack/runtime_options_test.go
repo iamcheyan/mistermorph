@@ -85,9 +85,8 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 			MaxTokenBudget:  2048,
 			ToolRepeatLimit: 6,
 		},
-		SecretsRequireSkillProfiles: true,
-		InspectPrompt:               true,
-		InspectRequest:              true,
+		InspectPrompt:  true,
+		InspectRequest: true,
 	})
 	if got.BotToken != "xoxb" || got.AppToken != "xapp" {
 		t.Fatalf("token normalization mismatch: %#v", got)
@@ -104,7 +103,7 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	if !got.MemoryEnabled || got.MemoryShortTermDays != 9 || !got.MemoryInjectionEnabled || got.MemoryInjectionMaxItems != 12 {
 		t.Fatalf("memory options mismatch: %#v", got)
 	}
-	if !got.SecretsRequireSkillProfiles {
-		t.Fatalf("secrets require skill profiles should be preserved")
+	if !got.InspectPrompt || !got.InspectRequest {
+		t.Fatalf("inspect options should be preserved: %#v", got)
 	}
 }

@@ -190,7 +190,7 @@ mistermorph skills install <remote-skill-url>
 ### Skills 的安全机制
 
 1. 安装审计：安装远程 skill 时，Mister Morph 会先预览技能内容，并做基础安全审计（例如扫描脚本中的危险命令），再请求用户确认。
-2. Auth profiles：skill 可以在 `auth_profiles` 字段声明依赖的认证配置。只有宿主机已配置对应 auth profile 的 skill 才会被 Agent 使用，从而避免意外泄漏密钥（见 `../../assets/skills/moltbook` 以及配置文件中的 `secrets` / `auth_profiles` 部分）。
+2. Auth profiles：skill 可以在 `auth_profiles` 字段声明依赖的认证配置。这里的声明只用于提示和上下文，不构成权限边界。真正的授权只来自宿主机配置里的 `secrets.allow_profiles` 和 `auth_profiles`（见 `../../assets/skills/moltbook` 以及配置文件相关部分）。
 
 <a id="security"></a>
 ## 安全性

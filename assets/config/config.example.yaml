@@ -20,7 +20,7 @@ llm:
   # Provider API key. Prefer env var to avoid committing secrets.
   api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
   # Optional env var name for the API key. If set, this takes precedence over api_key.
-  api_key_env_ref: ""
+  # api_key_ref: OPENAI_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -39,16 +39,16 @@ llm:
   # Provider-specific settings for AWS Bedrock.
   bedrock:
     aws_key: ""
-    aws_key_env_ref: ""
+    # aws_key_ref: AWS_ACCESS_KEY_ID
     aws_secret: ""
-    aws_secret_env_ref: ""
+    # aws_secret_ref: AWS_SECRET_ACCESS_KEY
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.
   cloudflare:
     account_id: ""
     api_token: ""
-    api_token_env_ref: ""
+    # api_token_ref: CLOUDFLARE_API_TOKEN
   # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
   # profiles:
   #   cheap:
@@ -56,7 +56,7 @@ llm:
   #   reasoning:
   #     provider: xai
   #     model: "grok-4.1-fast-reasoning"
-  #     api_key_env_ref: XAI_API_KEY
+  #     # api_key_ref: XAI_API_KEY
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
   #   main_loop | addressing | heartbeat | plan_create
@@ -105,22 +105,16 @@ logging:
 # - tool params / logs
 # - LLM context
 #
-# When `secrets.enabled: true`, `bash` can still be enabled, but `curl` is rejected by default
-# to avoid "bash + curl" carrying authenticated HTTP requests (use `url_fetch` + `auth_profile` instead).
+# When at least one allowlisted auth profile is configured, `bash` still works, but `curl` is
+# rejected by default to avoid "bash + curl" carrying authenticated HTTP requests. Use
+# `url_fetch` + `auth_profile` instead.
 secrets:
-  # Disabled by default (fail-closed).
-  enabled: false
   # Allowlisted profile ids. Default empty means no profiles can be used.
   allow_profiles: []
-  # If true, tools using `auth_profile` require the profile id to be declared by at least one loaded skill
-  # in its SKILL.md frontmatter: `auth_profiles: ["..."]`.
-  require_skill_profiles: false
-  # Optional alias mapping: secret_ref -> ENV_VAR_NAME
-  aliases: {}
 
 # Auth profiles are referenced by tools via `auth_profile: "<id>"`.
 #
-# NOTE: This is a sample. Do NOT store secret values here. Use environment variables.
+# NOTE: This is a sample. Do NOT store secret values here. `secret_ref` is the environment variable name.
 auth_profiles:
   # jsonbill:
   #   credential:
@@ -218,7 +212,7 @@ tools:
   # Dangerous: enables local shell execution.
   bash:
     # Enable the bash tool.
-    # Note: when `secrets.enabled: true`, bash is allowed but `curl` is denied by default.
+    # Note: when allowlisted auth profiles are configured, bash is allowed but `curl` is denied by default.
     enabled: true
     # Default timeout for each bash command.
     timeout: "30s"

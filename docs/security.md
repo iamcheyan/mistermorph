@@ -202,7 +202,7 @@ Agents are extremely good at “accidentally” leaking secrets if you ever put 
 To avoid this, `mistermorph` supports **profile-based credential injection**:
 
 - Skills/LLM only reference a profile id (e.g. `auth_profile: "jsonbill"`).
-- The host resolves the real secret value from the environment (via `secret_ref`).
+- The host resolves the real secret value from the environment. `secret_ref` is the environment variable name.
 - The tool injects the credential into the actual HTTP request (e.g. `Authorization: Bearer …`) without logging it.
 
 ### Configure profiles
@@ -211,10 +211,7 @@ In `/opt/morph/config.yaml`:
 
 ```yaml
 secrets:
-  enabled: true
   allow_profiles: ["jsonbill"]
-  # Optional hardening: require the profile id to be declared by at least one loaded skill frontmatter.
-  require_skill_profiles: true
 
 auth_profiles:
   jsonbill:
@@ -250,7 +247,7 @@ MISTER_MORPH_SERVER_AUTH_TOKEN="..."
 - `url_fetch` supports `auth_profile` and injects credentials server-side.
 - `url_fetch` rejects sensitive headers in user-provided `headers` to reduce accidental leaks.
 - `url_fetch` supports saving binary responses to `file_cache_dir` (instead of inlining bytes in the LLM context), which is recommended for PDFs.
-- When `secrets.enabled=true`, `bash` can still be enabled for local automation, but `curl` is rejected by default to avoid “bash + curl” carrying authenticated HTTP requests.
+- When at least one allowlisted auth profile is configured, `bash` can still be enabled for local automation, but `curl` is rejected by default to avoid “bash + curl” carrying authenticated HTTP requests.
 - `bash` does not inherit the full daemon/parent environment. It runs with a small built-in allowlist (`PATH`, locale, shell/home, temp, XDG, and SSL cert vars) so `MISTER_MORPH_*` secrets are not exposed to subprocesses by default.
 - If a local workflow needs extra variables, inject them explicitly with `tools.bash.injected_env_vars`.
 

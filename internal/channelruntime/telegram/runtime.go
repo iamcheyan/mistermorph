@@ -325,15 +325,14 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		defer func() { _ = memJournal.Close() }()
 	}
 	taskRuntimeOpts := runtimeTaskOptions{
-		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
-		ImageRecognitionEnabled:     opts.ImageRecognitionEnabled,
-		PlanCreateClient:            planClient,
-		PlanCreateModel:             planModel,
-		MemoryManager:               memManager,
-		MemoryOrchestrator:          memOrchestrator,
-		MemoryProjectionWorker:      memProjectionWorker,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		PlanCreateClient:        planClient,
+		PlanCreateModel:         planModel,
+		MemoryManager:           memManager,
+		MemoryOrchestrator:      memOrchestrator,
+		MemoryProjectionWorker:  memProjectionWorker,
 	}
 	pollTimeout := opts.PollTimeout
 	taskTimeout := opts.TaskTimeout

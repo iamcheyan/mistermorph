@@ -28,7 +28,6 @@ const (
 )
 
 type URLFetchAuth struct {
-	Enabled       bool
 	AllowProfiles map[string]bool
 	Profiles      *secrets.ProfileStore
 	Resolver      secrets.Resolver
@@ -260,13 +259,8 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		injectHeaderVal  string
 	)
 	if authProfileID != "" {
-		if pol, ok := secrets.SkillAuthProfilePolicyFromContext(ctx); ok && pol.Enforce {
-			if pol.Allowed == nil || !pol.Allowed[authProfileID] {
-				return "", fmt.Errorf("auth_profile %q is not declared by any loaded skill", authProfileID)
-			}
-		}
-		if t.Auth == nil || !t.Auth.Enabled {
-			return "", fmt.Errorf("auth_profile is not enabled (set secrets.enabled=true)")
+		if t.Auth == nil {
+			return "", fmt.Errorf("auth_profile is not configured")
 		}
 		if t.Auth.AllowProfiles == nil || !t.Auth.AllowProfiles[authProfileID] {
 			return "", fmt.Errorf("auth_profile %q is not allowed (fail-closed)", authProfileID)

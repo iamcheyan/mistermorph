@@ -16,10 +16,7 @@ import (
 
 type registryConfig struct {
 	UserAgent                     string
-	SecretsEnabled                bool
-	SecretsRequireSkillProfiles   bool
 	SecretsAllowProfiles          []string
-	SecretsAliases                map[string]string
 	AuthProfiles                  map[string]secrets.AuthProfile
 	FileCacheDir                  string
 	FileStateDir                  string
@@ -89,17 +86,11 @@ func loadRegistryConfigFromViper() registryConfig {
 		authProfiles[id] = profile
 	}
 
-	secretsAliases := map[string]string{}
-	_ = viper.UnmarshalKey("secrets.aliases", &secretsAliases)
-
 	fileStateDir := strings.TrimSpace(viper.GetString("file_state_dir"))
 
 	return registryConfig{
 		UserAgent:                     strings.TrimSpace(viper.GetString("user_agent")),
-		SecretsEnabled:                viper.GetBool("secrets.enabled"),
-		SecretsRequireSkillProfiles:   viper.GetBool("secrets.require_skill_profiles"),
 		SecretsAllowProfiles:          append([]string(nil), viper.GetStringSlice("secrets.allow_profiles")...),
-		SecretsAliases:                copyStringMap(secretsAliases),
 		AuthProfiles:                  copyAuthProfilesMap(authProfiles),
 		FileCacheDir:                  strings.TrimSpace(viper.GetString("file_cache_dir")),
 		FileStateDir:                  fileStateDir,
@@ -142,8 +133,6 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 	}
 
 	userAgent := strings.TrimSpace(cfg.UserAgent)
-	secretsEnabled := cfg.SecretsEnabled
-	secretsRequireSkillProfiles := cfg.SecretsRequireSkillProfiles
 
 	allowProfiles := make(map[string]bool)
 	for _, id := range cfg.SecretsAllowProfiles {
@@ -163,31 +152,21 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 		}
 	}
 
-	if secretsEnabled {
-		log.Info("secrets_enabled",
-			"require_skill_profiles", secretsRequireSkillProfiles,
-			"allow_profiles", keysSorted(allowProfiles),
-			"auth_profiles", len(authProfiles),
-		)
-	} else {
-		if len(allowProfiles) > 0 || len(authProfiles) > 0 {
-			log.Warn("secrets_disabled_but_configured",
-				"allow_profiles", keysSorted(allowProfiles),
-				"auth_profiles", len(authProfiles),
-			)
-		}
-	}
+	log.Info("auth_profiles_configured",
+		"allow_profiles", keysSorted(allowProfiles),
+		"auth_profiles", len(authProfiles),
+	)
 
-	secretsAliases := copyStringMap(cfg.SecretsAliases)
-	resolver := &secrets.EnvResolver{Aliases: secretsAliases}
+	resolver := &secrets.EnvResolver{}
 	profileStore := secrets.NewProfileStore(authProfiles)
+	authenticatedHTTPConfigured := hasAllowedAuthProfiles(allowProfiles, authProfiles)
 
 	toolsutil.RegisterStaticTools(r, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
-			UserAgent:      userAgent,
-			FileCacheDir:   strings.TrimSpace(cfg.FileCacheDir),
-			FileStateDir:   strings.TrimSpace(cfg.FileStateDir),
-			SecretsEnabled: secretsEnabled,
+			UserAgent:                   userAgent,
+			FileCacheDir:                strings.TrimSpace(cfg.FileCacheDir),
+			FileStateDir:                strings.TrimSpace(cfg.FileStateDir),
+			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{
 			MaxBytes:  cfg.ToolsReadFileMaxBytes,
@@ -210,7 +189,6 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			MaxBytes:         cfg.ToolsURLFetchMaxBytes,
 			MaxBytesDownload: cfg.ToolsURLFetchMaxBytesDownload,
 			Auth: &builtin.URLFetchAuth{
-				Enabled:       secretsEnabled,
 				AllowProfiles: allowProfiles,
 				Profiles:      profileStore,
 				Resolver:      resolver,
@@ -262,17 +240,6 @@ func keysSorted(m map[string]bool) []string {
 	return out
 }
 
-func copyStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
 func copyAuthProfilesMap(in map[string]secrets.AuthProfile) map[string]secrets.AuthProfile {
 	if len(in) == 0 {
 		return map[string]secrets.AuthProfile{}
@@ -282,4 +249,13 @@ func copyAuthProfilesMap(in map[string]secrets.AuthProfile) map[string]secrets.A
 		out[k] = v
 	}
 	return out
+}
+
+func hasAllowedAuthProfiles(allowProfiles map[string]bool, authProfiles map[string]secrets.AuthProfile) bool {
+	for id := range allowProfiles {
+		if _, ok := authProfiles[id]; ok {
+			return true
+		}
+	}
+	return false
 }

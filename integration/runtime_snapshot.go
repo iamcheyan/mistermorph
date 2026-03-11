@@ -13,26 +13,22 @@ import (
 )
 
 type runtimeSnapshot struct {
-	Logger                      *slog.Logger
-	LoggerInitErr               error
-	LogOptions                  agent.LogOptions
-	LLMValues                   llmutil.RuntimeValues
-	LLMRequestTimeout           time.Duration
-	AgentLimits                 agent.Limits
-	SecretsRequireSkillProfiles bool
-	SkillsConfig                skillsutil.SkillsConfig
-	Registry                    registrySnapshot
-	Guard                       guardSnapshot
-	Telegram                    channelopts.TelegramConfig
-	Slack                       channelopts.SlackConfig
+	Logger            *slog.Logger
+	LoggerInitErr     error
+	LogOptions        agent.LogOptions
+	LLMValues         llmutil.RuntimeValues
+	LLMRequestTimeout time.Duration
+	AgentLimits       agent.Limits
+	SkillsConfig      skillsutil.SkillsConfig
+	Registry          registrySnapshot
+	Guard             guardSnapshot
+	Telegram          channelopts.TelegramConfig
+	Slack             channelopts.SlackConfig
 }
 
 type registrySnapshot struct {
 	UserAgent                     string
-	SecretsEnabled                bool
-	SecretsRequireSkillProfiles   bool
 	SecretsAllowProfiles          []string
-	SecretsAliases                map[string]string
 	AuthProfiles                  map[string]secrets.AuthProfile
 	FileCacheDir                  string
 	FileStateDir                  string
@@ -85,17 +81,6 @@ func cloneSkillsConfig(in skillsutil.SkillsConfig) skillsutil.SkillsConfig {
 	out := in
 	out.Roots = append([]string(nil), in.Roots...)
 	out.Requested = append([]string(nil), in.Requested...)
-	return out
-}
-
-func copyStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
 	return out
 }
 

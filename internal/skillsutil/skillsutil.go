@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"path"
-	"sort"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -68,7 +67,7 @@ func SkillsConfigFromRunCmd(cmd *cobra.Command) SkillsConfig {
 	return cfg
 }
 
-func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, cfg SkillsConfig) (agent.PromptSpec, []string, []string, error) {
+func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, cfg SkillsConfig) (agent.PromptSpec, []string, error) {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -76,7 +75,6 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 
 	spec := agent.DefaultPromptSpec()
 	var loadedOrdered []string
-	declaredAuthProfiles := make(map[string]bool)
 
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil {
@@ -86,7 +84,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	}
 
 	if !cfg.Enabled {
-		return spec, nil, nil, nil
+		return spec, nil, nil
 	}
 
 	loadedSkillIDs := make(map[string]bool)
@@ -134,10 +132,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 		}
 		skillLoaded, err := skills.LoadFrontmatter(s, 64*1024)
 		if err != nil {
-			return agent.PromptSpec{}, nil, nil, err
-		}
-		for _, ap := range skillLoaded.AuthProfiles {
-			declaredAuthProfiles[ap] = true
+			return agent.PromptSpec{}, nil, err
 		}
 		loadedSkillIDs[strings.ToLower(skillLoaded.ID)] = true
 		loadedOrdered = append(loadedOrdered, skillLoaded.ID)
@@ -166,13 +161,8 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 
 		log.Info("skill_loaded", "skills_enabled", cfg.Enabled, "name", name, "id", skillLoaded.ID, "path", skillLoaded.SkillMD)
 	}
-
-	ap := mapKeysSorted(declaredAuthProfiles)
-	if len(ap) > 0 {
-		log.Info("skills_auth_profiles_declared", "count", len(ap), "profiles", ap)
-	}
 	log.Info("skills_loaded", "skills_enabled", cfg.Enabled, "count", len(spec.Skills))
-	return spec, loadedOrdered, ap, nil
+	return spec, loadedOrdered, nil
 }
 
 func skillsEnabledFromReader(r ConfigReader) bool {
@@ -183,18 +173,6 @@ func skillsEnabledFromReader(r ConfigReader) bool {
 		return r.GetBool("skills.enabled")
 	}
 	return true
-}
-
-func mapKeysSorted(m map[string]bool) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func normalizeSkillsDirName(raw string) string {

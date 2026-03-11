@@ -111,7 +111,7 @@ func newRootCmd() *cobra.Command {
 		CreateLLMClient: telegramLLM.CreateClient,
 		Registry:        registryResolver.Registry,
 		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := telegramSkills.Config()
 			if len(stickySkills) > 0 {
 				cfg.Requested = append(cfg.Requested, stickySkills...)
@@ -138,7 +138,7 @@ func newRootCmd() *cobra.Command {
 		CreateLLMClient: slackLLM.CreateClient,
 		Registry:        registryResolver.Registry,
 		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := slackSkills.Config()
 			if len(stickySkills) > 0 {
 				cfg.Requested = append(cfg.Requested, stickySkills...)
@@ -157,7 +157,7 @@ func newRootCmd() *cobra.Command {
 		CreateLLMClient: lineLLM.CreateClient,
 		Registry:        registryResolver.Registry,
 		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := lineSkills.Config()
 			if len(stickySkills) > 0 {
 				cfg.Requested = append(cfg.Requested, stickySkills...)
@@ -176,7 +176,7 @@ func newRootCmd() *cobra.Command {
 		CreateLLMClient: larkLLM.CreateClient,
 		Registry:        registryResolver.Registry,
 		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, []string, error) {
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := larkSkills.Config()
 			if len(stickySkills) > 0 {
 				cfg.Requested = append(cfg.Requested, stickySkills...)

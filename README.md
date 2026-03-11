@@ -279,7 +279,7 @@ mistermorph skills install <remote-skill-url>
 ### Security Mechanisms for Skills
 
 1. Install audit: When installing remote skills, Mister Morph will preview the skill content and do a basic security audit (e.g., look for dangerous commands in scripts) before asking for user confirmation.
-2. Auth profiles: Skills can declare required auth profiles in the `auth_profiles` field. The agent will only use skills whose auth profiles are configured on the host, preventing accidental secret leaks (see `assets/skills/moltbook` and the `secrets` / `auth_profiles` sections in the config file).
+2. Auth profiles: Skills can declare required auth profiles in the `auth_profiles` field. This is only a declaration for prompt/context clarity. Actual permission still comes only from host config via `secrets.allow_profiles` and `auth_profiles` (see `assets/skills/moltbook` and the config sections).
 
 ## Security
 
@@ -431,24 +431,26 @@ Tool toggles and limits also map to env vars, for example:
 - `MISTER_MORPH_TOOLS_URL_FETCH_ENABLED`
 - `MISTER_MORPH_TOOLS_URL_FETCH_MAX_BYTES`
 
-Secret values referenced by `auth_profiles.*.credential.secret_ref` are regular env vars too (example: `JSONBILL_API_KEY`).
+`auth_profiles.*.credential.secret_ref` is also a direct environment variable name (example: `JSONBILL_API_KEY`).
 
 Key meanings (see `assets/config/config.example.yaml` for the canonical list):
 - Core: `llm.provider` selects the backend. Most providers use `llm.endpoint`/`llm.api_key`/`llm.model`. Optional defaults `llm.temperature`, `llm.reasoning_effort`, and `llm.reasoning_budget_tokens` are forwarded to `uniai` only when set. Azure uses `llm.azure.deployment` for deployment name, while endpoint/key are still read from `llm.endpoint` and `llm.api_key`. Bedrock uses `llm.bedrock.*`. `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling (`off|fallback|force`). `llm.profiles` defines named profile overrides, and `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, and `plan_create`.
-- LLM secret refs: secret-like fields in `llm` and `llm.profiles` accept sibling `*_env_ref` keys. The value of `*_env_ref` is the environment variable name, not the secret itself. If both plaintext and `*_env_ref` are set, `*_env_ref` wins. If `*_env_ref` points to a missing or empty env var, startup fails fast. Example:
+- LLM secret refs: secret-like fields in `llm` and `llm.profiles` accept sibling `*_ref` keys. The value of `*_ref` is the environment variable name, not the secret itself. If both plaintext and `*_ref` are set, `*_ref` wins. If `*_ref` points to a missing or empty env var, startup fails fast. Example:
   ```yaml
   llm:
-    api_key_env_ref: OPENAI_API_KEY
+    api_key_ref: OPENAI_API_KEY
     profiles:
       reasoning:
         provider: xai
         model: grok-4.1-fast-reasoning
-        api_key_env_ref: XAI_API_KEY
+        api_key_ref: XAI_API_KEY
   ```
+- LLM precedence: for config-sourced values, precedence is `CLI flag > MISTER_MORPH_* env > config.yaml > default`. After that, for each secret-like field pair such as `api_key` / `api_key_ref`, the selected `*_ref` overrides the plaintext sibling.
 - Logging: `logging.level` (`info` shows progress; `debug` adds thoughts), `logging.format` (`text|json`), plus `logging.include_thoughts` and `logging.include_tool_params` (redacted).
 - Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout.
 - Skills: `skills.enabled` controls whether skills are used; `file_state_dir` + `skills.dir_name` define the default skills root; `skills.load=[]` loads all discovered skills, otherwise it loads only listed skills (unknown names are ignored).
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
+- Auth profiles: `secrets.allow_profiles` is the runtime allowlist. `auth_profiles.<id>.credential.secret_ref` points directly to an environment variable. If at least one allowlisted auth profile is configured, `bash` still works but `curl` is denied by default; authenticated HTTP should go through `url_fetch + auth_profile`.
 
 ## Star History
 

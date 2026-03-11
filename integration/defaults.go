@@ -108,10 +108,7 @@ func applyViperDefaults(v *viper.Viper) {
 	v.SetDefault("memory.injection.max_items", 50)
 
 	// Secrets.
-	v.SetDefault("secrets.enabled", false)
 	v.SetDefault("secrets.allow_profiles", []string{})
-	v.SetDefault("secrets.aliases", map[string]string{})
-	v.SetDefault("secrets.require_skill_profiles", false)
 	v.SetDefault("auth_profiles", map[string]any{})
 
 	// Guard.

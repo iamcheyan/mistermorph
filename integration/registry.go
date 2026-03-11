@@ -29,8 +29,6 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 	}
 
 	userAgent := strings.TrimSpace(cfg.UserAgent)
-	secretsEnabled := cfg.SecretsEnabled
-	secretsRequireSkillProfiles := cfg.SecretsRequireSkillProfiles
 
 	allowProfiles := make(map[string]bool)
 	for _, id := range cfg.SecretsAllowProfiles {
@@ -50,31 +48,21 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 		}
 	}
 
-	if secretsEnabled {
-		logger.Info("secrets_enabled",
-			"require_skill_profiles", secretsRequireSkillProfiles,
-			"allow_profiles", keysSorted(allowProfiles),
-			"auth_profiles", len(authProfiles),
-		)
-	} else {
-		if len(allowProfiles) > 0 || len(authProfiles) > 0 {
-			logger.Warn("secrets_disabled_but_configured",
-				"allow_profiles", keysSorted(allowProfiles),
-				"auth_profiles", len(authProfiles),
-			)
-		}
-	}
+	logger.Info("auth_profiles_configured",
+		"allow_profiles", keysSorted(allowProfiles),
+		"auth_profiles", len(authProfiles),
+	)
 
-	secretsAliases := copyStringMap(cfg.SecretsAliases)
-	resolver := &secrets.EnvResolver{Aliases: secretsAliases}
+	resolver := &secrets.EnvResolver{}
 	profileStore := secrets.NewProfileStore(authProfiles)
+	authenticatedHTTPConfigured := hasAllowedAuthProfiles(allowProfiles, authProfiles)
 
 	toolsutil.RegisterStaticTools(r, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
-			UserAgent:      userAgent,
-			FileCacheDir:   strings.TrimSpace(cfg.FileCacheDir),
-			FileStateDir:   strings.TrimSpace(cfg.FileStateDir),
-			SecretsEnabled: secretsEnabled,
+			UserAgent:                   userAgent,
+			FileCacheDir:                strings.TrimSpace(cfg.FileCacheDir),
+			FileStateDir:                strings.TrimSpace(cfg.FileStateDir),
+			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{
 			MaxBytes:  cfg.ToolsReadFileMaxBytes,
@@ -97,7 +85,6 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			MaxBytes:         cfg.ToolsURLFetchMaxBytes,
 			MaxBytesDownload: cfg.ToolsURLFetchMaxBytesDownload,
 			Auth: &builtin.URLFetchAuth{
-				Enabled:       secretsEnabled,
 				AllowProfiles: allowProfiles,
 				Profiles:      profileStore,
 				Resolver:      resolver,
@@ -135,4 +122,13 @@ func keysSorted(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func hasAllowedAuthProfiles(allowProfiles map[string]bool, authProfiles map[string]secrets.AuthProfile) bool {
+	for id := range allowProfiles {
+		if _, ok := authProfiles[id]; ok {
+			return true
+		}
+	}
+	return false
 }

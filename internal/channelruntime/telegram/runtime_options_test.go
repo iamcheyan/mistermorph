@@ -27,17 +27,16 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 			MaxTokenBudget:  1000,
 			ToolRepeatLimit: 6,
 		},
-		FileCacheMaxAge:             24 * time.Hour,
-		FileCacheMaxFiles:           200,
-		FileCacheMaxTotalBytes:      int64(64 * 1024 * 1024),
-		MemoryEnabled:               true,
-		MemoryShortTermDays:         30,
-		MemoryInjectionEnabled:      true,
-		MemoryInjectionMaxItems:     10,
-		SecretsRequireSkillProfiles: true,
-		ImageRecognitionEnabled:     true,
-		InspectPrompt:               true,
-		InspectRequest:              true,
+		FileCacheMaxAge:         24 * time.Hour,
+		FileCacheMaxFiles:       200,
+		FileCacheMaxTotalBytes:  int64(64 * 1024 * 1024),
+		MemoryEnabled:           true,
+		MemoryShortTermDays:     30,
+		MemoryInjectionEnabled:  true,
+		MemoryInjectionMaxItems: 10,
+		ImageRecognitionEnabled: true,
+		InspectPrompt:           true,
+		InspectRequest:          true,
 	})
 	if got.BotToken != "token" {
 		t.Fatalf("bot token = %q, want token", got.BotToken)
@@ -48,7 +47,7 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	if got.BusMaxInFlight != 2048 || got.AgentLimits.MaxSteps != 20 || got.AgentLimits.ToolRepeatLimit != 6 || got.FileCacheMaxFiles != 200 {
 		t.Fatalf("resolved options mismatch: %#v", got)
 	}
-	if !got.MemoryEnabled || !got.SecretsRequireSkillProfiles {
+	if !got.MemoryEnabled || !got.MemoryInjectionEnabled || !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("boolean run options should be preserved: %#v", got)
 	}
 	if !got.ImageRecognitionEnabled {

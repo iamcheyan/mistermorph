@@ -24,19 +24,18 @@ import (
 )
 
 type RunOptions struct {
-	Interval                    time.Duration
-	InitialDelay                time.Duration
-	TaskTimeout                 time.Duration
-	RequestTimeout              time.Duration
-	AgentLimits                 agent.Limits
-	Source                      string
-	ChecklistPath               string
-	MemoryEnabled               bool
-	MemoryShortTermDays         int
-	MemoryInjectionEnabled      bool
-	MemoryInjectionMaxItems     int
-	SecretsRequireSkillProfiles bool
-	Notifier                    Notifier
+	Interval                time.Duration
+	InitialDelay            time.Duration
+	TaskTimeout             time.Duration
+	RequestTimeout          time.Duration
+	AgentLimits             agent.Limits
+	Source                  string
+	ChecklistPath           string
+	MemoryEnabled           bool
+	MemoryShortTermDays     int
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
+	Notifier                Notifier
 }
 
 type Dependencies = depsutil.HeartbeatDependencies
@@ -103,22 +102,21 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			defer wg.Done()
 
 			summary, runErr := runHeartbeatTask(ctx, d, heartbeatTaskOptions{
-				Logger:                      logger,
-				LogOptions:                  logOpts,
-				Client:                      client,
-				Model:                       model,
-				Task:                        task,
-				Meta:                        meta,
-				TaskRunID:                   taskRunID,
-				BaseRegistry:                baseReg,
-				SharedGuard:                 sharedGuard,
-				Config:                      cfg,
-				TaskTimeout:                 opts.TaskTimeout,
-				MemoryOrchestrator:          orchestrator,
-				MemoryProjectionWorker:      projectionWorker,
-				MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
-				MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
-				SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
+				Logger:                  logger,
+				LogOptions:              logOpts,
+				Client:                  client,
+				Model:                   model,
+				Task:                    task,
+				Meta:                    meta,
+				TaskRunID:               taskRunID,
+				BaseRegistry:            baseReg,
+				SharedGuard:             sharedGuard,
+				Config:                  cfg,
+				TaskTimeout:             opts.TaskTimeout,
+				MemoryOrchestrator:      orchestrator,
+				MemoryProjectionWorker:  projectionWorker,
+				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 			})
 			if runErr != nil {
 				displayErr := depsutil.FormatRuntimeError(runErr)
@@ -188,22 +186,21 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 }
 
 type heartbeatTaskOptions struct {
-	Logger                      *slog.Logger
-	LogOptions                  agent.LogOptions
-	Client                      llm.Client
-	Model                       string
-	Task                        string
-	Meta                        map[string]any
-	TaskRunID                   string
-	BaseRegistry                *tools.Registry
-	SharedGuard                 *guard.Guard
-	Config                      agent.Config
-	TaskTimeout                 time.Duration
-	MemoryOrchestrator          *memoryruntime.Orchestrator
-	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
-	MemoryInjectionEnabled      bool
-	MemoryInjectionMaxItems     int
-	SecretsRequireSkillProfiles bool
+	Logger                  *slog.Logger
+	LogOptions              agent.LogOptions
+	Client                  llm.Client
+	Model                   string
+	Task                    string
+	Meta                    map[string]any
+	TaskRunID               string
+	BaseRegistry            *tools.Registry
+	SharedGuard             *guard.Guard
+	Config                  agent.Config
+	TaskTimeout             time.Duration
+	MemoryOrchestrator      *memoryruntime.Orchestrator
+	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
 }
 
 func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOptions) (string, error) {
@@ -219,7 +216,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	}
 	defer cancel()
 
-	promptSpec, _, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromHeartbeat(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	promptSpec, _, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromHeartbeat(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
 	if err != nil {
 		return "", err
 	}
@@ -254,7 +251,6 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		promptSpec,
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, opts.SecretsRequireSkillProfiles),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{

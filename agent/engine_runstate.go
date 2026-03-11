@@ -17,9 +17,6 @@ type resumeStateV1 struct {
 	PlanRequired  bool `json:"plan_required"`
 	ParseFailures int  `json:"parse_failures"`
 
-	SkillAuthProfiles []string `json:"skill_auth_profiles,omitempty"`
-	EnforceSkillAuth  bool     `json:"enforce_skill_auth,omitempty"`
-
 	Messages    []llm.Message   `json:"messages"`
 	ExtraParams map[string]any  `json:"extra_params,omitempty"`
 	AgentCtx    contextSnapshot `json:"agent_ctx"`

@@ -25,14 +25,13 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	SecretsRequireSkillProfiles bool
-	MemoryEnabled               bool
-	MemoryInjectionEnabled      bool
-	MemoryInjectionMaxItems     int
-	PlanCreateClient            llm.Client
-	PlanCreateModel             string
-	MemoryOrchestrator          *memoryruntime.Orchestrator
-	MemoryProjectionWorker      *memoryruntime.ProjectionWorker
+	MemoryEnabled           bool
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
+	PlanCreateClient        llm.Client
+	PlanCreateModel         string
+	MemoryOrchestrator      *memoryruntime.Orchestrator
+	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
 
 func runSlackTask(
@@ -88,7 +87,7 @@ func runSlackTask(
 		reg.Register(reactTool)
 	}
 
-	promptSpec, loadedSkills, skillAuthProfiles, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
+	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -125,7 +124,6 @@ func runSlackTask(
 			opts := []agent.Option{
 				agent.WithLogger(logger),
 				agent.WithLogOptions(logOpts),
-				agent.WithSkillAuthProfiles(skillAuthProfiles, runtimeOpts.SecretsRequireSkillProfiles),
 				agent.WithGuard(sharedGuard),
 			}
 			if sendSlackText != nil {

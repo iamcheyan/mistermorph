@@ -8,7 +8,6 @@ import (
 
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
-	"github.com/quailyquaily/mistermorph/secrets"
 )
 
 func (e *Engine) Resume(ctx context.Context, approvalRequestID string) (*Final, *Context, error) {
@@ -51,7 +50,6 @@ func (e *Engine) Resume(ctx context.Context, approvalRequestID string) (*Final, 
 		return nil, nil, fmt.Errorf("unsupported resume_state version: %d", rs.Version)
 	}
 
-	ctx = secrets.WithSkillAuthProfilePolicy(ctx, rs.SkillAuthProfiles, rs.EnforceSkillAuth)
 	ctx = llmstats.WithRunID(ctx, rs.RunID)
 
 	// Verify action hash binding.

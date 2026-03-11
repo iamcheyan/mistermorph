@@ -50,7 +50,6 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	SecretsRequireSkillProfiles   bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -338,14 +337,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		defer func() { _ = memJournal.Close() }()
 	}
 	taskRuntimeOpts := runtimeTaskOptions{
-		SecretsRequireSkillProfiles: opts.SecretsRequireSkillProfiles,
-		MemoryEnabled:               opts.MemoryEnabled,
-		MemoryInjectionEnabled:      opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:     opts.MemoryInjectionMaxItems,
-		PlanCreateClient:            planClient,
-		PlanCreateModel:             planModel,
-		MemoryOrchestrator:          memOrchestrator,
-		MemoryProjectionWorker:      memProjectionWorker,
+		MemoryEnabled:           opts.MemoryEnabled,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		PlanCreateClient:        planClient,
+		PlanCreateModel:         planModel,
+		MemoryOrchestrator:      memOrchestrator,
+		MemoryProjectionWorker:  memProjectionWorker,
 	}
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency

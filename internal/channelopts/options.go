@@ -47,7 +47,6 @@ type TelegramConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	SecretsRequireSkillProfiles          bool
 	MultimodalImageSources               []string
 }
 
@@ -91,15 +90,14 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
-		FileCacheMaxAge:             r.GetDuration("file_cache.max_age"),
-		FileCacheMaxFiles:           r.GetInt("file_cache.max_files"),
-		FileCacheMaxTotalBytes:      r.GetInt64("file_cache.max_total_bytes"),
-		MemoryEnabled:               r.GetBool("memory.enabled"),
-		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
-		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
-		MultimodalImageSources:      append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
+		FileCacheMaxAge:         r.GetDuration("file_cache.max_age"),
+		FileCacheMaxFiles:       r.GetInt("file_cache.max_files"),
+		FileCacheMaxTotalBytes:  r.GetInt64("file_cache.max_total_bytes"),
+		MemoryEnabled:           r.GetBool("memory.enabled"),
+		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -193,7 +191,6 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
@@ -251,7 +248,6 @@ type SlackConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	SecretsRequireSkillProfiles          bool
 }
 
 type SlackInput struct {
@@ -295,11 +291,10 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
-		MemoryEnabled:               r.GetBool("memory.enabled"),
-		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
-		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
+		MemoryEnabled:           r.GetBool("memory.enabled"),
+		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -367,7 +362,6 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
@@ -396,7 +390,6 @@ type LineConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	SecretsRequireSkillProfiles          bool
 	MultimodalImageSources               []string
 }
 
@@ -440,7 +433,6 @@ type LarkConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	SecretsRequireSkillProfiles          bool
 }
 
 type LarkInput struct {
@@ -489,12 +481,11 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
-		MemoryEnabled:               r.GetBool("memory.enabled"),
-		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
-		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
-		MultimodalImageSources:      append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
+		MemoryEnabled:           r.GetBool("memory.enabled"),
+		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -530,11 +521,10 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
-		MemoryEnabled:               r.GetBool("memory.enabled"),
-		MemoryShortTermDays:         r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:      r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:     r.GetInt("memory.injection.max_items"),
-		SecretsRequireSkillProfiles: r.GetBool("secrets.require_skill_profiles"),
+		MemoryEnabled:           r.GetBool("memory.enabled"),
+		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -610,7 +600,6 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
@@ -693,7 +682,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		SecretsRequireSkillProfiles:   cfg.SecretsRequireSkillProfiles,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
