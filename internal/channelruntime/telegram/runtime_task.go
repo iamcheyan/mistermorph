@@ -354,7 +354,7 @@ func modelSupportsTelegramDraftStream(model string) bool {
 	if model == "" {
 		return false
 	}
-	return modelHasPrefixOrNamespace(model, "gpt-") || modelHasPrefixOrNamespace(model, "gemini")
+	return modelHasPrefixOrNamespace(model, "gpt-")
 }
 
 func modelHasPrefixOrNamespace(model string, token string) bool {

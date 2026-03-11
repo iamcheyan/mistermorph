@@ -254,6 +254,13 @@ func TestTelegramDraftStreamPublisherStreamHandlerDisabledForUnsupportedModel(t 
 	}
 }
 
+func TestTelegramDraftStreamPublisherStreamHandlerDisabledForGeminiModel(t *testing.T) {
+	p := newTelegramDraftStreamPublisher(nil, nil, 42, 77, "private", "gemini-2.5-pro")
+	if p.StreamHandler() != nil {
+		t.Fatalf("StreamHandler() expected nil for gemini model")
+	}
+}
+
 func TestBuildTelegramHistoryMessageWithImageParts(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("webp-bytes"), nil }

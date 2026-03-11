@@ -246,7 +246,7 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	if req.DebugFn != nil {
 		opts = append(opts, uniaiapi.WithDebugFn(req.DebugFn))
 	}
-	if req.OnStream != nil {
+	if req.OnStream != nil && supportsStreaming(provider) {
 		opts = append(opts, uniaiapi.WithOnStream(func(ev uniaiapi.StreamEvent) error {
 			streamEvent := llm.StreamEvent{
 				Delta: ev.Delta,
@@ -272,6 +272,10 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	}
 
 	return opts
+}
+
+func supportsStreaming(provider string) bool {
+	return !strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
 func cloneFloat64(v *float64) *float64 {
