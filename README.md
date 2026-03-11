@@ -86,7 +86,7 @@ You can run without a `config.yaml` by using environment variables:
 export MISTER_MORPH_LLM_API_KEY="YOUR_OPENAI_API_KEY_HERE"
 # Optional explicit defaults:
 export MISTER_MORPH_LLM_PROVIDER="openai"
-export MISTER_MORPH_LLM_MODEL="gpt-5.2"
+export MISTER_MORPH_LLM_MODEL="gpt-5.4"
 ```
 
 Mister Morph also supports Azure OpenAI, Anthropic Claude, AWS Bedrock, and others (see `assets/config/config.example.yaml` for more options). If you prefer file-based config, use `~/.morph/config.yaml`.

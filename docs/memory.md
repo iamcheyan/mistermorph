@@ -21,13 +21,13 @@ This document describes how memory works in `mistermorph`.
   - `internal/memoryruntime/orchestrator.go`
   - `internal/memoryruntime/adapter.go`
   - `internal/memoryruntime/worker.go`
-- Telegram adapter and draft path:
+- `internal/memoryruntime/resolver.go`
+- `internal/memoryruntime/draft.go`
+- `internal/memoryruntime/prompts/memory_draft_system.md`
+- `internal/memoryruntime/prompts/memory_draft_user.md`
+- Runtime adapters:
   - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/telegram/memory_flow.go`
-  - `internal/channelruntime/telegram/memory_prompts.go`
-  - `internal/channelruntime/telegram/prompts/memory_draft_system.md`
-  - `internal/channelruntime/telegram/prompts/memory_draft_user.md`
-- Shared-orchestrator adapters:
   - Slack: `internal/channelruntime/slack/runtime.go`, `internal/channelruntime/slack/runtime_task.go`, `internal/channelruntime/slack/memory_flow.go`
   - Heartbeat: `internal/channelruntime/heartbeat/run.go`, `internal/channelruntime/heartbeat/memory_flow.go`
 - LLM semantic helpers used by projection dedupe:
@@ -45,13 +45,8 @@ This document describes how memory works in `mistermorph`.
           |                                                    |
  +--------v---------+                                +---------v----------+
  | Injection Path   |                                | Writeback Path     |
- | PrepareInjection |                                | Record             |
+ | PrepareInjection |                                | Record raw event   |
  +--------+---------+                                +---------+----------+
-          |                                                    |
-          |                                         +----------v----------+
-          |                                         | Build draft         |
-          |                                         | (telegram: LLM)     |
-          |                                         +----------+----------+
           |                                                    |
  +--------v---------+                                +---------v----------+
  | memory.Manager   |                                | memory.Journal     |
@@ -68,9 +63,15 @@ This document describes how memory works in `mistermorph`.
                     |                                          |
                     |                              +-----------v------------+
                     |                              | memory.Projector       |
-                    +------------------------------+ Replay + Merge + Save  |
-                                                   | (triggered externally) |
-                                                   +------------------------+
+                    +------------------------------+ Replay + Resolve Draft |
+                                                   | + Merge + Save         |
+                                                   +-----------+------------+
+                                                               |
+                                                               v
+                                                     +---------------------+
+                                                     | LLM(optional)       |
+                                                     | memory.draft / dedupe|
+                                                     +---------------------+
 ```
 
 ## 4. ASCII Runtime Flows (Shared Orchestrator Wiring)
@@ -104,18 +105,15 @@ Runtime(Adapter)         Orchestrator               Manager/FS
 ### 4.3 Writeback Flow
 
 ```text
-Runtime(Adapter)         LLM                Orchestrator          Journal(WAL)
-     |                    |                      |                     |
-     | [gate] publishText && subject_id present? |                     |
-     | BuildMemoryDraft (telegram)              |                     |
-     |------------------->|                      |                     |
-     | draft(summary/promote)                    |                     |
-     |<-------------------|                      |                     |
-     | Record(...)                               |                     |
-     |------------------------------------------>| append + fsync      |
-     |                                           |-------------------->|
-     | record offset                             |                     |
-     |<------------------------------------------|                     |
+Runtime(Adapter)                  Orchestrator          Journal(WAL)
+     |                                 |                     |
+     | [gate] publishText && subject_id present?             |
+     | build raw memory event input    |                     |
+     | Record(...)                     |                     |
+     |-------------------------------->| append + fsync      |
+     |                                 |-------------------->|
+     | record offset                   |                     |
+     |<--------------------------------|                     |
 ```
 
 ### 4.4 Projection Flow (External Worker)
@@ -128,6 +126,9 @@ External Project Worker       Projector            LLM(optional)                
           |                      |----------------------------------------------->   |
           |                      | replay WAL from cp   |                           |
           |                      |----------------------------------------------->   |
+          |                      | resolve draft from raw event                    |
+          |                      |--------------------->|                           |
+          |                      |<---------------------|                           |
           |                      | group/merge buckets  |                           |
           |                      | semantic dedupe      |                           |
           |                      |--------------------->|                           |
@@ -172,8 +173,11 @@ Notes:
   - `publishText == true`
   - memory orchestrator exists
   - `subject_id` is non-empty
+- Writeback does not call `memory.draft`; it appends raw events only.
+- `source_history` is bounded twice before or at append time:
+  - channel-level history cap for prompt/runtime context
+  - journal hard cap keeps only the latest 3 history items
 - If final reply is lightweight (no text publish), memory write is skipped.
-- Telegram writeback timeout (`context.DeadlineExceeded`) schedules async retry.
 - Telegram participants capture sender + all mention users; participants may be empty when unavailable.
 
 ## 7. Draft and Merge Rules
