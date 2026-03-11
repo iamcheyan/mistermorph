@@ -122,7 +122,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	slog.SetDefault(logger)
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -346,16 +346,16 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	sem := make(chan struct{}, maxConc)
 	workersCtx, stopWorkers := context.WithCancel(pollCtx)
 	defer stopWorkers()
-	serverListen := strings.TrimSpace(opts.ServerListen)
+	serverListen := strings.TrimSpace(opts.Server.Listen)
 	if serverListen != "" {
-		if strings.TrimSpace(opts.ServerAuthToken) == "" {
+		if strings.TrimSpace(opts.Server.AuthToken) == "" {
 			logger.Warn("telegram_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
 		}
 		_, err := daemonruntime.StartServer(pollCtx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:       "telegram",
-				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
+				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
@@ -373,6 +373,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						},
 					}, nil
 				},
+				Poke:          opts.Server.Poke,
 				HealthEnabled: true,
 			},
 		})

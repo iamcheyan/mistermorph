@@ -13,6 +13,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
@@ -223,37 +224,38 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			hbEnabled := viper.GetBool("heartbeat.enabled")
 			hbInterval := viper.GetDuration("heartbeat.interval")
 			hbChecklist := statepaths.HeartbeatChecklistPath()
+			var runHeartbeatTick func() heartbeatutil.TickResult
 			if hbEnabled && hbInterval > 0 {
-				go func() {
-					runHeartbeatTick := func() {
-						result := heartbeatutil.Tick(
-							hbState,
-							func() (string, bool, error) {
-								return heartbeatutil.BuildHeartbeatTask(hbChecklist)
-							},
-							func(task string, checklistEmpty bool) string {
-								meta := heartbeatutil.BuildHeartbeatMeta("daemon", hbInterval, hbChecklist, checklistEmpty, hbState, map[string]any{
-									"queue_len": store.QueueLen(),
-								})
-								timeout := viper.GetDuration("timeout")
-								if _, err := store.EnqueueHeartbeat(context.Background(), task, mainModel, timeout, meta, hbState); err != nil {
-									return err.Error()
-								}
-								return ""
-							},
-						)
-						switch result.Outcome {
-						case heartbeatutil.TickBuildError:
-							if strings.TrimSpace(result.AlertMessage) != "" {
-								logger.Warn("heartbeat_alert", "message", result.AlertMessage)
-							} else {
-								logger.Warn("heartbeat_task_error", "error", result.BuildError.Error())
+				runHeartbeatTick = func() heartbeatutil.TickResult {
+					result := heartbeatutil.Tick(
+						hbState,
+						func() (string, bool, error) {
+							return heartbeatutil.BuildHeartbeatTask(hbChecklist)
+						},
+						func(task string, checklistEmpty bool) string {
+							meta := heartbeatutil.BuildHeartbeatMeta("daemon", hbInterval, hbChecklist, checklistEmpty, hbState, map[string]any{
+								"queue_len": store.QueueLen(),
+							})
+							timeout := viper.GetDuration("timeout")
+							if _, err := store.EnqueueHeartbeat(context.Background(), task, mainModel, timeout, meta, hbState); err != nil {
+								return err.Error()
 							}
-						case heartbeatutil.TickSkipped:
-							logger.Debug("heartbeat_skip", "reason", result.SkipReason)
+							return ""
+						},
+					)
+					switch result.Outcome {
+					case heartbeatutil.TickBuildError:
+						if strings.TrimSpace(result.AlertMessage) != "" {
+							logger.Warn("heartbeat_alert", "message", result.AlertMessage)
+						} else {
+							logger.Warn("heartbeat_task_error", "error", result.BuildError.Error())
 						}
+					case heartbeatutil.TickSkipped:
+						logger.Debug("heartbeat_skip", "reason", result.SkipReason)
 					}
-
+					return result
+				}
+				go func() {
 					initialTimer := time.NewTimer(15 * time.Second)
 					defer initialTimer.Stop()
 					select {
@@ -270,7 +272,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 						case <-cmd.Context().Done():
 							return
 						case <-ticker.C:
-							runHeartbeatTick()
+							_ = runHeartbeatTick()
 						}
 					}
 				}()
@@ -298,6 +300,12 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					}, nil
 				},
 				HealthEnabled: true,
+				Poke: func(ctx context.Context) error {
+					if runHeartbeatTick == nil {
+						return fmt.Errorf("heartbeat poke is unavailable")
+					}
+					return heartbeatruntime.ErrorFromTickResult(runHeartbeatTick())
+				},
 				Submit: func(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 					timeout := viper.GetDuration("timeout")
 					if strings.TrimSpace(req.Timeout) != "" {

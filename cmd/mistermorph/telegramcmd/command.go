@@ -144,6 +144,11 @@ func runTelegramWithOptionalHeartbeat(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	pokeRequests := make(chan heartbeatruntime.PokeRequest)
+	hbOpts.PokeRequests = pokeRequests
+	telegramOpts.Server.Poke = func(ctx context.Context) error {
+		return heartbeatruntime.Trigger(ctx, pokeRequests)
+	}
 
 	errCh := make(chan error, 2)
 	go func() {

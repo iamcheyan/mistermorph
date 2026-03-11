@@ -34,6 +34,9 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.MemoryInjectionMaxItems != 50 {
 		t.Fatalf("memory injection max items = %d, want 50", got.MemoryInjectionMaxItems)
 	}
+	if got.Server.Listen != "127.0.0.1:8787" {
+		t.Fatalf("server listen = %q, want 127.0.0.1:8787", got.Server.Listen)
+	}
 	if got.AgentLimits.MaxSteps != 15 {
 		t.Fatalf("agent max steps = %d, want 15", got.AgentLimits.MaxSteps)
 	}
@@ -71,14 +74,16 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		AddressingInterjectThreshold:  0.2,
 		TaskTimeout:                   3 * time.Minute,
 		MaxConcurrency:                7,
-		ServerListen:                  " 127.0.0.1:8080 ",
-		BaseURL:                       " https://example.com/api ",
-		BusMaxInFlight:                4096,
-		RequestTimeout:                30 * time.Second,
-		MemoryEnabled:                 true,
-		MemoryShortTermDays:           9,
-		MemoryInjectionEnabled:        true,
-		MemoryInjectionMaxItems:       12,
+		Server: ServerOptions{
+			Listen: " 127.0.0.1:8080 ",
+		},
+		BaseURL:                 " https://example.com/api ",
+		BusMaxInFlight:          4096,
+		RequestTimeout:          30 * time.Second,
+		MemoryEnabled:           true,
+		MemoryShortTermDays:     9,
+		MemoryInjectionEnabled:  true,
+		MemoryInjectionMaxItems: 12,
 		AgentLimits: agent.Limits{
 			MaxSteps:        20,
 			ParseRetries:    5,
@@ -99,6 +104,9 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 	if got.BaseURL != "https://example.com/api" || got.BusMaxInFlight != 4096 || got.AgentLimits.ParseRetries != 5 || got.AgentLimits.ToolRepeatLimit != 6 {
 		t.Fatalf("resolved options mismatch: %#v", got)
+	}
+	if got.Server.Listen != "127.0.0.1:8080" {
+		t.Fatalf("server listen = %q, want 127.0.0.1:8080", got.Server.Listen)
 	}
 	if !got.MemoryEnabled || got.MemoryShortTermDays != 9 || !got.MemoryInjectionEnabled || got.MemoryInjectionMaxItems != 12 {
 		t.Fatalf("memory options mismatch: %#v", got)

@@ -5,7 +5,15 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
+
+type ServerOptions struct {
+	Listen    string
+	AuthToken string
+	MaxQueue  int
+	Poke      daemonruntime.PokeFunc
+}
 
 type RunOptions struct {
 	BotToken                      string
@@ -17,9 +25,7 @@ type RunOptions struct {
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
 	FileCacheDir                  string
-	ServerListen                  string
-	ServerAuthToken               string
-	ServerMaxQueue                int
+	Server                        ServerOptions
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits

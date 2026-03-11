@@ -18,9 +18,11 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		TaskTimeout:                   2 * time.Minute,
 		MaxConcurrency:                5,
 		FileCacheDir:                  " /tmp/cache ",
-		ServerListen:                  "127.0.0.1:8080",
-		BusMaxInFlight:                2048,
-		RequestTimeout:                75 * time.Second,
+		Server: ServerOptions{
+			Listen: "127.0.0.1:8080",
+		},
+		BusMaxInFlight: 2048,
+		RequestTimeout: 75 * time.Second,
 		AgentLimits: agent.Limits{
 			MaxSteps:        20,
 			ParseRetries:    4,
@@ -46,6 +48,9 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 	if got.BusMaxInFlight != 2048 || got.AgentLimits.MaxSteps != 20 || got.AgentLimits.ToolRepeatLimit != 6 || got.FileCacheMaxFiles != 200 {
 		t.Fatalf("resolved options mismatch: %#v", got)
+	}
+	if got.Server.Listen != "127.0.0.1:8080" {
+		t.Fatalf("server listen = %q, want 127.0.0.1:8080", got.Server.Listen)
 	}
 	if !got.MemoryEnabled || !got.MemoryInjectionEnabled || !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("boolean run options should be preserved: %#v", got)
@@ -98,6 +103,9 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	}
 	if got.MemoryInjectionMaxItems != 50 {
 		t.Fatalf("memory injection max items = %d, want 50", got.MemoryInjectionMaxItems)
+	}
+	if got.Server.Listen != "127.0.0.1:8787" {
+		t.Fatalf("server listen = %q, want 127.0.0.1:8787", got.Server.Listen)
 	}
 	if got.GroupTriggerMode != "smart" {
 		t.Fatalf("group trigger mode = %q, want smart", got.GroupTriggerMode)

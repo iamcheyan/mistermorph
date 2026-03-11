@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
@@ -32,6 +33,9 @@ import (
 
 type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
+type PokeFunc func(ctx context.Context) error
+
+var ErrPokeBusy = errors.New("poke already running")
 
 type badRequestError struct {
 	msg string
@@ -59,6 +63,7 @@ type RoutesOptions struct {
 	TaskReader    TaskReader
 	Submit        SubmitFunc
 	Overview      OverviewFunc
+	Poke          PokeFunc
 	HealthEnabled bool
 }
 
@@ -104,6 +109,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	reader := opts.TaskReader
 	submit := opts.Submit
 	overview := opts.Overview
+	poke := opts.Poke
+	var pokeMu sync.RWMutex
+	lastPokeAt := ""
 	if overview == nil {
 		overview = func(ctx context.Context) (map[string]any, error) {
 			return buildDefaultOverviewPayload(mode, startedAt), nil
@@ -164,12 +172,53 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		if _, ok := payload["uptime_sec"]; !ok {
 			payload["uptime_sec"] = int(time.Since(startedAt).Seconds())
 		}
+		pokeMu.RLock()
+		currentLastPokeAt := lastPokeAt
+		pokeMu.RUnlock()
+		if strings.TrimSpace(currentLastPokeAt) != "" {
+			payload["last_poke_at"] = currentLastPokeAt
+		}
 		if rawVersion, ok := payload["version"].(string); !ok || strings.TrimSpace(rawVersion) == "" {
 			payload["version"] = buildVersion()
 		}
 		ensureRuntimeMetrics(payload)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/poke", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if poke == nil {
+			http.Error(w, "poke unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := poke(r.Context()); err != nil {
+			if errors.Is(err, ErrPokeBusy) {
+				http.Error(w, "heartbeat already running", http.StatusConflict)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		pokedAt := time.Now().UTC().Format(time.RFC3339Nano)
+		pokeMu.Lock()
+		lastPokeAt = pokedAt
+		pokeMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"mode":     mode,
+			"poked_at": pokedAt,
+		})
 	})
 
 	mux.HandleFunc("/stats/llm/usage", func(w http.ResponseWriter, r *http.Request) {

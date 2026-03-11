@@ -140,6 +140,11 @@ func runSlackWithOptionalHeartbeat(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	pokeRequests := make(chan heartbeatruntime.PokeRequest)
+	hbOpts.PokeRequests = pokeRequests
+	slackOpts.Server.Poke = func(ctx context.Context) error {
+		return heartbeatruntime.Trigger(ctx, pokeRequests)
+	}
 
 	errCh := make(chan error, 2)
 	go func() {

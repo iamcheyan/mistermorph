@@ -40,9 +40,7 @@ type RunOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
-	ServerListen                  string
-	ServerAuthToken               string
-	ServerMaxQueue                int
+	Server                        ServerOptions
 	BaseURL                       string
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
@@ -54,6 +52,13 @@ type RunOptions struct {
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
+}
+
+type ServerOptions struct {
+	Listen    string
+	AuthToken string
+	MaxQueue  int
+	Poke      daemonruntime.PokeFunc
 }
 
 type slackJob struct {
@@ -148,7 +153,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 	hooks := opts.Hooks
 	slog.SetDefault(logger)
-	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -365,16 +370,16 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
 	addressingInterjectThreshold := opts.AddressingInterjectThreshold
 
-	serverListen := strings.TrimSpace(opts.ServerListen)
+	serverListen := strings.TrimSpace(opts.Server.Listen)
 	if serverListen != "" {
-		if strings.TrimSpace(opts.ServerAuthToken) == "" {
+		if strings.TrimSpace(opts.Server.AuthToken) == "" {
 			logger.Warn("slack_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
 		}
 		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:       "slack",
-				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
+				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
@@ -392,6 +397,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 						},
 					}, nil
 				},
+				Poke:          opts.Server.Poke,
 				HealthEnabled: true,
 			},
 		})

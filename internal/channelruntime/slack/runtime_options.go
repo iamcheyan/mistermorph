@@ -17,9 +17,7 @@ type runtimeLoopOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
-	ServerListen                  string
-	ServerAuthToken               string
-	ServerMaxQueue                int
+	Server                        ServerOptions
 	Hooks                         Hooks
 	BaseURL                       string
 	BusMaxInFlight                int
@@ -44,20 +42,23 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
 		TaskTimeout:                   opts.TaskTimeout,
 		MaxConcurrency:                opts.MaxConcurrency,
-		ServerListen:                  strings.TrimSpace(opts.ServerListen),
-		ServerAuthToken:               strings.TrimSpace(opts.ServerAuthToken),
-		ServerMaxQueue:                opts.ServerMaxQueue,
-		BaseURL:                       strings.TrimSpace(opts.BaseURL),
-		Hooks:                         opts.Hooks,
-		BusMaxInFlight:                opts.BusMaxInFlight,
-		RequestTimeout:                opts.RequestTimeout,
-		AgentLimits:                   opts.AgentLimits,
-		MemoryEnabled:                 opts.MemoryEnabled,
-		MemoryShortTermDays:           opts.MemoryShortTermDays,
-		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
-		InspectPrompt:                 opts.InspectPrompt,
-		InspectRequest:                opts.InspectRequest,
+		Server: ServerOptions{
+			Listen:    strings.TrimSpace(opts.Server.Listen),
+			AuthToken: strings.TrimSpace(opts.Server.AuthToken),
+			MaxQueue:  opts.Server.MaxQueue,
+			Poke:      opts.Server.Poke,
+		},
+		BaseURL:                 strings.TrimSpace(opts.BaseURL),
+		Hooks:                   opts.Hooks,
+		BusMaxInFlight:          opts.BusMaxInFlight,
+		RequestTimeout:          opts.RequestTimeout,
+		AgentLimits:             opts.AgentLimits,
+		MemoryEnabled:           opts.MemoryEnabled,
+		MemoryShortTermDays:     opts.MemoryShortTermDays,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		InspectPrompt:           opts.InspectPrompt,
+		InspectRequest:          opts.InspectRequest,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }
@@ -68,8 +69,8 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.AllowedTeamIDs = normalizeRunStringSlice(opts.AllowedTeamIDs)
 	opts.AllowedChannelIDs = normalizeRunStringSlice(opts.AllowedChannelIDs)
 	opts.GroupTriggerMode = strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
-	opts.ServerListen = strings.TrimSpace(opts.ServerListen)
-	opts.ServerAuthToken = strings.TrimSpace(opts.ServerAuthToken)
+	opts.Server.Listen = strings.TrimSpace(opts.Server.Listen)
+	opts.Server.AuthToken = strings.TrimSpace(opts.Server.AuthToken)
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
 
 	if opts.TaskTimeout <= 0 {
@@ -81,8 +82,8 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.BusMaxInFlight <= 0 {
 		opts.BusMaxInFlight = 1024
 	}
-	if opts.ServerMaxQueue <= 0 {
-		opts.ServerMaxQueue = 100
+	if opts.Server.MaxQueue <= 0 {
+		opts.Server.MaxQueue = 100
 	}
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 90 * time.Second
@@ -100,8 +101,8 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.BaseURL == "" {
 		opts.BaseURL = "https://slack.com/api"
 	}
-	if opts.ServerListen == "" {
-		opts.ServerListen = "127.0.0.1:8787"
+	if opts.Server.Listen == "" {
+		opts.Server.Listen = "127.0.0.1:8787"
 	}
 	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6, 0.6)
 	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, 0.6, 0.6)

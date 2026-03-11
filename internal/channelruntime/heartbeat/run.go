@@ -36,6 +36,7 @@ type RunOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	Notifier                Notifier
+	PokeRequests            <-chan PokeRequest
 }
 
 type Dependencies = depsutil.HeartbeatDependencies
@@ -138,7 +139,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return ""
 	}
 
-	runTick := func() {
+	runTick := func() heartbeatutil.TickResult {
 		result := heartbeatutil.Tick(
 			state,
 			func() (string, bool, error) {
@@ -157,20 +158,46 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		case heartbeatutil.TickSkipped:
 			logger.Debug("heartbeat_skip", "source", opts.Source, "reason", result.SkipReason)
 		}
+		return result
 	}
+
+	handlePoke := func(req PokeRequest) {
+		err := ErrorFromTickResult(runTick())
+		if req == nil {
+			return
+		}
+		select {
+		case req <- err:
+		default:
+		}
+	}
+
+	pokeRequests := opts.PokeRequests
 
 	if opts.InitialDelay > 0 {
 		initialTimer := time.NewTimer(opts.InitialDelay)
 		defer initialTimer.Stop()
-		select {
-		case <-ctx.Done():
-			wg.Wait()
-			return nil
-		case <-initialTimer.C:
+		initialTriggered := false
+		for !initialTriggered {
+			select {
+			case <-ctx.Done():
+				wg.Wait()
+				return nil
+			case req, ok := <-pokeRequests:
+				if !ok {
+					pokeRequests = nil
+					continue
+				}
+				handlePoke(req)
+				initialTriggered = true
+			case <-initialTimer.C:
+				runTick()
+				initialTriggered = true
+			}
 		}
+	} else {
+		runTick()
 	}
-
-	runTick()
 
 	ticker := time.NewTicker(opts.Interval)
 	defer ticker.Stop()
@@ -179,6 +206,12 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		case <-ctx.Done():
 			wg.Wait()
 			return nil
+		case req, ok := <-pokeRequests:
+			if !ok {
+				pokeRequests = nil
+				continue
+			}
+			handlePoke(req)
 		case <-ticker.C:
 			runTick()
 		}

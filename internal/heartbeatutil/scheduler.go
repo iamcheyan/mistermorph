@@ -10,6 +10,12 @@ const (
 	TickBuildError
 )
 
+const (
+	SkipReasonInvalidConfig  = "invalid_config"
+	SkipReasonAlreadyRunning = "already_running"
+	SkipReasonEmptyTask      = "empty_task"
+)
+
 type TaskBuilder func() (task string, checklistEmpty bool, err error)
 
 type TaskEnqueuer func(task string, checklistEmpty bool) (skipReason string)
@@ -25,13 +31,13 @@ func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickRes
 	if state == nil || buildTask == nil || enqueueTask == nil {
 		return TickResult{
 			Outcome:    TickSkipped,
-			SkipReason: "invalid_config",
+			SkipReason: SkipReasonInvalidConfig,
 		}
 	}
 	if !state.Start() {
 		return TickResult{
 			Outcome:    TickSkipped,
-			SkipReason: "already_running",
+			SkipReason: SkipReasonAlreadyRunning,
 		}
 	}
 
@@ -51,7 +57,7 @@ func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickRes
 		state.EndSkipped()
 		return TickResult{
 			Outcome:    TickSkipped,
-			SkipReason: "empty_task",
+			SkipReason: SkipReasonEmptyTask,
 		}
 	}
 

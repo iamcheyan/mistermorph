@@ -21,6 +21,7 @@ type runtimeLoopOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	Notifier                Notifier
+	PokeRequests            <-chan PokeRequest
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
@@ -37,6 +38,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		Notifier:                opts.Notifier,
+		PokeRequests:            opts.PokeRequests,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }
