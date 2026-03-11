@@ -268,15 +268,14 @@ func waitForCheckpointLine(t *testing.T, j *memory.Journal, want int, timeout ti
 
 func baseWorkerEvent(eventID, runID, tsUTC, subjectID string) memory.MemoryEvent {
 	return memory.MemoryEvent{
-		SchemaVersion:     memory.CurrentMemoryEventSchemaVersion,
-		EventID:           eventID,
-		TaskRunID:         runID,
-		TSUTC:             tsUTC,
-		SessionID:         subjectID,
-		SubjectID:         subjectID,
-		Channel:           "telegram",
-		TaskText:          "task",
-		FinalOutput:       "output",
-		DraftSummaryItems: []string{"one"},
+		SchemaVersion: memory.CurrentMemoryEventSchemaVersion,
+		EventID:       eventID,
+		TaskRunID:     runID,
+		TSUTC:         tsUTC,
+		SessionID:     subjectID,
+		SubjectID:     subjectID,
+		Channel:       "telegram",
+		TaskText:      "task",
+		FinalOutput:   "output",
 	}
 }

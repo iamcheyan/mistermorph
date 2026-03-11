@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
@@ -14,7 +15,14 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
 	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
-	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
+	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{
+		CheckpointBatch: 10,
+		DraftResolver: stubDraftResolver{
+			draft: memory.SessionDraft{
+				SummaryItems: []string{"one", "Two"},
+			},
+		},
+	})
 
 	now := mustRFC3339(t, "2026-03-01T09:10:00Z")
 	o, err := New(mgr, j, p, OrchestratorOptions{
@@ -31,11 +39,13 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 		SubjectID: "tg--1001",
 		Channel:   "telegram",
 		TaskText:  "hello",
-		Draft: memory.SessionDraft{
-			SummaryItems: []string{"  one  ", "one", "", "Two"},
-			Promote: memory.PromoteDraft{
-				GoalsProjects: []string{"  keep sync  ", "", "keep sync"},
-			},
+		SourceHistory: []chathistory.ChatHistoryItem{{
+			Channel: chathistory.ChannelTelegram,
+			Kind:    chathistory.KindInboundUser,
+			Text:    "ping",
+		}},
+		SessionContext: memory.SessionContext{
+			ConversationID: "1001",
 		},
 	})
 	if err != nil {
@@ -52,11 +62,11 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 		if rec.Event.TSUTC != now.UTC().Format(time.RFC3339) {
 			t.Fatalf("ts_utc = %q, want %q", rec.Event.TSUTC, now.UTC().Format(time.RFC3339))
 		}
-		if got := strings.Join(rec.Event.DraftSummaryItems, "|"); got != "one|Two" {
-			t.Fatalf("draft_summary_items = %q, want one|Two", got)
+		if len(rec.Event.SourceHistory) != 1 || rec.Event.SourceHistory[0].Text != "ping" {
+			t.Fatalf("source_history = %#v, want one ping message", rec.Event.SourceHistory)
 		}
-		if len(rec.Event.DraftPromote.GoalsProjects) != 1 || rec.Event.DraftPromote.GoalsProjects[0] != "keep sync" {
-			t.Fatalf("draft_promote.goals = %#v, want [keep sync]", rec.Event.DraftPromote.GoalsProjects)
+		if rec.Event.SessionContext.ConversationID != "1001" {
+			t.Fatalf("session_context.conversation_id = %q, want 1001", rec.Event.SessionContext.ConversationID)
 		}
 		return nil
 	})
@@ -152,9 +162,6 @@ func TestRecordWithAdapter(t *testing.T) {
 			SubjectID: "heartbeat",
 			Channel:   "heartbeat",
 			TaskText:  "tick",
-			Draft: memory.SessionDraft{
-				SummaryItems: []string{"heartbeat ok"},
-			},
 		},
 	})
 	if err != nil {
@@ -171,6 +178,52 @@ func TestRecordWithAdapter(t *testing.T) {
 	}
 	if gotID != "evt_adapter" {
 		t.Fatalf("event_id = %q, want evt_adapter", gotID)
+	}
+}
+
+func TestRecordCapsJournalSourceHistoryToLatestThree(t *testing.T) {
+	root := t.TempDir()
+	mgr := memory.NewManager(root, 7)
+	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
+	o, err := New(mgr, j, p, OrchestratorOptions{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = o.Record(RecordRequest{
+		TaskRunID: "run_cap",
+		SessionID: "tg--cap",
+		SubjectID: "tg--cap",
+		Channel:   "telegram",
+		TaskText:  "cap",
+		SourceHistory: []chathistory.ChatHistoryItem{
+			{Kind: chathistory.KindInboundUser, Text: "one"},
+			{Kind: chathistory.KindInboundUser, Text: "two"},
+			{Kind: chathistory.KindInboundUser, Text: "three"},
+			{Kind: chathistory.KindInboundUser, Text: "four"},
+			{Kind: chathistory.KindOutboundAgent, Text: "five"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+
+	_, _, err = j.ReplayFrom(memory.JournalOffset{}, 10, func(rec memory.JournalRecord) error {
+		if len(rec.Event.SourceHistory) != 3 {
+			t.Fatalf("len(source_history) = %d, want 3", len(rec.Event.SourceHistory))
+		}
+		if rec.Event.SourceHistory[0].Text != "three" || rec.Event.SourceHistory[1].Text != "four" || rec.Event.SourceHistory[2].Text != "five" {
+			t.Fatalf("source_history texts = %#v, want [three four five]", []string{
+				rec.Event.SourceHistory[0].Text,
+				rec.Event.SourceHistory[1].Text,
+				rec.Event.SourceHistory[2].Text,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplayFrom() error = %v", err)
 	}
 }
 
@@ -197,6 +250,18 @@ func (f fakeRecordAdapter) BuildRecordRequest() (RecordRequest, error) {
 		return RecordRequest{}, f.err
 	}
 	return f.req, nil
+}
+
+type stubDraftResolver struct {
+	draft memory.SessionDraft
+	err   error
+}
+
+func (s stubDraftResolver) ResolveDraft(ctx context.Context, event memory.MemoryEvent, existing memory.ShortTermContent) (memory.SessionDraft, error) {
+	if s.err != nil {
+		return memory.SessionDraft{}, s.err
+	}
+	return s.draft, nil
 }
 
 func mustRFC3339(t *testing.T, value string) time.Time {

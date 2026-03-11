@@ -1,5 +1,7 @@
 # Memory Implementation Plan (WAL-first, Minimal)
 
+Note: this plan doc is historical. The current event shape and projector behavior are documented in `docs/feat/memory-project-time-draft.md` and `docs/memory.md`.
+
 ## 1. Principles
 
 - `memory/log/*.jsonl` is the single source of truth.
@@ -42,8 +44,8 @@
     - `protocol`
   - `task_text`
   - `final_output`
-  - `draft_summary_items`
-  - `draft_promote`
+  - `source_history`
+  - `session_context`
 - [x] Define id rules:
   - `event_id` unique per event.
   - `task_run_id` links events to one run.

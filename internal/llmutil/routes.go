@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	RoutePurposeMainLoop   = "main_loop"
-	RoutePurposeAddressing = "addressing"
-	RoutePurposeHeartbeat  = "heartbeat"
-	RoutePurposePlanCreate = "plan_create"
-	RouteProfileDefault    = "default"
+	RoutePurposeMainLoop    = "main_loop"
+	RoutePurposeAddressing  = "addressing"
+	RoutePurposeHeartbeat   = "heartbeat"
+	RoutePurposePlanCreate  = "plan_create"
+	RoutePurposeMemoryDraft = "memory_draft"
+	RouteProfileDefault     = "default"
 )
 
 type ProfileConfig struct {
@@ -46,10 +47,11 @@ type ProfileConfig struct {
 }
 
 type PurposeRoutes struct {
-	MainLoop   string `mapstructure:"main_loop"`
-	Addressing string `mapstructure:"addressing"`
-	Heartbeat  string `mapstructure:"heartbeat"`
-	PlanCreate string `mapstructure:"plan_create"`
+	MainLoop    string `mapstructure:"main_loop"`
+	Addressing  string `mapstructure:"addressing"`
+	Heartbeat   string `mapstructure:"heartbeat"`
+	PlanCreate  string `mapstructure:"plan_create"`
+	MemoryDraft string `mapstructure:"memory_draft"`
 }
 
 type RoutesConfig struct {
@@ -185,6 +187,7 @@ func normalizePurposeRoutes(cfg PurposeRoutes) PurposeRoutes {
 	cfg.Addressing = strings.TrimSpace(cfg.Addressing)
 	cfg.Heartbeat = strings.TrimSpace(cfg.Heartbeat)
 	cfg.PlanCreate = strings.TrimSpace(cfg.PlanCreate)
+	cfg.MemoryDraft = strings.TrimSpace(cfg.MemoryDraft)
 	return cfg
 }
 
@@ -202,6 +205,8 @@ func routeTargetForPurpose(routes PurposeRoutes, purpose string) string {
 		return strings.TrimSpace(routes.Heartbeat)
 	case RoutePurposePlanCreate:
 		return strings.TrimSpace(routes.PlanCreate)
+	case RoutePurposeMemoryDraft:
+		return strings.TrimSpace(routes.MemoryDraft)
 	default:
 		return ""
 	}
@@ -213,7 +218,7 @@ func normalizeRoutePurpose(purpose string) string {
 
 func isSupportedRoutePurpose(purpose string) bool {
 	switch purpose {
-	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeHeartbeat, RoutePurposePlanCreate:
+	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeHeartbeat, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
 		return true
 	default:
 		return false

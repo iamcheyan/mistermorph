@@ -15,19 +15,15 @@ func TestRecovery_ReplayAfterRestartProjectsAppendedEvents(t *testing.T) {
 	jA := mgrA.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
 	jA.now = func() time.Time { return mustTimeRFC3339(t, "2026-03-01T12:00:00Z") }
 	ev := MemoryEvent{
-		SchemaVersion:     CurrentMemoryEventSchemaVersion,
-		EventID:           "evt_recovery_1",
-		TaskRunID:         "run_recovery_1",
-		TSUTC:             "2026-03-01T12:00:30Z",
-		SessionID:         "tg:-9001",
-		SubjectID:         "tg:-9001",
-		Channel:           "telegram",
-		TaskText:          "remember this",
-		FinalOutput:       "done",
-		DraftSummaryItems: []string{"Recovery summary item"},
-		DraftPromote: PromoteDraft{
-			GoalsProjects: []string{"Recovery goal"},
-		},
+		SchemaVersion: CurrentMemoryEventSchemaVersion,
+		EventID:       "evt_recovery_1",
+		TaskRunID:     "run_recovery_1",
+		TSUTC:         "2026-03-01T12:00:30Z",
+		SessionID:     "tg:-9001",
+		SubjectID:     "tg:-9001",
+		Channel:       "telegram",
+		TaskText:      "remember this",
+		FinalOutput:   "done",
 	}
 	if _, err := jA.Append(ev); err != nil {
 		t.Fatalf("Append() error = %v", err)
@@ -39,7 +35,10 @@ func TestRecovery_ReplayAfterRestartProjectsAppendedEvents(t *testing.T) {
 	// Process B: restart and replay projection from checkpoint.
 	mgrB := NewManager(root, 7)
 	jB := mgrB.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
-	pB := NewProjector(mgrB, jB, ProjectorOptions{CheckpointBatch: 10})
+	pB := NewProjector(mgrB, jB, ProjectorOptions{
+		CheckpointBatch: 10,
+		DraftResolver:   recoveryDraftResolver{},
+	})
 	defer func() { _ = jB.Close() }()
 
 	cpBefore, okBefore, err := jB.LoadCheckpoint()
@@ -94,4 +93,15 @@ func TestRecovery_ReplayAfterRestartProjectsAppendedEvents(t *testing.T) {
 	if cpAfter.Line != 1 {
 		t.Fatalf("checkpoint line after replay = %d, want 1", cpAfter.Line)
 	}
+}
+
+type recoveryDraftResolver struct{}
+
+func (recoveryDraftResolver) ResolveDraft(ctx context.Context, event MemoryEvent, existing ShortTermContent) (SessionDraft, error) {
+	return SessionDraft{
+		SummaryItems: []string{"Recovery summary item"},
+		Promote: PromoteDraft{
+			GoalsProjects: []string{"Recovery goal"},
+		},
+	}, nil
 }

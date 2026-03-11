@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -11,23 +10,16 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
-	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
-	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
-func recordMemoryFromJob(ctx context.Context, logger *slog.Logger, client llm.Client, model string, orchestrator *memoryruntime.Orchestrator, mgr *memory.Manager, job telegramJob, history []chathistory.ChatHistoryItem, historyCap int, final *agent.Final, requestTimeout time.Duration) error {
+func recordMemoryFromJob(logger *slog.Logger, orchestrator *memoryruntime.Orchestrator, job telegramJob, history []chathistory.ChatHistoryItem, historyCap int, final *agent.Final) error {
 	recordOffset, err := orchestrator.RecordWithAdapter(telegramMemoryRecordAdapter{
-		ctx:            ctx,
-		client:         client,
-		model:          model,
-		manager:        mgr,
-		job:            job,
-		history:        history,
-		historyCap:     historyCap,
-		final:          final,
-		requestTimeout: requestTimeout,
+		job:        job,
+		history:    history,
+		historyCap: historyCap,
+		final:      final,
 	})
 	if err != nil {
 		return err
@@ -56,15 +48,10 @@ func (a telegramMemoryInjectionAdapter) ResolveRequestContext() (memory.RequestC
 }
 
 type telegramMemoryRecordAdapter struct {
-	ctx            context.Context
-	client         llm.Client
-	model          string
-	manager        *memory.Manager
-	job            telegramJob
-	history        []chathistory.ChatHistoryItem
-	historyCap     int
-	final          *agent.Final
-	requestTimeout time.Duration
+	job        telegramJob
+	history    []chathistory.ChatHistoryItem
+	historyCap int
+	final      *agent.Final
 }
 
 func (a telegramMemoryRecordAdapter) BuildRecordRequest() (memoryruntime.RecordRequest, error) {
@@ -76,51 +63,34 @@ func (a telegramMemoryRecordAdapter) BuildRecordRequest() (memoryruntime.RecordR
 		return memoryruntime.RecordRequest{}, fmt.Errorf("telegram task run id is required")
 	}
 
-	ctxInfo := MemoryDraftContext{
-		SessionID:          meta.SessionID,
-		ChatID:             a.job.ChatID,
-		ChatType:           a.job.ChatType,
-		CounterpartyID:     a.job.FromUserID,
+	ctxInfo := memory.SessionContext{
+		ConversationType:   strings.TrimSpace(a.job.ChatType),
 		CounterpartyName:   strings.TrimSpace(a.job.FromDisplayName),
 		CounterpartyHandle: strings.TrimSpace(a.job.FromUsername),
-		TimestampUTC:       now.Format(time.RFC3339),
+	}
+	if a.job.ChatID != 0 {
+		ctxInfo.ConversationID = strconv.FormatInt(a.job.ChatID, 10)
+	}
+	if a.job.FromUserID > 0 {
+		ctxInfo.CounterpartyID = strconv.FormatInt(a.job.FromUserID, 10)
 	}
 	if ctxInfo.CounterpartyName == "" {
 		ctxInfo.CounterpartyName = strings.TrimSpace(strings.Join([]string{a.job.FromFirstName, a.job.FromLastName}, " "))
 	}
-
-	_, existingContent, _, err := a.manager.LoadShortTerm(now, meta.SessionID)
-	if err != nil {
-		return memoryruntime.RecordRequest{}, err
-	}
-
-	memCtx := a.ctx
-	if memCtx == nil {
-		memCtx = context.Background()
-	}
-	cancel := func() {}
-	if a.requestTimeout > 0 {
-		memCtx, cancel = context.WithTimeout(memCtx, a.requestTimeout)
-	}
-	defer cancel()
 	ctxInfo.CounterpartyLabel = buildMemoryCounterpartyLabel(meta, ctxInfo)
 
 	draftHistory := buildMemoryDraftHistory(a.history, a.job, output, now, a.historyCap)
-	draft, err := BuildMemoryDraft(memCtx, a.client, a.model, draftHistory, a.job.Text, output, existingContent, ctxInfo)
-	if err != nil {
-		return memoryruntime.RecordRequest{}, err
-	}
-	draft.Promote = EnforceLongTermPromotionRules(draft.Promote, nil, a.job.Text)
 
 	return memoryruntime.RecordRequest{
-		TaskRunID:    taskRunID,
-		SessionID:    telegramMemorySessionID(a.job),
-		SubjectID:    telegramMemorySubjectID(a.job),
-		Channel:      "telegram",
-		Participants: telegramMemoryParticipants(a.job),
-		TaskText:     strings.TrimSpace(a.job.Text),
-		FinalOutput:  output,
-		Draft:        draft,
+		TaskRunID:      taskRunID,
+		SessionID:      telegramMemorySessionID(a.job),
+		SubjectID:      telegramMemorySubjectID(a.job),
+		Channel:        "telegram",
+		Participants:   telegramMemoryParticipants(a.job),
+		TaskText:       strings.TrimSpace(a.job.Text),
+		FinalOutput:    output,
+		SourceHistory:  draftHistory,
+		SessionContext: ctxInfo,
 	}, nil
 }
 
@@ -231,18 +201,7 @@ func buildMemoryDraftHistory(history []chathistory.ChatHistoryItem, job telegram
 	return out
 }
 
-type MemoryDraftContext struct {
-	SessionID          string `json:"session_id,omitempty"`
-	ChatID             int64  `json:"chat_id,omitempty"`
-	ChatType           string `json:"chat_type,omitempty"`
-	CounterpartyID     int64  `json:"counterparty_id,omitempty"`
-	CounterpartyName   string `json:"counterparty_name,omitempty"`
-	CounterpartyHandle string `json:"counterparty_handle,omitempty"`
-	CounterpartyLabel  string `json:"counterparty_label,omitempty"`
-	TimestampUTC       string `json:"timestamp_utc,omitempty"`
-}
-
-func buildMemoryCounterpartyLabel(meta memory.WriteMeta, ctxInfo MemoryDraftContext) string {
+func buildMemoryCounterpartyLabel(meta memory.WriteMeta, ctxInfo memory.SessionContext) string {
 	contactID := firstNonEmptyString(meta.ContactIDs...)
 	if contactID == "" {
 		handle := strings.TrimPrefix(strings.TrimSpace(ctxInfo.CounterpartyHandle), "@")
@@ -275,162 +234,4 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func BuildMemoryDraft(ctx context.Context, client llm.Client, model string, history []chathistory.ChatHistoryItem, task string, output string, existing memory.ShortTermContent, ctxInfo MemoryDraftContext) (memory.SessionDraft, error) {
-	if client == nil {
-		return memory.SessionDraft{}, fmt.Errorf("nil llm client")
-	}
-
-	sys, user, err := renderMemoryDraftPrompts(ctxInfo, history, task, output, existing)
-	if err != nil {
-		return memory.SessionDraft{}, fmt.Errorf("render memory draft prompts: %w", err)
-	}
-
-	res, err := client.Chat(ctx, llm.Request{
-		Model:     model,
-		Scene:     "memory.draft",
-		ForceJSON: true,
-		Messages: []llm.Message{
-			{Role: "system", Content: sys},
-			{Role: "user", Content: user},
-		},
-		Parameters: map[string]any{
-			"max_tokens": 10240,
-		},
-	})
-	if err != nil {
-		return memory.SessionDraft{}, err
-	}
-
-	raw := strings.TrimSpace(res.Text)
-	if raw == "" {
-		return memory.SessionDraft{}, fmt.Errorf("empty memory draft response")
-	}
-
-	var out memory.SessionDraft
-	if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
-		return memory.SessionDraft{}, fmt.Errorf("invalid memory draft json")
-	}
-	out.SummaryItems = normalizeMemorySummaryItems(out.SummaryItems)
-	return out, nil
-}
-
-func EnforceLongTermPromotionRules(promote memory.PromoteDraft, history []llm.Message, task string) memory.PromoteDraft {
-	if !hasExplicitMemoryRequest(history, task) {
-		return memory.PromoteDraft{}
-	}
-	return limitPromoteToOne(promote)
-}
-
-func hasExplicitMemoryRequest(history []llm.Message, task string) bool {
-	texts := make([]string, 0, len(history)+1)
-	for _, m := range history {
-		if strings.ToLower(strings.TrimSpace(m.Role)) != "user" {
-			continue
-		}
-		content := strings.TrimSpace(m.Content)
-		if content == "" {
-			continue
-		}
-		texts = append(texts, content)
-	}
-	if strings.TrimSpace(task) != "" {
-		texts = append(texts, task)
-	}
-	if len(texts) == 0 {
-		return false
-	}
-	combined := strings.ToLower(strings.Join(texts, "\n"))
-	return containsExplicitMemoryRequest(combined)
-}
-
-func containsExplicitMemoryRequest(lowerText string) bool {
-	if strings.TrimSpace(lowerText) == "" {
-		return false
-	}
-	keywords := []string{
-		"记住",
-		"记下来",
-		"别忘",
-		"记得",
-		"长期记忆",
-		"写入长期记忆",
-		"加入长期记忆",
-		"记到长期",
-		"remember",
-		"don't forget",
-		"dont forget",
-		"long-term memory",
-		"add to memory",
-		"save this",
-		"keep this",
-		"store this",
-		"memorize",
-	}
-	for _, k := range keywords {
-		if strings.Contains(lowerText, k) {
-			return true
-		}
-	}
-	return false
-}
-
-func limitPromoteToOne(promote memory.PromoteDraft) memory.PromoteDraft {
-	if item, ok := firstNonEmptyText(promote.GoalsProjects); ok {
-		return memory.PromoteDraft{GoalsProjects: []string{item}}
-	}
-	if item, ok := firstKVItem(promote.KeyFacts); ok {
-		return memory.PromoteDraft{KeyFacts: []memory.KVItem{item}}
-	}
-	return memory.PromoteDraft{}
-}
-
-func firstNonEmptyText(items []string) (string, bool) {
-	for _, raw := range items {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			continue
-		}
-		return v, true
-	}
-	return "", false
-}
-
-func firstKVItem(items []memory.KVItem) (memory.KVItem, bool) {
-	for _, it := range items {
-		title := strings.TrimSpace(it.Title)
-		value := strings.TrimSpace(it.Value)
-		if title == "" && value == "" {
-			continue
-		}
-		it.Title = title
-		it.Value = value
-		return it, true
-	}
-	return memory.KVItem{}, false
-}
-
-func normalizeMemorySummaryItems(input []string) []string {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(input))
-	seen := make(map[string]bool, len(input))
-	for _, raw := range input {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			continue
-		}
-		key := strings.ToLower(v)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, v)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

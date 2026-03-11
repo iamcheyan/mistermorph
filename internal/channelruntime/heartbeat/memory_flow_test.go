@@ -13,22 +13,3 @@ func TestHeartbeatTaskRunID(t *testing.T) {
 		t.Fatalf("unexpected task run id: %q", id)
 	}
 }
-
-func TestBuildHeartbeatDraft(t *testing.T) {
-	if got := buildHeartbeatDraft(""); len(got.SummaryItems) != 0 {
-		t.Fatalf("empty summary should produce empty draft: %#v", got)
-	}
-	got := buildHeartbeatDraft("  hello   world  ")
-	if len(got.SummaryItems) != 1 || got.SummaryItems[0] != "hello world" {
-		t.Fatalf("draft summary mismatch: %#v", got)
-	}
-
-	long := strings.Repeat("a", heartbeatMemorySummaryRunes+100)
-	got = buildHeartbeatDraft(long)
-	if len(got.SummaryItems) != 1 {
-		t.Fatalf("draft summary count = %d, want 1", len(got.SummaryItems))
-	}
-	if len([]rune(got.SummaryItems[0])) != heartbeatMemorySummaryRunes {
-		t.Fatalf("draft summary rune len = %d, want %d", len([]rune(got.SummaryItems[0])), heartbeatMemorySummaryRunes)
-	}
-}

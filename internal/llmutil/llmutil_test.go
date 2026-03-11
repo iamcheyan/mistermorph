@@ -199,6 +199,36 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
+	values := RuntimeValues{
+		Provider:          "openai",
+		Endpoint:          "https://api.openai.com",
+		APIKey:            "base-key",
+		Model:             "gpt-5.2",
+		RequestTimeoutRaw: "90s",
+		Profiles: map[string]ProfileConfig{
+			"memory": {
+				Model: "gpt-4.1-mini",
+			},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				MemoryDraft: "memory",
+			},
+		},
+	}
+	resolved, err := ResolveRoute(values, RoutePurposeMemoryDraft)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if resolved.Profile != "memory" {
+		t.Fatalf("profile = %q, want memory", resolved.Profile)
+	}
+	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
+		t.Fatalf("model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
+	}
+}
+
 func TestResolveRoute_TopLevelAPIKeyRef(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "env-openai-key")
 	values := RuntimeValues{
@@ -350,9 +380,10 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		},
 	})
 	v.Set("llm.routes", map[string]any{
-		"main_loop":   "default",
-		"addressing":  "cheap",
-		"plan_create": "reasoning",
+		"main_loop":    "default",
+		"addressing":   "cheap",
+		"plan_create":  "reasoning",
+		"memory_draft": "cheap",
 	})
 
 	values := RuntimeValuesFromReader(v)
@@ -373,5 +404,8 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.MainLoop != "default" {
 		t.Fatalf("main loop route = %q, want default", values.Routes.MainLoop)
+	}
+	if values.Routes.MemoryDraft != "cheap" {
+		t.Fatalf("memory draft route = %q, want cheap", values.Routes.MemoryDraft)
 	}
 }

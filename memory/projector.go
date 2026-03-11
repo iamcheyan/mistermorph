@@ -19,6 +19,7 @@ const (
 type ProjectorOptions struct {
 	CheckpointBatch  int
 	SemanticResolver entryutil.SemanticResolver
+	DraftResolver    DraftResolver
 }
 
 type Projector struct {
@@ -43,6 +44,16 @@ type shortTermTarget struct {
 type shortTermBucket struct {
 	Target  shortTermTarget
 	Records []JournalRecord
+}
+
+type DraftResolver interface {
+	ResolveDraft(ctx context.Context, event MemoryEvent, existing ShortTermContent) (SessionDraft, error)
+}
+
+type projectedPromote struct {
+	SubjectID string
+	Promote   PromoteDraft
+	Offset    JournalOffset
 }
 
 func NewProjector(manager *Manager, journal *Journal, opts ProjectorOptions) *Projector {
@@ -93,15 +104,14 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 	}
 	result.Processed = len(records)
 
-	errs := make([]error, 0, 4)
-	errs = append(errs, p.projectShortTermBuckets(ctx, buckets, order)...)
+	promotes, errs := p.projectShortTermBuckets(ctx, buckets, order)
 
-	for _, rec := range records {
-		if !hasDraftPromote(rec.Event.DraftPromote) {
+	for _, promote := range promotes {
+		if !hasDraftPromote(promote.Promote) {
 			continue
 		}
-		if _, err := p.manager.UpdateLongTerm(rec.Event.SubjectID, rec.Event.DraftPromote); err != nil {
-			errs = append(errs, fmt.Errorf("long-term projection failed at %s:%d: %w", rec.Offset.File, rec.Offset.Line, err))
+		if _, err := p.manager.UpdateLongTerm(promote.SubjectID, promote.Promote); err != nil {
+			errs = append(errs, fmt.Errorf("long-term projection failed at %s:%d: %w", promote.Offset.File, promote.Offset.Line, err))
 		}
 	}
 
@@ -126,22 +136,31 @@ func (p *Projector) loadCheckpointOffset() (JournalOffset, error) {
 	}, nil
 }
 
-func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTermBucket) error {
+func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTermBucket) ([]projectedPromote, error) {
 	_, existing, _, err := p.manager.LoadShortTerm(bucket.Target.DayUTC, bucket.Target.SessionID)
 	if err != nil {
-		return fmt.Errorf("load short-term %s: %w", bucket.Target.Key, err)
+		return nil, fmt.Errorf("load short-term %s: %w", bucket.Target.Key, err)
 	}
 
 	merged := existing
 	hasIncomingSummary := false
+	promotes := make([]projectedPromote, 0, len(bucket.Records))
 
 	for _, rec := range bucket.Records {
 		createdAt, err := memorySummaryCreatedAt(rec.Event.TSUTC)
 		if err != nil {
-			return fmt.Errorf("invalid ts_utc for %s:%d: %w", rec.Offset.File, rec.Offset.Line, err)
+			return nil, fmt.Errorf("invalid ts_utc for %s:%d: %w", rec.Offset.File, rec.Offset.Line, err)
 		}
-		draft := SessionDraft{
-			SummaryItems: rec.Event.DraftSummaryItems,
+		draft, err := p.resolveDraft(ctx, rec.Event, merged)
+		if err != nil {
+			return nil, fmt.Errorf("resolve draft failed for %s at %s:%d: %w", bucket.Target.Key, rec.Offset.File, rec.Offset.Line, err)
+		}
+		if hasDraftPromote(draft.Promote) {
+			promotes = append(promotes, projectedPromote{
+				SubjectID: rec.Event.SubjectID,
+				Promote:   draft.Promote,
+				Offset:    rec.Offset,
+			})
 		}
 		beforeCount := len(merged.SummaryItems)
 		merged = MergeShortTerm(merged, draft, createdAt)
@@ -151,23 +170,23 @@ func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTerm
 	}
 
 	if !hasIncomingSummary {
-		return nil
+		return promotes, nil
 	}
 
 	if len(existing.SummaryItems) > 0 && p.opts.SemanticResolver != nil {
 		deduped, err := SemanticDedupeSummaryItems(ctx, merged.SummaryItems, p.opts.SemanticResolver)
 		if err != nil {
 			last := bucket.Records[len(bucket.Records)-1]
-			return fmt.Errorf("semantic dedupe failed for %s at %s:%d: %w", bucket.Target.Key, last.Offset.File, last.Offset.Line, err)
+			return nil, fmt.Errorf("semantic dedupe failed for %s at %s:%d: %w", bucket.Target.Key, last.Offset.File, last.Offset.Line, err)
 		}
 		merged = NormalizeShortTermContent(ShortTermContent{SummaryItems: deduped})
 	}
 
 	_, err = p.manager.WriteShortTerm(bucket.Target.DayUTC, merged, WriteMeta{SessionID: bucket.Target.SessionID})
 	if err != nil {
-		return fmt.Errorf("write short-term %s: %w", bucket.Target.Key, err)
+		return nil, fmt.Errorf("write short-term %s: %w", bucket.Target.Key, err)
 	}
-	return nil
+	return promotes, nil
 }
 
 func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
@@ -191,9 +210,9 @@ func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
 	return nil
 }
 
-func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[string]shortTermBucket, order []string) []error {
+func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[string]shortTermBucket, order []string) ([]projectedPromote, []error) {
 	if len(order) == 0 {
-		return nil
+		return nil, nil
 	}
 	workers := p.currentDayBucketWorkers()
 	if workers > len(order) {
@@ -210,15 +229,24 @@ func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[str
 	close(jobs)
 
 	errs := make([]error, 0, 4)
+	promotes := make([]projectedPromote, 0, len(order))
 	var errsMu sync.Mutex
+	var promotesMu sync.Mutex
 	var wg sync.WaitGroup
 	worker := func() {
 		defer wg.Done()
 		for bucket := range jobs {
-			if err := p.projectShortTermBucket(ctx, bucket); err != nil {
+			bucketPromotes, err := p.projectShortTermBucket(ctx, bucket)
+			if err != nil {
 				errsMu.Lock()
 				errs = append(errs, err)
 				errsMu.Unlock()
+				continue
+			}
+			if len(bucketPromotes) > 0 {
+				promotesMu.Lock()
+				promotes = append(promotes, bucketPromotes...)
+				promotesMu.Unlock()
 			}
 		}
 	}
@@ -228,7 +256,14 @@ func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[str
 		go worker()
 	}
 	wg.Wait()
-	return errs
+	return promotes, errs
+}
+
+func (p *Projector) resolveDraft(ctx context.Context, event MemoryEvent, existing ShortTermContent) (SessionDraft, error) {
+	if p.opts.DraftResolver == nil {
+		return SessionDraft{}, nil
+	}
+	return p.opts.DraftResolver.ResolveDraft(ctx, event, existing)
 }
 
 func (p *Projector) currentDayBucketWorkers() int {

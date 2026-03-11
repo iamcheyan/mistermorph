@@ -59,12 +59,13 @@ llm:
   #     # api_key_ref: XAI_API_KEY
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
-  #   main_loop | addressing | heartbeat | plan_create
+  #   main_loop | addressing | heartbeat | plan_create | memory_draft
   # routes:
   #   main_loop: default
   #   addressing: cheap
   #   heartbeat: cheap
   #   plan_create: reasoning
+  #   memory_draft: cheap
 
 # Multimodal input policy (cross-channel, cross-source).
 multimodal:

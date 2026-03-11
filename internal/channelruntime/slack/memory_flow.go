@@ -3,12 +3,10 @@ package slack
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/memory"
-)
-
-const (
-	slackMemorySummaryMaxRunes = 1024
 )
 
 func slackMemorySubjectID(job slackJob) string {
@@ -65,23 +63,46 @@ func slackMemoryParticipants(job slackJob) []memory.MemoryParticipant {
 	return out
 }
 
-func buildSlackMemoryDraft(finalOutput string) memory.SessionDraft {
-	item := strings.TrimSpace(finalOutput)
-	if item == "" {
-		return memory.SessionDraft{}
+func buildSlackMemoryHistory(history []chathistory.ChatHistoryItem, job slackJob, output string, sentAt time.Time, maxItems int) []chathistory.ChatHistoryItem {
+	out := append([]chathistory.ChatHistoryItem{}, history...)
+	out = append(out, newSlackInboundHistoryItem(job))
+	if strings.TrimSpace(output) != "" {
+		out = append(out, newSlackOutboundAgentHistoryItem(job, output, sentAt, ""))
 	}
-	item = strings.Join(strings.Fields(item), " ")
-	if item == "" {
-		return memory.SessionDraft{}
+	if maxItems > 0 && len(out) > maxItems {
+		out = out[len(out)-maxItems:]
 	}
-	runes := []rune(item)
-	if len(runes) > slackMemorySummaryMaxRunes {
-		item = strings.TrimSpace(string(runes[:slackMemorySummaryMaxRunes]))
+	return out
+}
+
+func slackMemorySessionContext(job slackJob) memory.SessionContext {
+	ctx := memory.SessionContext{
+		ConversationID:   strings.TrimSpace(job.ChannelID),
+		ConversationType: strings.ToLower(strings.TrimSpace(job.ChatType)),
+		CounterpartyID:   strings.TrimSpace(job.UserID),
+		CounterpartyName: strings.TrimSpace(job.DisplayName),
 	}
-	if item == "" {
-		return memory.SessionDraft{}
+	if username := strings.TrimSpace(job.Username); username != "" {
+		ctx.CounterpartyHandle = username
 	}
-	return memory.SessionDraft{
-		SummaryItems: []string{item},
+	ctx.CounterpartyLabel = slackMemoryCounterpartyLabel(job)
+	return ctx
+}
+
+func slackMemoryCounterpartyLabel(job slackJob) string {
+	id := strings.TrimSpace(job.UserID)
+	name := strings.TrimSpace(job.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(job.Username)
 	}
+	if id != "" && name != "" {
+		return "[" + name + "](slack:" + id + ")"
+	}
+	if name != "" {
+		return name
+	}
+	if id != "" {
+		return "slack:" + id
+	}
+	return ""
 }

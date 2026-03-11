@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/entryutil"
 )
 
@@ -21,7 +22,6 @@ func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 	day := mustTimeRFC3339(t, "2026-02-28T06:00:00Z")
 	e1 := baseProjectorEvent("evt_1", "run_1", "2026-02-28T06:01:00Z", "tg-1001", []string{"first item"})
 	e2 := baseProjectorEvent("evt_2", "run_1", "2026-02-28T06:02:00Z", "tg-1001", []string{"second item"})
-	e2.DraftPromote = PromoteDraft{GoalsProjects: []string{"Keep archive synced"}}
 	e3 := baseProjectorEvent("evt_3", "run_2", "2026-02-28T06:03:00Z", "tg-1002", []string{"another room item"})
 
 	if _, err := j.Append(e1); err != nil {
@@ -36,6 +36,16 @@ func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 
 	p := NewProjector(mgr, j, ProjectorOptions{
 		CheckpointBatch: 2,
+		DraftResolver: fakeDraftResolver{
+			byEventID: map[string]SessionDraft{
+				"evt_1": {SummaryItems: []string{"first item"}},
+				"evt_2": {
+					SummaryItems: []string{"second item"},
+					Promote:      PromoteDraft{GoalsProjects: []string{"Keep archive synced"}},
+				},
+				"evt_3": {SummaryItems: []string{"another room item"}},
+			},
+		},
 	})
 
 	got, err := p.ProjectOnce(context.Background(), 10)
@@ -116,6 +126,13 @@ func TestProjectorProjectOnce_RespectsReplayLimitAndAdvancesCheckpoint(t *testin
 
 	p := NewProjector(mgr, j, ProjectorOptions{
 		CheckpointBatch: 2,
+		DraftResolver: fakeDraftResolver{
+			byEventID: map[string]SessionDraft{
+				"evt_1": {SummaryItems: []string{"one"}},
+				"evt_2": {SummaryItems: []string{"two"}},
+				"evt_3": {SummaryItems: []string{"three"}},
+			},
+		},
 	})
 
 	first, err := p.ProjectOnce(context.Background(), 2)
@@ -183,6 +200,12 @@ func TestProjectorProjectOnce_ProjectionErrorStillAdvancesCheckpoint(t *testing.
 	p := NewProjector(mgr, j, ProjectorOptions{
 		CheckpointBatch:  10,
 		SemanticResolver: alwaysFailResolver{},
+		DraftResolver: fakeDraftResolver{
+			byEventID: map[string]SessionDraft{
+				"evt_1": {SummaryItems: []string{"alpha"}},
+				"evt_2": {SummaryItems: []string{"beta"}},
+			},
+		},
 	})
 
 	_, err = p.ProjectOnce(context.Background(), 10)
@@ -237,6 +260,12 @@ func TestProjectorProjectOnce_IdempotentWhenReplayingSameEvents(t *testing.T) {
 	}
 
 	p := NewProjector(mgr, j, ProjectorOptions{CheckpointBatch: 10})
+	p.opts.DraftResolver = fakeDraftResolver{
+		byEventID: map[string]SessionDraft{
+			"evt_1": {SummaryItems: []string{"same item"}},
+			"evt_2": {SummaryItems: []string{"another item"}},
+		},
+	}
 	if _, err := p.ProjectOnce(context.Background(), 10); err != nil {
 		t.Fatalf("ProjectOnce(first) error = %v", err)
 	}
@@ -274,26 +303,101 @@ func TestProjectorProjectOnce_IdempotentWhenReplayingSameEvents(t *testing.T) {
 	}
 }
 
+func TestProjectorProjectOnce_UsesDraftResolverForRawEvents(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(root, 7)
+	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-03-01T06:00:00Z") }
+
+	ev := baseProjectorEvent("evt_raw_1", "run_raw_1", "2026-03-01T06:01:00Z", "tg-raw-1", nil)
+	ev.SessionID = "tg-raw-1"
+	ev.SourceHistory = []chathistory.ChatHistoryItem{{
+		Channel: chathistory.ChannelTelegram,
+		Kind:    chathistory.KindInboundUser,
+		Text:    "hello",
+	}}
+	ev.SessionContext = SessionContext{
+		ConversationID: "123",
+	}
+	if _, err := j.Append(ev); err != nil {
+		t.Fatalf("Append(raw event) error = %v", err)
+	}
+
+	p := NewProjector(mgr, j, ProjectorOptions{
+		CheckpointBatch: 10,
+		DraftResolver: fakeDraftResolver{
+			draft: SessionDraft{
+				SummaryItems: []string{"resolved in projector"},
+				Promote: PromoteDraft{
+					GoalsProjects: []string{"projected goal"},
+				},
+			},
+		},
+	})
+
+	if _, err := p.ProjectOnce(context.Background(), 10); err != nil {
+		t.Fatalf("ProjectOnce() error = %v", err)
+	}
+
+	day := mustTimeRFC3339(t, "2026-03-01T00:00:00Z")
+	_, content, ok, err := mgr.LoadShortTerm(day, "tg-raw-1")
+	if err != nil {
+		t.Fatalf("LoadShortTerm() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("LoadShortTerm() ok = false, want true")
+	}
+	if len(content.SummaryItems) != 1 || content.SummaryItems[0].Content != "resolved in projector" {
+		t.Fatalf("short-term content = %#v, want resolved draft item", content.SummaryItems)
+	}
+
+	longPath, _ := mgr.LongTermPath("ignored")
+	data, err := os.ReadFile(longPath)
+	if err != nil {
+		t.Fatalf("ReadFile(long-term) error = %v", err)
+	}
+	_, body, _ := ParseFrontmatter(string(data))
+	longContent := ParseLongTermContent(body)
+	if len(longContent.Goals) != 1 || longContent.Goals[0].Content != "projected goal" {
+		t.Fatalf("long-term goals = %#v, want projected goal", longContent.Goals)
+	}
+}
+
 type alwaysFailResolver struct{}
 
 func (alwaysFailResolver) SelectDedupKeepIndices(ctx context.Context, items []entryutil.SemanticItem) ([]int, error) {
 	return nil, fmt.Errorf("resolver failed")
 }
 
+type fakeDraftResolver struct {
+	draft     SessionDraft
+	byEventID map[string]SessionDraft
+	err       error
+}
+
+func (f fakeDraftResolver) ResolveDraft(ctx context.Context, event MemoryEvent, existing ShortTermContent) (SessionDraft, error) {
+	if f.err != nil {
+		return SessionDraft{}, f.err
+	}
+	if draft, ok := f.byEventID[event.EventID]; ok {
+		return draft, nil
+	}
+	return f.draft, nil
+}
+
 func baseProjectorEvent(eventID, runID, tsUTC, subjectID string, summaryItems []string) MemoryEvent {
+	finalOutput := strings.Join(summaryItems, "\n")
 	return MemoryEvent{
-		SchemaVersion:     CurrentMemoryEventSchemaVersion,
-		EventID:           eventID,
-		TaskRunID:         runID,
-		TSUTC:             tsUTC,
-		SessionID:         "tg:-1000",
-		SubjectID:         subjectID,
-		Channel:           "telegram",
-		Participants:      nil,
-		TaskText:          "task",
-		FinalOutput:       "output",
-		DraftSummaryItems: summaryItems,
-		DraftPromote:      PromoteDraft{},
+		SchemaVersion: CurrentMemoryEventSchemaVersion,
+		EventID:       eventID,
+		TaskRunID:     runID,
+		TSUTC:         tsUTC,
+		SessionID:     "tg:-1000",
+		SubjectID:     subjectID,
+		Channel:       "telegram",
+		Participants:  nil,
+		TaskText:      "task",
+		FinalOutput:   finalOutput,
 	}
 }
 

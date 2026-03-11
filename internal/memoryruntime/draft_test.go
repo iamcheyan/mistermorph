@@ -1,4 +1,4 @@
-package telegram
+package memoryruntime
 
 import (
 	"encoding/json"
@@ -61,7 +61,7 @@ func TestRenderMemoryDraftPrompts_LimitsExistingSummaryItemsToRecentFive(t *test
 	}
 
 	_, userPrompt, err := renderMemoryDraftPrompts(
-		MemoryDraftContext{},
+		memory.SessionContext{},
 		nil,
 		"say hi",
 		"hi",
@@ -85,4 +85,36 @@ func TestRenderMemoryDraftPrompts_LimitsExistingSummaryItemsToRecentFive(t *test
 			t.Fatalf("existing_summary_items[%d].Content = %q, want %q", i, payload.ExistingSummaryItems[i].Content, want)
 		}
 	}
+}
+
+func TestEnforceLongTermPromotionRules(t *testing.T) {
+	t.Parallel()
+
+	promote := memory.PromoteDraft{
+		GoalsProjects: []string{"remember goal", "extra"},
+		KeyFacts: []memory.KVItem{
+			{Title: "Project", Value: "mistermorph"},
+		},
+	}
+
+	t.Run("drops promotion without explicit memory request", func(t *testing.T) {
+		t.Parallel()
+
+		got := EnforceLongTermPromotionRules(promote, nil, "just replying")
+		if len(got.GoalsProjects) != 0 || len(got.KeyFacts) != 0 {
+			t.Fatalf("got = %#v, want empty promote", got)
+		}
+	})
+
+	t.Run("keeps only one promoted item with explicit request", func(t *testing.T) {
+		t.Parallel()
+
+		got := EnforceLongTermPromotionRules(promote, nil, "remember this for later")
+		if len(got.GoalsProjects) != 1 || got.GoalsProjects[0] != "remember goal" {
+			t.Fatalf("goals = %#v, want [\"remember goal\"]", got.GoalsProjects)
+		}
+		if len(got.KeyFacts) != 0 {
+			t.Fatalf("key facts = %#v, want empty", got.KeyFacts)
+		}
+	})
 }

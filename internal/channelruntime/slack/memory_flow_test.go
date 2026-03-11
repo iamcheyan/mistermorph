@@ -1,8 +1,10 @@
 package slack
 
 import (
-	"strings"
 	"testing"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
 func TestSlackMemorySubjectID(t *testing.T) {
@@ -53,30 +55,42 @@ func TestSlackMemoryParticipants(t *testing.T) {
 	}
 }
 
-func TestBuildSlackMemoryDraft(t *testing.T) {
-	if got := buildSlackMemoryDraft(""); len(got.SummaryItems) != 0 {
-		t.Fatalf("empty output should produce empty draft: %#v", got)
-	}
-	got := buildSlackMemoryDraft("  hello   world  ")
-	if len(got.SummaryItems) != 1 || got.SummaryItems[0] != "hello world" {
-		t.Fatalf("draft summary mismatch: %#v", got)
-	}
-
-	long := strings.Repeat("a", slackMemorySummaryMaxRunes+50)
-	got = buildSlackMemoryDraft(long)
-	if len(got.SummaryItems) != 1 {
-		t.Fatalf("long draft summary count = %d, want 1", len(got.SummaryItems))
-	}
-	if len([]rune(got.SummaryItems[0])) != slackMemorySummaryMaxRunes {
-		t.Fatalf("long draft summary rune len = %d, want %d", len([]rune(got.SummaryItems[0])), slackMemorySummaryMaxRunes)
-	}
-}
-
 func TestSlackMemoryRequestContext(t *testing.T) {
 	if got := slackMemoryRequestContext("im"); got != "private" {
 		t.Fatalf("im request context = %q, want private", got)
 	}
 	if got := slackMemoryRequestContext("channel"); got != "public" {
 		t.Fatalf("channel request context = %q, want public", got)
+	}
+}
+
+func TestSlackMemoryCounterpartyLabel(t *testing.T) {
+	got := slackMemoryCounterpartyLabel(slackJob{
+		UserID:      "U123",
+		DisplayName: "Alice",
+	})
+	if got != "[Alice](slack:U123)" {
+		t.Fatalf("counterparty_label = %q, want [Alice](slack:U123)", got)
+	}
+}
+
+func TestBuildSlackMemoryHistoryCapsLatestItems(t *testing.T) {
+	history := []chathistory.ChatHistoryItem{
+		{Kind: chathistory.KindInboundUser, Text: "one"},
+		{Kind: chathistory.KindInboundUser, Text: "two"},
+		{Kind: chathistory.KindInboundUser, Text: "three"},
+	}
+	got := buildSlackMemoryHistory(history, slackJob{
+		ChannelID: "C1",
+		ChatType:  "channel",
+		UserID:    "U1",
+		Username:  "alice",
+		Text:      "four",
+	}, "five", time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC), 4)
+	if len(got) != 4 {
+		t.Fatalf("len(history) = %d, want 4", len(got))
+	}
+	if got[0].Text != "two" || got[1].Text != "three" || got[2].Text != "four" || got[3].Text != "five" {
+		t.Fatalf("history texts = %#v, want [two three four five]", []string{got[0].Text, got[1].Text, got[2].Text, got[3].Text})
 	}
 }

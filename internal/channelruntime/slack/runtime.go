@@ -24,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
@@ -307,9 +308,26 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	var memOrchestrator *memoryruntime.Orchestrator
 	var memProjectionWorker *memoryruntime.ProjectionWorker
 	if opts.MemoryEnabled {
+		draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
+			ResolveLLMRoute: d.ResolveLLMRoute,
+			CreateLLMClient: d.CreateLLMClient,
+			DecorateClient: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+				return llminspect.WrapClient(client, llminspect.ClientOptions{
+					PromptInspector:  promptInspector,
+					RequestInspector: requestInspector,
+					APIBase:          route.ClientConfig.Endpoint,
+					Model:            strings.TrimSpace(route.ClientConfig.Model),
+				})
+			},
+		})
+		if err != nil {
+			return err
+		}
 		memManager := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 		memJournal := memManager.NewJournal(memory.JournalOptions{})
-		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{})
+		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{
+			DraftResolver: draftResolver,
+		})
 		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
 		if err != nil {
 			return err
@@ -339,6 +357,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	sem := make(chan struct{}, maxConc)
 
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
+	slackHistoryCap := slackHistoryCapForMode(groupTriggerMode)
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
 	if addressingLLMTimeout <= 0 {
 		addressingLLMTimeout = requestTimeout
@@ -482,6 +501,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					model,
 					job,
 					h,
+					slackHistoryCap,
 					sticky,
 					allowedChannels,
 					availableEmojiNames,

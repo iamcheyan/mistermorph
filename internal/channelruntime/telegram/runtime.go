@@ -29,6 +29,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
@@ -295,9 +296,26 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	var memManager *memory.Manager
 	var memProjectionWorker *memoryruntime.ProjectionWorker
 	if opts.MemoryEnabled {
+		draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
+			ResolveLLMRoute: d.ResolveLLMRoute,
+			CreateLLMClient: d.CreateLLMClient,
+			DecorateClient: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+				return llminspect.WrapClient(client, llminspect.ClientOptions{
+					PromptInspector:  promptInspector,
+					RequestInspector: requestInspector,
+					APIBase:          route.ClientConfig.Endpoint,
+					Model:            strings.TrimSpace(route.ClientConfig.Model),
+				})
+			},
+		})
+		if err != nil {
+			return err
+		}
 		memManager = memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 		memJournal := memManager.NewJournal(memory.JournalOptions{})
-		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{})
+		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{
+			DraftResolver: draftResolver,
+		})
 		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
 		if err != nil {
 			return err
@@ -319,7 +337,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		PlanCreateClient:        planClient,
 		PlanCreateModel:         planModel,
-		MemoryManager:           memManager,
 		MemoryOrchestrator:      memOrchestrator,
 		MemoryProjectionWorker:  memProjectionWorker,
 	}

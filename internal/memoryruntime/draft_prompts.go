@@ -1,4 +1,4 @@
-package telegram
+package memoryruntime
 
 import (
 	_ "embed"
@@ -26,11 +26,11 @@ var memoryPromptTemplateFuncs = template.FuncMap{
 	},
 }
 
-var memoryDraftSystemPromptTemplate = prompttmpl.MustParse("telegram_memory_draft_system", memoryDraftSystemPromptTemplateSource, nil)
-var memoryDraftUserPromptTemplate = prompttmpl.MustParse("telegram_memory_draft_user", memoryDraftUserPromptTemplateSource, memoryPromptTemplateFuncs)
+var memoryDraftSystemPromptTemplate = prompttmpl.MustParse("memoryruntime_memory_draft_system", memoryDraftSystemPromptTemplateSource, nil)
+var memoryDraftUserPromptTemplate = prompttmpl.MustParse("memoryruntime_memory_draft_user", memoryDraftUserPromptTemplateSource, memoryPromptTemplateFuncs)
 
 type memoryDraftUserPromptData struct {
-	SessionContext       MemoryDraftContext
+	SessionContext       memory.SessionContext
 	ChatHistoryMessages  []chathistory.ChatHistoryItem
 	CurrentTask          string
 	CurrentOutput        string
@@ -40,7 +40,7 @@ type memoryDraftUserPromptData struct {
 const memoryDraftExistingSummaryItemsLimit = 5
 
 func renderMemoryDraftPrompts(
-	ctxInfo MemoryDraftContext,
+	ctxInfo memory.SessionContext,
 	history []chathistory.ChatHistoryItem,
 	task string,
 	output string,
@@ -52,7 +52,7 @@ func renderMemoryDraftPrompts(
 	}
 	userPrompt, err := prompttmpl.Render(memoryDraftUserPromptTemplate, memoryDraftUserPromptData{
 		SessionContext:       ctxInfo,
-		ChatHistoryMessages:  chathistory.BuildMessages(chathistory.ChannelTelegram, history),
+		ChatHistoryMessages:  chathistory.BuildMessages("", history),
 		CurrentTask:          task,
 		CurrentOutput:        output,
 		ExistingSummaryItems: recentSummaryItems(existing.SummaryItems, memoryDraftExistingSummaryItemsLimit),

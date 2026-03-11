@@ -193,8 +193,9 @@ runtime task/event
 Notes:
 
 - Runtime-level memory integration is wired in Telegram, Slack, and Heartbeat.
-- Telegram currently uses a legacy direct memory adapter (`internal/channelruntime/telegram/runtime_task.go`).
-- Slack and Heartbeat use shared orchestrator wiring (`internal/memoryruntime/*`) via:
+- Telegram, Slack, and Heartbeat all use shared orchestrator wiring (`internal/memoryruntime/*`) via:
+  - `internal/channelruntime/telegram/runtime.go`
+  - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/slack/runtime.go`
   - `internal/channelruntime/slack/runtime_task.go`
   - `internal/channelruntime/heartbeat/run.go`

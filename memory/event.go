@@ -7,25 +7,36 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
 const (
-	CurrentMemoryEventSchemaVersion = 1
+	CurrentMemoryEventSchemaVersion = 3
 )
 
+type SessionContext struct {
+	ConversationID     string `json:"conversation_id,omitempty"`
+	ConversationType   string `json:"conversation_type,omitempty"`
+	CounterpartyID     string `json:"counterparty_id,omitempty"`
+	CounterpartyName   string `json:"counterparty_name,omitempty"`
+	CounterpartyHandle string `json:"counterparty_handle,omitempty"`
+	CounterpartyLabel  string `json:"counterparty_label,omitempty"`
+}
+
 type MemoryEvent struct {
-	SchemaVersion     int                 `json:"schema_version"`
-	EventID           string              `json:"event_id"`
-	TaskRunID         string              `json:"task_run_id"`
-	TSUTC             string              `json:"ts_utc"`
-	SessionID         string              `json:"session_id"`
-	SubjectID         string              `json:"subject_id"`
-	Channel           string              `json:"channel"`
-	Participants      []MemoryParticipant `json:"participants"`
-	TaskText          string              `json:"task_text"`
-	FinalOutput       string              `json:"final_output"`
-	DraftSummaryItems []string            `json:"draft_summary_items"`
-	DraftPromote      PromoteDraft        `json:"draft_promote"`
+	SchemaVersion  int                           `json:"schema_version"`
+	EventID        string                        `json:"event_id"`
+	TaskRunID      string                        `json:"task_run_id"`
+	TSUTC          string                        `json:"ts_utc"`
+	SessionID      string                        `json:"session_id"`
+	SubjectID      string                        `json:"subject_id"`
+	Channel        string                        `json:"channel"`
+	Participants   []MemoryParticipant           `json:"participants"`
+	TaskText       string                        `json:"task_text"`
+	FinalOutput    string                        `json:"final_output"`
+	SourceHistory  []chathistory.ChatHistoryItem `json:"source_history,omitempty"`
+	SessionContext SessionContext                `json:"session_context,omitempty"`
 }
 
 type MemoryParticipant struct {
@@ -65,11 +76,6 @@ func ValidateMemoryEventForAppend(e MemoryEvent) error {
 	}
 	for i, p := range e.Participants {
 		if err := validateMemoryParticipant(i, p); err != nil {
-			return err
-		}
-	}
-	for i, item := range e.DraftSummaryItems {
-		if err := validateRequiredCanonicalString(fmt.Sprintf("draft_summary_items[%d]", i), item); err != nil {
 			return err
 		}
 	}

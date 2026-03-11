@@ -85,14 +85,14 @@ func TestBuildMemoryCounterpartyLabel(t *testing.T) {
 		got := buildMemoryCounterpartyLabel(memory.WriteMeta{
 			ContactIDs:       []string{"tg:@alice"},
 			ContactNicknames: []string{"Alice"},
-		}, MemoryDraftContext{})
+		}, memory.SessionContext{})
 		if got != "[Alice](tg:@alice)" {
 			t.Fatalf("counterparty_label = %q, want %q", got, "[Alice](tg:@alice)")
 		}
 	})
 
 	t.Run("falls back to handle in display ref style", func(t *testing.T) {
-		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, MemoryDraftContext{
+		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, memory.SessionContext{
 			CounterpartyHandle: "@alice",
 		})
 		if got != "[alice](tg:@alice)" {
@@ -101,7 +101,7 @@ func TestBuildMemoryCounterpartyLabel(t *testing.T) {
 	})
 
 	t.Run("keeps plain nickname when no reference id exists", func(t *testing.T) {
-		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, MemoryDraftContext{
+		got := buildMemoryCounterpartyLabel(memory.WriteMeta{}, memory.SessionContext{
 			CounterpartyName: "Alice",
 		})
 		if got != "Alice" {

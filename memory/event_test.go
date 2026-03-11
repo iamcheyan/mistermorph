@@ -96,29 +96,19 @@ func TestMemoryEventValidateForAppend(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid draft summary item empty", func(t *testing.T) {
-		ev := baseMemoryEvent()
-		ev.DraftSummaryItems = []string{"ok", ""}
-		err := ev.ValidateForAppend()
-		if err == nil || !strings.Contains(err.Error(), "draft_summary_items[1] is required") {
-			t.Fatalf("ValidateForAppend() error = %v, want draft_summary_items[1] is required", err)
-		}
-	})
 }
 
 func baseMemoryEvent() MemoryEvent {
 	return MemoryEvent{
-		SchemaVersion:     CurrentMemoryEventSchemaVersion,
-		EventID:           "evt_01",
-		TaskRunID:         "run_01",
-		TSUTC:             "2026-02-28T06:15:12Z",
-		SessionID:         "tg:-1003824466118",
-		SubjectID:         "ext:telegram:28036192",
-		Channel:           "telegram",
-		Participants:      nil,
-		TaskText:          "啧啧啧",
-		FinalOutput:       "",
-		DraftSummaryItems: []string{"short summary"},
-		DraftPromote:      PromoteDraft{},
+		SchemaVersion: CurrentMemoryEventSchemaVersion,
+		EventID:       "evt_01",
+		TaskRunID:     "run_01",
+		TSUTC:         "2026-02-28T06:15:12Z",
+		SessionID:     "tg:-1003824466118",
+		SubjectID:     "ext:telegram:28036192",
+		Channel:       "telegram",
+		Participants:  nil,
+		TaskText:      "啧啧啧",
+		FinalOutput:   "",
 	}
 }

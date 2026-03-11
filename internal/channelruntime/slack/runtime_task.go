@@ -47,6 +47,7 @@ func runSlackTask(
 	model string,
 	job slackJob,
 	history []chathistory.ChatHistoryItem,
+	historyCap int,
 	stickySkills []string,
 	allowedChannelIDs map[string]bool,
 	availableEmojiNames []string,
@@ -181,15 +182,17 @@ func runSlackTask(
 
 	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
 		finalOutput := strings.TrimSpace(depsutil.FormatFinalOutput(final))
+		recordedAt := time.Now().UTC()
 		recordOffset, memErr := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-			TaskRunID:    slackMemoryTaskRunID(job),
-			SessionID:    slackMemorySessionID(job),
-			SubjectID:    memSubjectID,
-			Channel:      "slack",
-			Participants: slackMemoryParticipants(job),
-			TaskText:     task,
-			FinalOutput:  finalOutput,
-			Draft:        buildSlackMemoryDraft(finalOutput),
+			TaskRunID:      slackMemoryTaskRunID(job),
+			SessionID:      slackMemorySessionID(job),
+			SubjectID:      memSubjectID,
+			Channel:        "slack",
+			Participants:   slackMemoryParticipants(job),
+			TaskText:       task,
+			FinalOutput:    finalOutput,
+			SourceHistory:  buildSlackMemoryHistory(history, job, finalOutput, recordedAt, historyCap),
+			SessionContext: slackMemorySessionContext(job),
 		})
 		if memErr != nil {
 			if logger != nil {

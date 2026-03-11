@@ -449,9 +449,7 @@ func baseJournalEvent(eventID, runID string) MemoryEvent {
 				Protocol: "tg",
 			},
 		},
-		TaskText:          "hello",
-		FinalOutput:       "world",
-		DraftSummaryItems: []string{"short"},
-		DraftPromote:      PromoteDraft{},
+		TaskText:    "hello",
+		FinalOutput: "world",
 	}
 }

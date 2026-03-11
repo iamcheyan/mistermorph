@@ -316,8 +316,8 @@ Event includes fields needed for replay and audit, for example:
 - `participants` (array, multi-party aware, may be empty)
 - `task_text`
 - `final_output`
-- `draft_summary_items`
-- `draft_promote`
+- `source_history`
+- `session_context`
 
 The schema should evolve conservatively.
 
@@ -338,7 +338,7 @@ Example event:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "event_id": "evt_01JY7K9M7T3H2QZ6A9D5V4N8P1",
   "task_run_id": "run_01JY7K9B3W8F6M2N4C1R0T9X5Q",
   "ts_utc": "2026-02-28T06:15:12Z",
@@ -354,8 +354,8 @@ Example event:
   ],
   "task_text": "emmm",
   "final_output": "",
-  "draft_summary_items": [],
-  "draft_promote": {}
+  "source_history": [],
+  "session_context": {}
 }
 ```
 
@@ -430,7 +430,7 @@ Target organization uses `event.subject_id` as projection key:
 Projection outputs in one pass:
 
 - one short-memory file per touched `(day, subject_id)` bucket
-- optional long-term update (`memory/index.md`) when event contains `draft_promote`
+- optional long-term update (`memory/index.md`) when resolved draft contains `promote`
 
 When projecting one target file, summary merge uses all existing summary items in that file.
 

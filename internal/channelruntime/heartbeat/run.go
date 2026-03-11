@@ -76,7 +76,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(opts)
+	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(common, opts)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,9 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 			}},
 			TaskText:    task,
 			FinalOutput: summary,
-			Draft:       buildHeartbeatDraft(summary),
+			SessionContext: memory.SessionContext{
+				ConversationID: heartbeatMemorySubjectID,
+			},
 		}); memErr != nil && opts.Logger != nil {
 			opts.Logger.Warn("memory_record_error", "source", "heartbeat", "error", memErr.Error())
 		} else if opts.MemoryProjectionWorker != nil {
@@ -308,13 +310,24 @@ func cloneRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
-func newHeartbeatOrchestrator(opts runtimeLoopOptions) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+func newHeartbeatOrchestrator(common depsutil.CommonDependencies, opts runtimeLoopOptions) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	if !opts.MemoryEnabled {
 		return nil, nil, func() {}, nil
 	}
 	mgr := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
 	journal := mgr.NewJournal(memory.JournalOptions{})
-	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{})
+	draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
+		ResolveLLMRoute: common.ResolveLLMRoute,
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			return depsutil.CreateClientFromCommon(common, route)
+		},
+	})
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{
+		DraftResolver: draftResolver,
+	})
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
 		return nil, nil, func() {}, err

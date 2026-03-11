@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -26,11 +25,9 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
-	"github.com/quailyquaily/mistermorph/internal/retryutil"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
@@ -41,7 +38,6 @@ type runtimeTaskOptions struct {
 	ImageRecognitionEnabled bool
 	PlanCreateClient        llm.Client
 	PlanCreateModel         string
-	MemoryManager           *memory.Manager
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -203,12 +199,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 
 	publishText := shouldPublishTelegramText(final)
 	if shouldWriteMemory(publishText, runtimeOpts.MemoryOrchestrator, memSubjectID) {
-		if err := recordMemoryFromJob(ctx, logger, client, model, runtimeOpts.MemoryOrchestrator, runtimeOpts.MemoryManager, job, history, historyCap, final, requestTimeout); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				retryutil.AsyncRetry(logger, "memory_update", 2*time.Second, requestTimeout, func(retryCtx context.Context) error {
-					return recordMemoryFromJob(retryCtx, logger, client, model, runtimeOpts.MemoryOrchestrator, runtimeOpts.MemoryManager, job, history, historyCap, final, requestTimeout)
-				})
-			}
+		if err := recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final); err != nil {
 			logger.Warn("memory_update_error", "error", err.Error())
 		} else if runtimeOpts.MemoryProjectionWorker != nil {
 			runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
