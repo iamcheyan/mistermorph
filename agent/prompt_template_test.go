@@ -23,13 +23,13 @@ func TestBuildSystemPrompt_SkillItemsUseAuthProfilesWithoutRequirements(t *testi
 		},
 	})
 
-	if !strings.Contains(prompt, "AuthProfiles: jsonbill") {
+	if !strings.Contains(prompt, "auth_profiles: jsonbill") {
 		t.Fatalf("prompt missing auth profiles line: %s", prompt)
 	}
 	if strings.Contains(prompt, "Requirements:") {
 		t.Fatalf("prompt should not contain Requirements: %s", prompt)
 	}
-	if strings.Contains(prompt, "AuthProfiles: \n") {
+	if strings.Contains(prompt, "auth_profiles: \n") {
 		t.Fatalf("prompt should not emit empty AuthProfiles lines: %s", prompt)
 	}
 }

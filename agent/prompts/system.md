@@ -13,9 +13,9 @@
 
 example:
 ```
-- Name: `dummy_skill`
-  FilePath: `path/to/SKILL.md`
-  Description: Description of what the skill does.
+- name: `dummy_skill`
+  file_path: `path/to/SKILL.md`
+  description: Description of what the skill does.
 ```
 IF need to use dummy_skill THEN 
   call the `read_file` with `path/to/SKILL.md`
@@ -24,11 +24,11 @@ IF need to use dummy_skill THEN
 ENDIF
 
 {{- range .Skills}}
-- Name: `{{.Name}}`
-  FilePath: `{{.FilePath}}`
-  Description: {{.Description}}
+- name: `{{.Name}}`
+  file_path: `{{.FilePath}}`
+  description: {{.Description}}
 {{- if .AuthProfiles}}
-  AuthProfiles: {{range $i, $r := .AuthProfiles}}{{if $i}}, {{end}}{{$r}}{{end}}
+  auth_profiles: {{range $i, $r := .AuthProfiles}}{{if $i}}, {{end}}{{$r}}{{end}}
 {{- end}}
 {{- end}}
 {{- end}}
