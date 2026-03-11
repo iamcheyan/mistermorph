@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -42,8 +41,7 @@ func TestUsageClientRecordsRequestMetadata(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	ctx := WithMetadata(context.Background(), "run_test_1", "evt_test_1")
-	ctx = llminspect.WithModelScene(ctx, "agent.step")
-	_, err := client.Chat(ctx, llm.Request{Model: "gpt-5.2"})
+	_, err := client.Chat(ctx, llm.Request{Model: "gpt-5.2", Scene: "agent.step"})
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}

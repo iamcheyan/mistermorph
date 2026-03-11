@@ -76,10 +76,12 @@ type Result struct {
 
 type Request struct {
 	Model      string
+	Scene      string
 	Messages   []Message
 	Tools      []Tool
 	ForceJSON  bool
 	Parameters map[string]any
+	DebugFn    func(label, payload string)
 	OnStream   StreamHandler
 }
 

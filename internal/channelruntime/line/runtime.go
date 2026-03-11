@@ -148,9 +148,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
 	planModel := strings.TrimSpace(planRoute.ClientConfig.Model)
-	mainBaseClient := client
-	addressingBaseClient := addressingClient
-	planBaseClient := planClient
 	var requestInspector *llminspect.RequestInspector
 	if opts.InspectRequest {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
@@ -162,19 +159,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			return err
 		}
 		defer func() { _ = requestInspector.Close() }()
-		if err := llminspect.SetDebugHook(mainBaseClient, requestInspector.Dump); err != nil {
-			return fmt.Errorf("inspect-request requires uniai provider client")
-		}
-		if addressingBaseClient != mainBaseClient {
-			if err := llminspect.SetDebugHook(addressingBaseClient, requestInspector.Dump); err != nil {
-				return fmt.Errorf("inspect-request requires uniai provider client")
-			}
-		}
-		if planBaseClient != mainBaseClient && planBaseClient != addressingBaseClient {
-			if err := llminspect.SetDebugHook(planBaseClient, requestInspector.Dump); err != nil {
-				return fmt.Errorf("inspect-request requires uniai provider client")
-			}
-		}
 	}
 	var promptInspector *llminspect.PromptInspector
 	if opts.InspectPrompt {
@@ -187,20 +171,25 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			return err
 		}
 		defer func() { _ = promptInspector.Close() }()
-		client = &llminspect.PromptClient{Base: mainBaseClient, Inspector: promptInspector}
-		if addressingBaseClient == mainBaseClient {
-			addressingClient = client
-		} else {
-			addressingClient = &llminspect.PromptClient{Base: addressingBaseClient, Inspector: promptInspector}
-		}
-		if planBaseClient == mainBaseClient {
-			planClient = client
-		} else if planBaseClient == addressingBaseClient {
-			planClient = addressingClient
-		} else {
-			planClient = &llminspect.PromptClient{Base: planBaseClient, Inspector: promptInspector}
-		}
 	}
+	client = llminspect.WrapClient(client, llminspect.ClientOptions{
+		PromptInspector:  promptInspector,
+		RequestInspector: requestInspector,
+		APIBase:          mainRoute.ClientConfig.Endpoint,
+		Model:            model,
+	})
+	addressingClient = llminspect.WrapClient(addressingClient, llminspect.ClientOptions{
+		PromptInspector:  promptInspector,
+		RequestInspector: requestInspector,
+		APIBase:          addressingRoute.ClientConfig.Endpoint,
+		Model:            addressingModel,
+	})
+	planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
+		PromptInspector:  promptInspector,
+		RequestInspector: requestInspector,
+		APIBase:          planRoute.ClientConfig.Endpoint,
+		Model:            planModel,
+	})
 	reg := depsutil.RegistryFromCommon(d)
 	if reg == nil {
 		reg = tools.NewRegistry()

@@ -17,7 +17,7 @@ func TestBuildChatOptionsReplaceMessages(t *testing.T) {
 
 	opts := append(
 		[]uniaiapi.ChatOption{uniaiapi.WithMessages(uniaiapi.User("old"))},
-		buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil, nil, nil)...,
+		buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)...,
 	)
 
 	built, err := uniaichat.BuildRequest(opts...)
@@ -44,7 +44,7 @@ func TestBuildChatOptionsPreserveToolCallIDAsIs(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil, nil, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -70,7 +70,7 @@ func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil, nil, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -93,23 +93,24 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 	called := false
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		OnStream: func(ev llm.StreamEvent) error {
+			called = true
+			if ev.Delta != "abc" {
+				t.Fatalf("delta = %q, want abc", ev.Delta)
+			}
+			if ev.ToolCallDelta == nil || ev.ToolCallDelta.Name != "message_react" {
+				t.Fatalf("tool_call_delta = %#v", ev.ToolCallDelta)
+			}
+			if !ev.Done {
+				t.Fatalf("done = false, want true")
+			}
+			if ev.Usage == nil || ev.Usage.TotalTokens != 9 {
+				t.Fatalf("usage = %#v", ev.Usage)
+			}
+			return nil
+		},
 	}
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil, nil, func(ev llm.StreamEvent) error {
-		called = true
-		if ev.Delta != "abc" {
-			t.Fatalf("delta = %q, want abc", ev.Delta)
-		}
-		if ev.ToolCallDelta == nil || ev.ToolCallDelta.Name != "message_react" {
-			t.Fatalf("tool_call_delta = %#v", ev.ToolCallDelta)
-		}
-		if !ev.Done {
-			t.Fatalf("done = false, want true")
-		}
-		if ev.Usage == nil || ev.Usage.TotalTokens != 9 {
-			t.Fatalf("usage = %#v", ev.Usage)
-		}
-		return nil
-	})
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -140,11 +141,35 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsMapsDebugFn(t *testing.T) {
+	var gotLabel, gotPayload string
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		DebugFn: func(label, payload string) {
+			gotLabel = label
+			gotPayload = payload
+		},
+	}
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.DebugFn == nil {
+		t.Fatalf("expected debug callback")
+	}
+	built.Options.DebugFn("openai.chat.request", `{"messages":[]}`)
+	if gotLabel != "openai.chat.request" || gotPayload != `{"messages":[]}` {
+		t.Fatalf("debug callback mismatch: label=%q payload=%q", gotLabel, gotPayload)
+	}
+}
+
 func TestBuildChatOptionsDoesNotInjectTemperatureWhenUnset(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 	}
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil, nil, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -160,7 +185,7 @@ func TestBuildChatOptionsAppliesConfiguredDefaults(t *testing.T) {
 	}
 	temperature := 0.4
 	reasoningBudget := 8192
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "high", &reasoningBudget, nil, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "high", &reasoningBudget)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -182,7 +207,7 @@ func TestBuildChatOptionsRequestTemperatureOverridesConfiguredDefault(t *testing
 		Parameters: map[string]any{"temperature": 0.1},
 	}
 	temperature := 0.4
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "", nil, nil, nil)
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)

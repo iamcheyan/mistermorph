@@ -61,7 +61,6 @@ func runLarkTask(
 	runtimeOpts runtimeTaskOptions,
 ) (*agent.Final, *agent.Context, []string, error) {
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
-	ctx = llmstats.WithScene(ctx, "lark.loop")
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
@@ -117,6 +116,7 @@ func runLarkTask(
 	}
 	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
 		Model:          model,
+		Scene:          "lark.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,

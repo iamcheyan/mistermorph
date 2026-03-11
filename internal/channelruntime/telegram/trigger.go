@@ -11,7 +11,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/grouptrigger"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -168,9 +167,10 @@ func addressingDecisionViaLLM(
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
-	return grouptrigger.DecideViaLLM(llminspect.WithModelScene(ctx, "telegram.addressing_decision"), grouptrigger.LLMDecisionOptions{
+	return grouptrigger.DecideViaLLM(ctx, grouptrigger.LLMDecisionOptions{
 		Client:         client,
 		Model:          model,
+		Scene:          "telegram.addressing_decision",
 		SystemPrompt:   sys,
 		UserPrompt:     user,
 		AddressingTool: addressingTool,

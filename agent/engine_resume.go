@@ -71,6 +71,7 @@ func (e *Engine) Resume(ctx context.Context, approvalRequestID string) (*Final, 
 	return e.runLoop(ctx, &engineLoopState{
 		runID:               rs.RunID,
 		model:               rs.Model,
+		scene:               rs.Scene,
 		log:                 log,
 		messages:            rs.Messages,
 		agentCtx:            agentCtx,

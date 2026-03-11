@@ -51,7 +51,6 @@ type Client struct {
 	reasoningBudget    *int
 	toolsEmulationMode uniaiapi.ToolsEmulationMode
 	client             *uniaiapi.Client
-	debugFn            func(label, payload string)
 }
 
 func New(cfg Config) *Client {
@@ -113,16 +112,16 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		defer cancel()
 	}
 
-	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget, c.debugFn, req.OnStream)
+	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
-		c.emitChatError(err, req.ForceJSON, 1)
+		c.emitChatError(req.DebugFn, err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget, c.debugFn, req.OnStream)
+		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
-			c.emitChatError(err, false, 2)
+			c.emitChatError(req.DebugFn, err, false, 2)
 		}
 	}
 	if err != nil {
@@ -130,7 +129,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	}
 	if resp == nil {
 		err = fmt.Errorf("uniai: empty response")
-		c.emitChatError(err, req.ForceJSON, 0)
+		c.emitChatError(req.DebugFn, err, req.ForceJSON, 0)
 		return llm.Result{}, err
 	}
 
@@ -157,7 +156,7 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int, debugFn func(label, payload string), onStream llm.StreamHandler) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
@@ -244,10 +243,10 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 		}))
 	}
 
-	if debugFn != nil {
-		opts = append(opts, uniaiapi.WithDebugFn(debugFn))
+	if req.DebugFn != nil {
+		opts = append(opts, uniaiapi.WithDebugFn(req.DebugFn))
 	}
-	if onStream != nil {
+	if req.OnStream != nil {
 		opts = append(opts, uniaiapi.WithOnStream(func(ev uniaiapi.StreamEvent) error {
 			streamEvent := llm.StreamEvent{
 				Delta: ev.Delta,
@@ -268,7 +267,7 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 					TotalTokens:  ev.Usage.TotalTokens,
 				}
 			}
-			return onStream(streamEvent)
+			return req.OnStream(streamEvent)
 		}))
 	}
 
@@ -302,12 +301,8 @@ func normalizeToolsEmulationMode(mode string) uniaiapi.ToolsEmulationMode {
 	}
 }
 
-func (c *Client) SetDebugFn(fn func(label, payload string)) {
-	c.debugFn = fn
-}
-
-func (c *Client) emitChatError(err error, forceJSON bool, attempt int) {
-	if err == nil || c == nil || c.debugFn == nil {
+func (c *Client) emitChatError(debugFn func(label, payload string), err error, forceJSON bool, attempt int) {
+	if err == nil || c == nil || debugFn == nil {
 		return
 	}
 
@@ -330,10 +325,10 @@ func (c *Client) emitChatError(err error, forceJSON bool, attempt int) {
 
 	data, marshalErr := json.Marshal(payload)
 	if marshalErr != nil {
-		c.debugFn(label, err.Error())
+		debugFn(label, err.Error())
 		return
 	}
-	c.debugFn(label, string(data))
+	debugFn(label, string(data))
 }
 
 func toLLMToolCalls(calls []uniaiapi.ToolCall) []llm.ToolCall {

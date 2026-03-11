@@ -3,8 +3,6 @@ package llmstats
 import (
 	"context"
 	"strings"
-
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 )
 
 type runIDContextKey struct{}
@@ -60,8 +58,4 @@ func WithMetadata(ctx context.Context, runID string, originEventID string) conte
 	ctx = WithRunID(ctx, runID)
 	ctx = WithOriginEventID(ctx, originEventID)
 	return ctx
-}
-
-func WithScene(ctx context.Context, scene string) context.Context {
-	return llminspect.WithModelScene(ctx, scene)
 }

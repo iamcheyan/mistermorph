@@ -57,6 +57,13 @@ func requestContains(calls []llm.Request, callIndex int, needle string) bool {
 	return false
 }
 
+func requestScene(calls []llm.Request, callIndex int) string {
+	if callIndex < 0 || callIndex >= len(calls) {
+		return ""
+	}
+	return calls[callIndex].Scene
+}
+
 // --- mock tool ---
 
 type mockTool struct {
@@ -70,6 +77,24 @@ func (t *mockTool) Description() string     { return "mock tool" }
 func (t *mockTool) ParameterSchema() string { return "{}" }
 func (t *mockTool) Execute(_ context.Context, _ map[string]any) (string, error) {
 	return t.result, t.err
+}
+
+func TestRun_SetsRequestScene(t *testing.T) {
+	client := newMockClient(llm.Result{Text: `{"type":"final","output":"ok"}`})
+	e := New(client, tools.NewRegistry(), Config{}, DefaultPromptSpec())
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{Scene: "cli.loop"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	calls := client.allCalls()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	if requestScene(calls, 0) != "cli.loop" {
+		t.Fatalf("scene = %q, want %q", requestScene(calls, 0), "cli.loop")
+	}
 }
 
 type countingTool struct {

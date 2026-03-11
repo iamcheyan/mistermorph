@@ -12,6 +12,7 @@ type resumeStateV1 struct {
 
 	RunID string `json:"run_id"`
 	Model string `json:"model"`
+	Scene string `json:"scene,omitempty"`
 	Step  int    `json:"step"`
 
 	PlanRequired  bool `json:"plan_required"`

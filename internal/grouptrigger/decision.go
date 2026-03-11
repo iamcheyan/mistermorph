@@ -48,6 +48,7 @@ type DecideOptions struct {
 type LLMDecisionOptions struct {
 	Client         llm.Client
 	Model          string
+	Scene          string
 	SystemPrompt   string
 	UserPrompt     string
 	AddressingTool tools.Tool
@@ -182,6 +183,7 @@ func DecideViaLLM(ctx context.Context, opts LLMDecisionOptions) (Addressing, boo
 func runAddressingLLMWithoutTool(ctx context.Context, opts LLMDecisionOptions, messages []llm.Message) (addressingLLMOutput, error) {
 	res, err := opts.Client.Chat(ctx, llm.Request{
 		Model:     opts.Model,
+		Scene:     opts.Scene,
 		ForceJSON: true,
 		Messages:  messages,
 	})
@@ -205,6 +207,7 @@ func runAddressingLLMWithTool(
 	for round := 0; ; round++ {
 		res, err := opts.Client.Chat(ctx, llm.Request{
 			Model:     opts.Model,
+			Scene:     opts.Scene,
 			ForceJSON: true,
 			Messages:  messages,
 			Tools:     llmTools,

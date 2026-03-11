@@ -256,6 +256,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
 		Model: strings.TrimSpace(opts.Model),
+		Scene: "heartbeat.loop",
 		Meta:  opts.Meta,
 	})
 	if err != nil {

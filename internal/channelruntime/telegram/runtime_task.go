@@ -56,7 +56,6 @@ var encodeImageToWebP = defaultEncodeImageToWebP
 
 func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, filesEnabled bool, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
-	ctx = llmstats.WithScene(ctx, "telegram.loop")
 	if sendTelegramText == nil {
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
 	}
@@ -179,6 +178,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{
 		Model:          model,
+		Scene:          "telegram.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,

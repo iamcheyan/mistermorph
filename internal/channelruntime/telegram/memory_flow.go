@@ -12,7 +12,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -288,8 +287,9 @@ func BuildMemoryDraft(ctx context.Context, client llm.Client, model string, hist
 		return memory.SessionDraft{}, fmt.Errorf("render memory draft prompts: %w", err)
 	}
 
-	res, err := client.Chat(llminspect.WithModelScene(ctx, "memory.draft"), llm.Request{
+	res, err := client.Chat(ctx, llm.Request{
 		Model:     model,
+		Scene:     "memory.draft",
 		ForceJSON: true,
 		Messages: []llm.Message{
 			{Role: "system", Content: sys},

@@ -11,7 +11,6 @@ import (
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/grouptrigger"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -91,9 +90,10 @@ func larkAddressingDecisionViaLLM(
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
-	return grouptrigger.DecideViaLLM(llminspect.WithModelScene(ctx, "lark.addressing_decision"), grouptrigger.LLMDecisionOptions{
+	return grouptrigger.DecideViaLLM(ctx, grouptrigger.LLMDecisionOptions{
 		Client:       client,
 		Model:        model,
+		Scene:        "lark.addressing_decision",
 		SystemPrompt: systemPrompt,
 		UserPrompt:   userPrompt,
 	})

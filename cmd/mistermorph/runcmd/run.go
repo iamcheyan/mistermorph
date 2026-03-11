@@ -109,7 +109,6 @@ func New(deps Dependencies) *cobra.Command {
 			}
 			slog.SetDefault(logger)
 			client := llmstats.WrapRuntimeClient(baseClient, mainCfg.Provider, mainCfg.Endpoint, mainCfg.Model, logger)
-			mainClient := client
 
 			logOpts := logutil.LogOptionsFromViper()
 			var requestInspector *llminspect.RequestInspector
@@ -123,9 +122,6 @@ func New(deps Dependencies) *cobra.Command {
 					return err
 				}
 				defer func() { _ = requestInspector.Close() }()
-				if err := llminspect.SetDebugHook(mainClient, requestInspector.Dump); err != nil {
-					return fmt.Errorf("inspect-request requires uniai provider client")
-				}
 			}
 
 			if configutil.FlagOrViperBool(cmd, "inspect-prompt", "") {
@@ -136,8 +132,13 @@ func New(deps Dependencies) *cobra.Command {
 					return err
 				}
 				defer func() { _ = promptInspector.Close() }()
-				client = &llminspect.PromptClient{Base: mainClient, Inspector: promptInspector}
 			}
+			client = llminspect.WrapClient(client, llminspect.ClientOptions{
+				PromptInspector:  promptInspector,
+				RequestInspector: requestInspector,
+				APIBase:          mainCfg.Endpoint,
+				Model:            mainCfg.Model,
+			})
 
 			reg := (*tools.Registry)(nil)
 			if deps.RegistryFromViper != nil {
@@ -158,14 +159,12 @@ func New(deps Dependencies) *cobra.Command {
 					return err
 				}
 				planClient = llmstats.WrapRuntimeClient(planBaseClient, planRoute.ClientConfig.Provider, planRoute.ClientConfig.Endpoint, planRoute.ClientConfig.Model, logger)
-				if requestInspector != nil {
-					if err := llminspect.SetDebugHook(planClient, requestInspector.Dump); err != nil {
-						return fmt.Errorf("inspect-request requires uniai provider client")
-					}
-				}
-				if promptInspector != nil {
-					planClient = &llminspect.PromptClient{Base: planClient, Inspector: promptInspector}
-				}
+				planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
+					PromptInspector:  promptInspector,
+					RequestInspector: requestInspector,
+					APIBase:          planRoute.ClientConfig.Endpoint,
+					Model:            planRoute.ClientConfig.Model,
+				})
 			}
 			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
 			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
@@ -226,8 +225,11 @@ func New(deps Dependencies) *cobra.Command {
 
 			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
-			ctx = llmstats.WithScene(ctx, "cli.loop")
-			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: strings.TrimSpace(mainCfg.Model), Meta: runMeta})
+			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
+				Model: strings.TrimSpace(mainCfg.Model),
+				Scene: "cli.loop",
+				Meta:  runMeta,
+			})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {
 					return nil

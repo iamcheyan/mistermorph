@@ -11,7 +11,6 @@ import (
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/grouptrigger"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -101,9 +100,10 @@ func lineAddressingDecisionViaLLM(
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
-	return grouptrigger.DecideViaLLM(llminspect.WithModelScene(ctx, "line.addressing_decision"), grouptrigger.LLMDecisionOptions{
+	return grouptrigger.DecideViaLLM(ctx, grouptrigger.LLMDecisionOptions{
 		Client:       client,
 		Model:        model,
+		Scene:        "line.addressing_decision",
 		SystemPrompt: systemPrompt,
 		UserPrompt:   userPrompt,
 	})

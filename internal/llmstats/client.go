@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -84,7 +83,7 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		Provider:      c.Provider,
 		APIBase:       c.APIBase,
 		Model:         firstNonEmpty(strings.TrimSpace(req.Model), c.DefaultModel),
-		Scene:         llminspect.ModelSceneFromContext(ctx),
+		Scene:         strings.TrimSpace(req.Scene),
 		InputTokens:   int64(res.Usage.InputTokens),
 		OutputTokens:  int64(res.Usage.OutputTokens),
 		TotalTokens:   int64(res.Usage.TotalTokens),
@@ -100,17 +99,6 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		)
 	}
 	return res, nil
-}
-
-func (c *UsageClient) SetDebugFn(fn func(label, payload string)) {
-	if c == nil || c.Base == nil {
-		return
-	}
-	if setter, ok := c.Base.(interface {
-		SetDebugFn(func(label, payload string))
-	}); ok {
-		setter.SetDebugFn(fn)
-	}
 }
 
 func (c *UsageClient) Close() error {

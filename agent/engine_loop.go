@@ -17,6 +17,7 @@ import (
 type engineLoopState struct {
 	runID string
 	model string
+	scene string
 	log   *slog.Logger
 
 	messages        []llm.Message
@@ -91,6 +92,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 			log.Debug("llm_call_start", "step", step, "messages", len(st.messages))
 			result, err = e.client.Chat(ctx, llm.Request{
 				Model:      st.model,
+				Scene:      st.scene,
 				Messages:   st.messages,
 				Tools:      st.tools,
 				ForceJSON:  true,
@@ -443,7 +445,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		}
 	}
 
-	return e.forceConclusion(ctx, st.messages, st.model, st.agentCtx, st.extraParams, st.onStream, log)
+	return e.forceConclusion(ctx, st.messages, st.model, st.scene, st.agentCtx, st.extraParams, st.onStream, log)
 }
 
 func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, stepStart time.Time, remaining []ToolCall, assistantTextAdded bool) (string, error, *Final, bool) {
@@ -476,6 +478,7 @@ func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, 
 			rs := resumeStateV1{
 				RunID:         st.runID,
 				Model:         st.model,
+				Scene:         st.scene,
 				Step:          step,
 				PlanRequired:  st.planRequired,
 				ParseFailures: st.parseFailures,

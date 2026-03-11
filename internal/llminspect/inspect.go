@@ -32,9 +32,8 @@ type PromptInspector struct {
 	requestCount int
 }
 
-type modelSceneContextKey struct{}
-
-const defaultModelScene = "unknown"
+const defaultInspectValue = "unknown"
+const defaultModelScene = defaultInspectValue
 
 //go:embed tmpl/prompt.md
 var promptInspectorTemplateSource string
@@ -49,6 +48,8 @@ type promptInspectorHeaderView struct {
 
 type promptInspectorRequestView struct {
 	RequestNumber int
+	APIBase       string
+	Model         string
 	Scene         string
 	Messages      []promptInspectorMessageView
 }
@@ -61,6 +62,12 @@ type promptInspectorMessageView struct {
 	HasToolCalls  bool
 	ToolCalls     string
 	Content       string
+}
+
+type InspectMetadata struct {
+	APIBase string
+	Model   string
+	Scene   string
 }
 
 func NewPromptInspector(opts Options) (*PromptInspector, error) {
@@ -97,52 +104,21 @@ func (p *PromptInspector) Close() error {
 	return p.file.Close()
 }
 
-func WithModelScene(ctx context.Context, scene string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	scene = strings.TrimSpace(scene)
-	if scene == "" {
-		scene = defaultModelScene
-	}
-	return context.WithValue(ctx, modelSceneContextKey{}, scene)
-}
-
-func ModelSceneFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return defaultModelScene
-	}
-	if v := ctx.Value(modelSceneContextKey{}); v != nil {
-		if scene, ok := v.(string); ok {
-			scene = strings.TrimSpace(scene)
-			if scene != "" {
-				return scene
-			}
-		}
-	}
-	return defaultModelScene
-}
-
-func (p *PromptInspector) Dump(messages []llm.Message) error {
-	return p.DumpWithScene(defaultModelScene, messages)
-}
-
-func (p *PromptInspector) DumpWithScene(scene string, messages []llm.Message) error {
+func (p *PromptInspector) DumpWithMetadata(meta InspectMetadata, messages []llm.Message) error {
 	if p == nil || p.file == nil {
 		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	scene = strings.TrimSpace(scene)
-	if scene == "" {
-		scene = defaultModelScene
-	}
+	meta = normalizeInspectMetadata(meta)
 	p.requestCount++
 
 	view := promptInspectorRequestView{
 		RequestNumber: p.requestCount,
-		Scene:         scene,
+		APIBase:       meta.APIBase,
+		Model:         meta.Model,
+		Scene:         meta.Scene,
 		Messages:      make([]promptInspectorMessageView, 0, len(messages)),
 	}
 	for i, msg := range messages {
@@ -202,6 +178,14 @@ type RequestInspector struct {
 	count     int
 }
 
+type RequestEvent struct {
+	inspector     *RequestInspector
+	number        int
+	meta          InspectMetadata
+	itemCount     int
+	headerWritten bool
+}
+
 func NewRequestInspector(opts Options) (*RequestInspector, error) {
 	startedAt := time.Now()
 	dumpDir := strings.TrimSpace(opts.DumpDir)
@@ -236,17 +220,38 @@ func (r *RequestInspector) Close() error {
 	return r.file.Close()
 }
 
-func (r *RequestInspector) Dump(label, payload string) {
+func (r *RequestInspector) NewEvent(meta InspectMetadata) *RequestEvent {
 	if r == nil || r.file == nil {
-		return
+		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.count++
+	return &RequestEvent{
+		inspector: r,
+		number:    r.count,
+		meta:      normalizeInspectMetadata(meta),
+	}
+}
+
+func (e *RequestEvent) Dump(label, payload string) {
+	if e == nil || e.inspector == nil || e.inspector.file == nil {
+		return
+	}
+	e.inspector.mu.Lock()
+	defer e.inspector.mu.Unlock()
+
+	e.itemCount++
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n## Event #%d\n\n", r.count)
-	fmt.Fprintf(&b, "### %s\n\n", label)
+	if !e.headerWritten {
+		fmt.Fprintf(&b, "\n===[ Event #%d ]===========================\n", e.number)
+		fmt.Fprintf(&b, "api_base: %s\n", e.meta.APIBase)
+		fmt.Fprintf(&b, "model: %s\n", e.meta.Model)
+		fmt.Fprintf(&b, "scene: `%s`\n\n", e.meta.Scene)
+		e.headerWritten = true
+	}
+	fmt.Fprintf(&b, "---[ %s #%d-%d ]---------------------------\n", strings.TrimSpace(label), e.number, e.itemCount)
 	b.WriteString("```\n")
 	b.WriteString(payload)
 	if !strings.HasSuffix(payload, "\n") {
@@ -254,8 +259,8 @@ func (r *RequestInspector) Dump(label, payload string) {
 	}
 	b.WriteString("```\n\n")
 
-	_, _ = r.file.WriteString(b.String())
-	_ = r.file.Sync()
+	_, _ = e.inspector.file.WriteString(b.String())
+	_ = e.inspector.file.Sync()
 }
 
 func (r *RequestInspector) writeHeader() error {
@@ -271,32 +276,82 @@ func (r *RequestInspector) writeHeader() error {
 	return r.file.Sync()
 }
 
-type PromptClient struct {
-	Base      llm.Client
-	Inspector *PromptInspector
+type ClientOptions struct {
+	PromptInspector  *PromptInspector
+	RequestInspector *RequestInspector
+	APIBase          string
+	Model            string
 }
 
-func (c *PromptClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
+type Client struct {
+	Base             llm.Client
+	PromptInspector  *PromptInspector
+	RequestInspector *RequestInspector
+	APIBase          string
+	Model            string
+}
+
+func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
+	if base == nil {
+		return nil
+	}
+	if opts.PromptInspector == nil && opts.RequestInspector == nil {
+		return base
+	}
+	return &Client{
+		Base:             base,
+		PromptInspector:  opts.PromptInspector,
+		RequestInspector: opts.RequestInspector,
+		APIBase:          opts.APIBase,
+		Model:            opts.Model,
+	}
+}
+
+func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
 	if c == nil || c.Base == nil {
 		return llm.Result{}, fmt.Errorf("inspect client is not initialized")
 	}
-	if c.Inspector != nil {
-		if err := c.Inspector.DumpWithScene(ModelSceneFromContext(ctx), req.Messages); err != nil {
+	meta := InspectMetadata{
+		APIBase: c.APIBase,
+		Model:   firstNonEmpty(req.Model, c.Model),
+		Scene:   req.Scene,
+	}
+	if c.PromptInspector != nil {
+		if err := c.PromptInspector.DumpWithMetadata(meta, req.Messages); err != nil {
 			return llm.Result{}, err
+		}
+	}
+	if c.RequestInspector != nil {
+		if event := c.RequestInspector.NewEvent(meta); event != nil {
+			req.DebugFn = chainDebugFns(req.DebugFn, event.Dump)
 		}
 	}
 	return c.Base.Chat(ctx, req)
 }
 
-func SetDebugHook(client llm.Client, dumpFn func(label, payload string)) error {
-	setter, ok := client.(interface {
-		SetDebugFn(func(label, payload string))
-	})
-	if !ok {
-		return fmt.Errorf("client does not support debug hook")
+func normalizeInspectMetadata(meta InspectMetadata) InspectMetadata {
+	meta.APIBase = strings.TrimSpace(meta.APIBase)
+	if meta.APIBase == "" {
+		meta.APIBase = defaultInspectValue
 	}
-	setter.SetDebugFn(dumpFn)
-	return nil
+	meta.Model = strings.TrimSpace(meta.Model)
+	if meta.Model == "" {
+		meta.Model = defaultInspectValue
+	}
+	meta.Scene = strings.TrimSpace(meta.Scene)
+	if meta.Scene == "" {
+		meta.Scene = defaultModelScene
+	}
+	return meta
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, raw := range values {
+		if s := strings.TrimSpace(raw); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func buildFilename(kind string, mode string, t time.Time, tsFormat string) string {
@@ -309,4 +364,24 @@ func buildFilename(kind string, mode string, t time.Time, tsFormat string) strin
 		return fmt.Sprintf("%s_%s.md", kind, ts)
 	}
 	return fmt.Sprintf("%s_%s_%s.md", kind, mode, ts)
+}
+
+func chainDebugFns(fns ...func(label, payload string)) func(label, payload string) {
+	active := make([]func(label, payload string), 0, len(fns))
+	for _, fn := range fns {
+		if fn != nil {
+			active = append(active, fn)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	if len(active) == 1 {
+		return active[0]
+	}
+	return func(label, payload string) {
+		for _, fn := range active {
+			fn(label, payload)
+		}
+	}
 }

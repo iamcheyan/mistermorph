@@ -95,6 +95,7 @@ func TestDecideViaLLM_AllowsLightweightWithoutReactionTool(t *testing.T) {
 	got, ok, err := DecideViaLLM(context.Background(), LLMDecisionOptions{
 		Client:       client,
 		Model:        "gpt-5.2",
+		Scene:        "slack.addressing_decision",
 		SystemPrompt: "system",
 		UserPrompt:   "user",
 	})
@@ -112,6 +113,9 @@ func TestDecideViaLLM_AllowsLightweightWithoutReactionTool(t *testing.T) {
 	}
 	if len(client.calls[0].Tools) != 0 {
 		t.Fatalf("tools len = %d, want 0", len(client.calls[0].Tools))
+	}
+	if client.calls[0].Scene != "slack.addressing_decision" {
+		t.Fatalf("scene = %q, want %q", client.calls[0].Scene, "slack.addressing_decision")
 	}
 }
 

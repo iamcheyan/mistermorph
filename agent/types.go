@@ -107,6 +107,7 @@ type Step struct {
 
 type RunOptions struct {
 	Model   string
+	Scene   string
 	History []llm.Message
 	Meta    map[string]any
 	// CurrentMessage, when set, is appended as the final user turn after meta and history.

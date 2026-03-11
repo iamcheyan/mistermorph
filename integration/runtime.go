@@ -126,7 +126,6 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		return nil, err
 	}
 	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	mainClient := client
 	var requestInspector *llminspect.RequestInspector
 	var promptInspector *llminspect.PromptInspector
 	inspectCleanup := func() error {
@@ -153,10 +152,6 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		if err != nil {
 			return nil, err
 		}
-		if err := llminspect.SetDebugHook(mainClient, requestInspector.Dump); err != nil {
-			_ = inspectCleanup()
-			return nil, err
-		}
 	}
 	if rt.inspect.Prompt {
 		promptInspector, err = llminspect.NewPromptInspector(llminspect.Options{
@@ -169,8 +164,13 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			_ = inspectCleanup()
 			return nil, err
 		}
-		client = &llminspect.PromptClient{Base: mainClient, Inspector: promptInspector}
 	}
+	client = llminspect.WrapClient(client, llminspect.ClientOptions{
+		PromptInspector:  promptInspector,
+		RequestInspector: requestInspector,
+		APIBase:          mainRoute.ClientConfig.Endpoint,
+		Model:            model,
+	})
 
 	reg := cloneRegistry(baseReg)
 	if reg == nil {
@@ -192,15 +192,12 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			_ = inspectCleanup()
 			return nil, err
 		}
-		if requestInspector != nil {
-			if err := llminspect.SetDebugHook(planClient, requestInspector.Dump); err != nil {
-				_ = inspectCleanup()
-				return nil, err
-			}
-		}
-		if promptInspector != nil {
-			planClient = &llminspect.PromptClient{Base: planClient, Inspector: promptInspector}
-		}
+		planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
+			PromptInspector:  promptInspector,
+			RequestInspector: requestInspector,
+			APIBase:          planRoute.ClientConfig.Endpoint,
+			Model:            planRoute.ClientConfig.Model,
+		})
 	}
 	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
 	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{

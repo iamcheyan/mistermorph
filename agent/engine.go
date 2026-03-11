@@ -206,6 +206,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	return e.runLoop(ctx, &engineLoopState{
 		runID:           runID,
 		model:           model,
+		scene:           strings.TrimSpace(opts.Scene),
 		log:             log,
 		messages:        messages,
 		agentCtx:        agentCtx,

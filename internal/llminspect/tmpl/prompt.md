@@ -9,7 +9,9 @@ datetime: {{.Datetime}}
 {{define "request"}}
 
 ===[ Request #{{.RequestNumber}} ]===========================
-model_scene: `{{.Scene}}`
+api_base: {{.APIBase}}
+model: {{.Model}}
+scene: `{{.Scene}}`
 
 {{- range .Messages}}
 ---[ Message #{{$.RequestNumber}}-{{.Number}} ]---------------------------
