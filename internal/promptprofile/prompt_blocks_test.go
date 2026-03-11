@@ -1,10 +1,12 @@
 package promptprofile
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/tools"
 )
 
 func TestAppendSlackRuntimeBlocks_Group(t *testing.T) {
@@ -140,4 +142,44 @@ func TestAppendLarkRuntimeBlocks_Private(t *testing.T) {
 	if !strings.Contains(spec.Blocks[0].Content, "Send one coherent reply per inbound message; avoid fragmented follow-ups.") {
 		t.Fatalf("private policy text missing: %q", spec.Blocks[0].Content)
 	}
+}
+
+func TestAppendTodoWorkflowBlock_RequiresTodoUpdateTool(t *testing.T) {
+	spec := agent.PromptSpec{}
+	reg := tools.NewRegistry()
+
+	AppendTodoWorkflowBlock(&spec, reg)
+
+	if len(spec.Blocks) != 0 {
+		t.Fatalf("blocks len = %d, want 0", len(spec.Blocks))
+	}
+}
+
+func TestAppendTodoWorkflowBlock_IncludesPolicyWhenTodoUpdateToolExists(t *testing.T) {
+	spec := agent.PromptSpec{}
+	reg := tools.NewRegistry()
+	reg.Register(&testTool{name: "todo_update"})
+
+	AppendTodoWorkflowBlock(&spec, reg)
+
+	if len(spec.Blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "[[ TODO Workflow ]]") {
+		t.Fatalf("todo workflow heading missing: %q", spec.Blocks[0].Content)
+	}
+	if !strings.Contains(spec.Blocks[0].Content, "`todo_update`") {
+		t.Fatalf("todo workflow tool guidance missing: %q", spec.Blocks[0].Content)
+	}
+}
+
+type testTool struct {
+	name string
+}
+
+func (t *testTool) Name() string            { return t.name }
+func (t *testTool) Description() string     { return "" }
+func (t *testTool) ParameterSchema() string { return "{}" }
+func (t *testTool) Execute(context.Context, map[string]any) (string, error) {
+	return "", nil
 }

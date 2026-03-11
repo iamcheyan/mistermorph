@@ -32,4 +32,7 @@ func TestBuildSystemPrompt_SkillItemsUseAuthProfilesWithoutRequirements(t *testi
 	if strings.Contains(prompt, "auth_profiles: \n") {
 		t.Fatalf("prompt should not emit empty AuthProfiles lines: %s", prompt)
 	}
+	if strings.Contains(prompt, "[[ TODO Workflow ]]") {
+		t.Fatalf("prompt should not include todo workflow without an injected block: %s", prompt)
+	}
 }

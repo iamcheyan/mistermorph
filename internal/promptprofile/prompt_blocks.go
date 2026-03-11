@@ -17,6 +17,9 @@ import (
 //go:embed prompts/block_plan_create.md
 var planCreateBlockTemplateSource string
 
+//go:embed prompts/block_todo_workflow.md
+var todoWorkflowBlockTemplateSource string
+
 //go:embed prompts/block_local_tool_notes.md
 var localToolNotesBlockTemplateSource string
 
@@ -126,6 +129,19 @@ func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Regis
 		return
 	}
 	content := strings.TrimSpace(planCreateBlockTemplateSource)
+	if content == "" {
+		return
+	}
+	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+		Content: content,
+	})
+}
+
+func AppendTodoWorkflowBlock(spec *agent.PromptSpec, registry *tools.Registry) {
+	if _, ok := registry.Get("todo_update"); !ok {
+		return
+	}
+	content := strings.TrimSpace(todoWorkflowBlockTemplateSource)
 	if content == "" {
 		return
 	}

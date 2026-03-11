@@ -229,6 +229,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
 		snap, memErr := opts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
 			SubjectID:      heartbeatMemorySubjectID,

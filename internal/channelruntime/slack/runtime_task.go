@@ -94,6 +94,7 @@ func runSlackTask(
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendSlackRuntimeBlocks(&promptSpec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 
 	memSubjectID := slackMemorySubjectID(job)

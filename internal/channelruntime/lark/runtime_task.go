@@ -94,6 +94,7 @@ func runLarkTask(
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendLarkRuntimeBlocks(&promptSpec, isLarkGroupChat(job.ChatType))
 
 	engine := agent.New(

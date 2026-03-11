@@ -80,6 +80,7 @@ func runLineTask(
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendLineRuntimeBlocks(&promptSpec, isLineGroupChat(job.ChatType))
 
 	engine := agent.New(

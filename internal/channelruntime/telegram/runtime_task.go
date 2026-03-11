@@ -110,6 +110,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendTelegramRuntimeBlocks(&promptSpec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 
 	memSubjectID := telegramMemorySubjectID(job)

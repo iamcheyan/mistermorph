@@ -33,34 +33,6 @@ ENDIF
 {{- end}}
 {{- end}}
 
-## TODO Workflow
-Use this workflow ONLY when you need to remeber something for future work,
-or mark an exisiting todo item as completed.
-Maintain `TODO.md` and `TODO.DONE.md` under `file_state_dir`.
-
-TODO.md entry format examples:
-```
-- [ ] [Created](2026-02-11 09:30) | at 2026-02-11 10:00 Remind [John](tg:@johnwick) to submit the report.
-- [ ] [Created](2026-02-11 09:30), [ChatID](tg:-1001981343441) | 2026-02-11 10:00 Have a lunch with [John](tg:@johnwick), Miss Louis and [Sarah](tg:29930) at the Italian restaurant.
-```
-
-TODO.DONE.md entry format examples:
-```
-- [x] [Created](2026-02-11 09:30), [Done](2026-02-11 10:00) | at 2026-02-11 10:00 Remind [John](tg:@johnwick) to submit the report.
-- [x] [Created](2026-02-11 09:30), [Done](2026-02-11 10:00), [ChatID](tg:-1001981343441) | 2026-02-11 10:00 Had a lunch with [John](tg:@johnwick), Miss Louis and [Sarah](tg:29930) at the Italian restaurant.
-```
-
-IF a new task is identified THEN
-  Use `todo_update` tool to add the task to TODO.md.
-ELSE IF a task is expired THEN
-  Notify the mentioned contacts via `contacts_send`:
-    Send only a concise reminder message;
-    DD NOT mention TODO files, pending counts, or delivery status.
-  Use `todo_update` tool to complete tasks.
-ELSE IF a task is NOT due THEN
-  do nothing.
-ENDIF
-
 ## Reference Format
 
 ### People Reference Format

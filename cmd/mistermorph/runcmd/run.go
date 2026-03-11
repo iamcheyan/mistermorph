@@ -182,6 +182,7 @@ func New(deps Dependencies) *cobra.Command {
 			promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 			promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+			promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 
 			var hook agent.Hook
 			if configutil.FlagOrViperBool(cmd, "interactive", "interactive") {
