@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -36,6 +37,8 @@ type RunOptions struct {
 	MemoryShortTermDays     int
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
+	InspectPrompt           bool
+	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
 }
@@ -70,6 +73,16 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	if model == "" {
 		return fmt.Errorf("missing model")
 	}
+	inspectors, err := newHeartbeatInspectors(opts)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if inspectors != nil {
+			_ = inspectors.Close()
+		}
+	}()
+	client = inspectors.Wrap(client, route)
 
 	baseReg := depsutil.RegistryFromCommon(common)
 	if baseReg == nil {
@@ -78,7 +91,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(common, opts)
+	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(common, opts, inspectors.Wrap)
 	if err != nil {
 		return err
 	}
@@ -349,7 +362,83 @@ func cloneRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
-func newHeartbeatOrchestrator(common depsutil.CommonDependencies, opts runtimeLoopOptions) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+type heartbeatInspectors struct {
+	prompt  *llminspect.PromptInspector
+	request *llminspect.RequestInspector
+}
+
+func newHeartbeatInspectors(opts runtimeLoopOptions) (*heartbeatInspectors, error) {
+	out := &heartbeatInspectors{}
+	if opts.InspectRequest {
+		requestInspector, err := llminspect.NewRequestInspector(llminspect.Options{
+			Mode:            heartbeatInspectMode(opts.Source),
+			Task:            "heartbeat",
+			TimestampFormat: "20060102_150405",
+		})
+		if err != nil {
+			return nil, err
+		}
+		out.request = requestInspector
+	}
+	if opts.InspectPrompt {
+		promptInspector, err := llminspect.NewPromptInspector(llminspect.Options{
+			Mode:            heartbeatInspectMode(opts.Source),
+			Task:            "heartbeat",
+			TimestampFormat: "20060102_150405",
+		})
+		if err != nil {
+			_ = out.Close()
+			return nil, err
+		}
+		out.prompt = promptInspector
+	}
+	return out, nil
+}
+
+func (i *heartbeatInspectors) Wrap(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+	if i == nil {
+		return client
+	}
+	return llminspect.WrapClient(client, llminspect.ClientOptions{
+		PromptInspector:  i.prompt,
+		RequestInspector: i.request,
+		APIBase:          route.ClientConfig.Endpoint,
+		Model:            strings.TrimSpace(route.ClientConfig.Model),
+	})
+}
+
+func (i *heartbeatInspectors) Close() error {
+	if i == nil {
+		return nil
+	}
+	return errors.Join(closePromptInspector(i.prompt), closeRequestInspector(i.request))
+}
+
+func closePromptInspector(inspector *llminspect.PromptInspector) error {
+	if inspector == nil {
+		return nil
+	}
+	return inspector.Close()
+}
+
+func closeRequestInspector(inspector *llminspect.RequestInspector) error {
+	if inspector == nil {
+		return nil
+	}
+	return inspector.Close()
+}
+
+func heartbeatInspectMode(source string) string {
+	source = strings.ToLower(strings.TrimSpace(source))
+	switch source {
+	case "", "heartbeat":
+		return "heartbeat"
+	default:
+		return "heartbeat_" + source
+	}
+}
+
+func newHeartbeatOrchestrator(common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	if !opts.MemoryEnabled {
 		return nil, nil, func() {}, nil
 	}
@@ -360,6 +449,7 @@ func newHeartbeatOrchestrator(common depsutil.CommonDependencies, opts runtimeLo
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			return depsutil.CreateClientFromCommon(common, route)
 		},
+		DecorateClient: decorateClient,
 	})
 	if err != nil {
 		return nil, nil, func() {}, err

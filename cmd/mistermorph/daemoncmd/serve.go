@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -75,6 +76,36 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 				mainRoute.ClientConfig.Model,
 				logger,
 			)
+			var requestInspector *llminspect.RequestInspector
+			if configutil.FlagOrViperBool(cmd, "inspect-request", "") {
+				requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
+					Mode:            "daemon",
+					Task:            "serve",
+					TimestampFormat: "20060102_150405",
+				})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = requestInspector.Close() }()
+			}
+			var promptInspector *llminspect.PromptInspector
+			if configutil.FlagOrViperBool(cmd, "inspect-prompt", "") {
+				promptInspector, err = llminspect.NewPromptInspector(llminspect.Options{
+					Mode:            "daemon",
+					Task:            "serve",
+					TimestampFormat: "20060102_150405",
+				})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = promptInspector.Close() }()
+			}
+			client = llminspect.WrapClient(client, llminspect.ClientOptions{
+				PromptInspector:  promptInspector,
+				RequestInspector: requestInspector,
+				APIBase:          mainRoute.ClientConfig.Endpoint,
+				Model:            mainRoute.ClientConfig.Model,
+			})
 			mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
 			mainProvider := strings.TrimSpace(mainRoute.ClientConfig.Provider)
 			var reg *tools.Registry
@@ -96,6 +127,12 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					return err
 				}
 				planClient = llmstats.WrapRuntimeClient(planBaseClient, planRoute.ClientConfig.Provider, planRoute.ClientConfig.Endpoint, planRoute.ClientConfig.Model, logger)
+				planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
+					PromptInspector:  promptInspector,
+					RequestInspector: requestInspector,
+					APIBase:          planRoute.ClientConfig.Endpoint,
+					Model:            planRoute.ClientConfig.Model,
+				})
 			}
 			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
 			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
@@ -456,6 +493,8 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 	cmd.Flags().String("server-listen", "127.0.0.1:8787", "HTTP listen address (host:port).")
 	cmd.Flags().String("server-auth-token", "", "Bearer token required for all non-/health endpoints.")
 	cmd.Flags().Int("server-max-queue", 100, "Max queued tasks in memory.")
+	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_daemon_YYYYMMDD_HHmmss.md.")
+	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_daemon_YYYYMMDD_HHmmss.md.")
 
 	return cmd
 }

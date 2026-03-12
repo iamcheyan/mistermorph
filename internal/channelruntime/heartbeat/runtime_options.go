@@ -20,6 +20,8 @@ type runtimeLoopOptions struct {
 	MemoryShortTermDays     int
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
+	InspectPrompt           bool
+	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
 }
@@ -37,6 +39,8 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryShortTermDays:     opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		InspectPrompt:           opts.InspectPrompt,
+		InspectRequest:          opts.InspectRequest,
 		Notifier:                opts.Notifier,
 		PokeRequests:            opts.PokeRequests,
 	}

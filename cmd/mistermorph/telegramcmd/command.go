@@ -60,7 +60,7 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			}
 			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig)
 
-			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig)
+			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
 			return runTelegramWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
 		},
 	}
@@ -87,6 +87,8 @@ func buildHeartbeatRuntime(
 	allowedChatIDs []int64,
 	taskTimeout time.Duration,
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+	inspectPrompt bool,
+	inspectRequest bool,
 ) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
 	hbDeps := heartbeatruntime.Dependencies{
 		Logger:             d.Logger,
@@ -111,6 +113,8 @@ func buildHeartbeatRuntime(
 		MemoryShortTermDays:     telegramCfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  telegramCfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: telegramCfg.MemoryInjectionMaxItems,
+		InspectPrompt:           inspectPrompt,
+		InspectRequest:          inspectRequest,
 		Notifier:                newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
 	}
 	return hbDeps, hbOpts

@@ -54,7 +54,7 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
 			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig)
-			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig)
+			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
 			return runSlackWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
 		},
 	}
@@ -83,6 +83,8 @@ func buildHeartbeatRuntime(
 	taskTimeout time.Duration,
 	baseURL string,
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+	inspectPrompt bool,
+	inspectRequest bool,
 ) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
 	hbDeps := heartbeatruntime.Dependencies{
 		Logger:             d.Logger,
@@ -107,6 +109,8 @@ func buildHeartbeatRuntime(
 		MemoryShortTermDays:     slackCfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  slackCfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: slackCfg.MemoryInjectionMaxItems,
+		InspectPrompt:           inspectPrompt,
+		InspectRequest:          inspectRequest,
 		Notifier:                newSlackHeartbeatNotifier(botToken, baseURL, allowedChannelIDs),
 	}
 	return hbDeps, hbOpts

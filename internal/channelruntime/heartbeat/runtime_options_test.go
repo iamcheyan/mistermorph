@@ -26,3 +26,16 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 		t.Fatalf("checklist path should not be empty")
 	}
 }
+
+func TestResolveRuntimeLoopOptionsFromRunOptionsCarriesInspectFlags(t *testing.T) {
+	got := resolveRuntimeLoopOptionsFromRunOptions(RunOptions{
+		InspectPrompt:  true,
+		InspectRequest: true,
+	})
+	if !got.InspectPrompt {
+		t.Fatal("InspectPrompt = false, want true")
+	}
+	if !got.InspectRequest {
+		t.Fatal("InspectRequest = false, want true")
+	}
+}

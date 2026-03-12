@@ -8,7 +8,32 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 )
+
+func TestBuildHeartbeatRuntimePropagatesInspectFlags(t *testing.T) {
+	_, hbOpts := buildHeartbeatRuntime(
+		Dependencies{},
+		channelopts.SlackConfig{},
+		channelopts.HeartbeatConfig{Interval: time.Minute},
+		"xoxb-test",
+		nil,
+		2*time.Minute,
+		"",
+		toolsutil.RuntimeToolsRegisterConfig{},
+		true,
+		true,
+	)
+	if !hbOpts.InspectPrompt {
+		t.Fatal("InspectPrompt = false, want true")
+	}
+	if !hbOpts.InspectRequest {
+		t.Fatal("InspectRequest = false, want true")
+	}
+}
 
 func TestNewSlackHeartbeatNotifier(t *testing.T) {
 	t.Run("nil when no channel ids", func(t *testing.T) {
