@@ -687,81 +687,18 @@ func (api *telegramAPI) editMessageWithParseMode(ctx context.Context, chatID int
 }
 
 func (api *telegramAPI) sendDocument(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	filePath = strings.TrimSpace(filePath)
-	if filePath == "" {
-		return fmt.Errorf("missing file path")
-	}
+	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendDocument", "document", "file")
+}
 
-	f, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	st, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if st.IsDir() {
-		return fmt.Errorf("path is a directory: %s", filePath)
-	}
-
-	filename = strings.TrimSpace(filename)
-	if filename == "" {
-		filename = filepath.Base(filePath)
-	}
-	if filename == "" {
-		filename = "file"
-	}
-	caption = strings.TrimSpace(caption)
-
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	go func() {
-		defer pw.Close()
-		defer mw.Close()
-
-		_ = mw.WriteField("chat_id", strconv.FormatInt(chatID, 10))
-		if caption != "" {
-			_ = mw.WriteField("caption", caption)
-		}
-
-		part, err := mw.CreateFormFile("document", filename)
-		if err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-		if _, err := io.Copy(part, f); err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-	}()
-
-	url := fmt.Sprintf("%s/bot%s/sendDocument", api.baseURL, api.token)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-
-	resp, err := api.http.Do(req)
-	if err != nil {
-		return err
-	}
-	raw, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("telegram http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-	var ok telegramOKResponse
-	_ = json.Unmarshal(raw, &ok)
-	if !ok.OK {
-		return fmt.Errorf("telegram sendDocument: ok=false")
-	}
-	return nil
+func (api *telegramAPI) sendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendPhoto", "photo", "photo")
 }
 
 func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendVoice", "voice", "voice.ogg")
+}
+
+func (api *telegramAPI) sendMultipartFile(ctx context.Context, chatID int64, filePath string, filename string, caption string, method string, formField string, fallbackFilename string) error {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" {
 		return fmt.Errorf("missing file path")
@@ -786,7 +723,7 @@ func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath st
 		filename = filepath.Base(filePath)
 	}
 	if filename == "" {
-		filename = "voice.ogg"
+		filename = fallbackFilename
 	}
 	caption = strings.TrimSpace(caption)
 
@@ -801,7 +738,7 @@ func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath st
 			_ = mw.WriteField("caption", caption)
 		}
 
-		part, err := mw.CreateFormFile("voice", filename)
+		part, err := mw.CreateFormFile(formField, filename)
 		if err != nil {
 			_ = pw.CloseWithError(err)
 			return
@@ -812,7 +749,7 @@ func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath st
 		}
 	}()
 
-	url := fmt.Sprintf("%s/bot%s/sendVoice", api.baseURL, api.token)
+	url := fmt.Sprintf("%s/bot%s/%s", api.baseURL, api.token, method)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
 	if err != nil {
 		return err
@@ -831,7 +768,7 @@ func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath st
 	var ok telegramOKResponse
 	_ = json.Unmarshal(raw, &ok)
 	if !ok.OK {
-		return fmt.Errorf("telegram sendVoice: ok=false")
+		return fmt.Errorf("telegram %s: ok=false", method)
 	}
 	return nil
 }

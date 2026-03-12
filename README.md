@@ -133,7 +133,7 @@ mistermorph telegram --log-level info
 Notes:
 - Use `/id` to get the current chat id and add it to `allowed_chat_ids` for allowlisting.
 - In groups, the bot responds when you reply to it, or mention `@BotUsername`.
-- You can send a file; it will be downloaded under `file_cache_dir/telegram/` and the agent can process it. The agent can also send cached files back via `telegram_send_file`, and send voice messages via `telegram_send_voice` from local voice files in `file_cache_dir`.
+- You can send a file; it will be downloaded under `file_cache_dir/telegram/` and the agent can process it. The agent can also send cached files back via `telegram_send_file`, cached images via `telegram_send_photo`, and local voice files via `telegram_send_voice`.
 - The last loaded skill(s) stay “sticky” per chat (so follow-up messages won’t forget SKILL.md); `/reset` clears this.
 - `telegram.group_trigger_mode=smart` runs addressing LLM on every group message; acceptance requires `addressed=true`, `confidence >= telegram.addressing_confidence_threshold`, and `interject > telegram.addressing_interject_threshold`.
 - `telegram.group_trigger_mode=talkative` also runs addressing LLM on every group message, but does not require `addressed=true` (it still uses the same confidence/interject thresholds).
@@ -254,6 +254,7 @@ Core tools available to the agent:
 Channel runtime tools:
 
 - `telegram_send_file`: send a file in Telegram (Telegram only).
+- `telegram_send_photo`: send a photo in Telegram (Telegram only).
 - `telegram_send_voice`: send a voice message in Telegram (Telegram only).
 - `message_react`: add an emoji reaction to a message (Telegram/Slack runtime; channel-specific params).
 

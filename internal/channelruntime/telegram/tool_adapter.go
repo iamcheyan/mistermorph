@@ -25,6 +25,13 @@ func (a *telegramToolAPI) SendDocument(ctx context.Context, chatID int64, filePa
 	return a.api.sendDocument(ctx, chatID, filePath, filename, caption)
 }
 
+func (a *telegramToolAPI) SendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+	if a == nil || a.api == nil {
+		return fmt.Errorf("telegram api not available")
+	}
+	return a.api.sendPhoto(ctx, chatID, filePath, filename, caption)
+}
+
 func (a *telegramToolAPI) SendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
 	if a == nil || a.api == nil {
 		return fmt.Errorf("telegram api not available")

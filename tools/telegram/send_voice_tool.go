@@ -4,11 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type SendVoiceTool struct {
@@ -96,39 +93,9 @@ func (t *SendVoiceTool) Execute(ctx context.Context, params map[string]any) (str
 	if rawPath == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	rawPath = pathutil.NormalizeFileCacheDirPath(rawPath)
-
-	p := rawPath
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(cacheDir, p)
-	}
-	p = filepath.Clean(p)
-
-	cacheAbs, err := filepath.Abs(cacheDir)
+	pathAbs, err := resolveFileCachePath(cacheDir, rawPath, t.maxBytes)
 	if err != nil {
 		return "", err
-	}
-	pathAbs, err := filepath.Abs(p)
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(cacheAbs, pathAbs)
-	if err != nil {
-		return "", err
-	}
-	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
-		return "", fmt.Errorf("refusing to send file outside file_cache_dir: %s", pathAbs)
-	}
-
-	st, err := os.Stat(pathAbs)
-	if err != nil {
-		return "", err
-	}
-	if st.IsDir() {
-		return "", fmt.Errorf("path is a directory: %s", pathAbs)
-	}
-	if t.maxBytes > 0 && st.Size() > t.maxBytes {
-		return "", fmt.Errorf("file too large to send (>%d bytes): %s", t.maxBytes, pathAbs)
 	}
 
 	filename, _ := params["filename"].(string)

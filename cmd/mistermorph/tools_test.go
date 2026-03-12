@@ -27,6 +27,7 @@ func TestToolsCommand_IncludesRuntimeTools(t *testing.T) {
 		"read_file",
 		"plan_create",
 		"telegram_send_file",
+		"telegram_send_photo",
 		"telegram_send_voice",
 		"message_react",
 	}

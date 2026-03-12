@@ -11,7 +11,7 @@ This document describes the built-in and runtime-injected tool parameters curren
 - `runtime-dependent` tools:
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
-  - `telegram_send_voice`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
+  - `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
   - `message_react`: runtime-injected in Telegram and Slack runtimes; params/context differ by channel.
 
 ### 2) ASCII architecture
@@ -68,7 +68,7 @@ Flow notes:
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
   - `telegram`/`slack`/`line`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
-  - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_file`, `message_react`.
+  - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react`.
   - Slack task registry may add `message_react` when runtime context allows.
 - First-principles invariants:
   - correctness: task toolset matches chat/channel context.
@@ -303,6 +303,25 @@ Constraints:
 - `path` supports `file_cache_dir/<path>` alias form.
 - Only files under `file_cache_dir` can be sent; directories return errors.
 - File size is limited by tool cap (currently 20 MiB by default).
+
+## `telegram_send_photo`
+
+Purpose: send a local cached image to the current Telegram chat as an inline photo.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | Yes | None | Local image path. Supports absolute path or relative path under `file_cache_dir`. |
+| `caption` | `string` | No | Empty | Optional photo caption. |
+
+Constraints:
+
+- Available only in Telegram mode.
+- `path` supports `file_cache_dir/<path>` alias form.
+- Only files under `file_cache_dir` can be sent; directories return errors.
+- File size is limited by tool cap (currently 20 MiB by default).
+- This tool sends the image as an inline Telegram photo; use `telegram_send_file` when the user should receive it as a document.
 
 ## `telegram_send_voice`
 

@@ -118,7 +118,7 @@ mistermorph telegram --log-level info
 说明：
 - 使用 `/id` 获取当前 chat id，并把它加入 `allowed_chat_ids` 白名单。
 - 在群聊里，回复机器人消息或提及 `@BotUsername` 会触发响应。
-- 你可以发送文件；文件会下载到 `file_cache_dir/telegram/`，Agent 可以处理它。Agent 也能通过 `telegram_send_file` 回传缓存文件，还可以通过 `telegram_send_voice` 发送位于 `file_cache_dir` 的本地语音文件。
+- 你可以发送文件；文件会下载到 `file_cache_dir/telegram/`，Agent 可以处理它。Agent 也能通过 `telegram_send_file` 回传缓存文件，通过 `telegram_send_photo` 回传缓存图片，还可以通过 `telegram_send_voice` 发送位于 `file_cache_dir` 的本地语音文件。
 - 每个 chat 会保留最近一次加载的 skill（sticky），后续消息不会“忘记” `SKILL.md`；可用 `/reset` 清除。
 - `telegram.group_trigger_mode=smart` 会让每条群消息都进入 addressing LLM 判定；触发需满足 `addressed=true`，且 `confidence >= telegram.addressing_confidence_threshold`、`interject > telegram.addressing_interject_threshold`。
 - `telegram.group_trigger_mode=talkative` 也会让每条群消息进入 addressing LLM 判定，但不要求 `addressed=true`（仍受 confidence/interject 阈值控制）。
@@ -164,6 +164,7 @@ Agent 可用的核心工具：
 频道运行时工具：
 
 - `telegram_send_file`：在 Telegram 发送文件（仅 Telegram）。
+- `telegram_send_photo`：在 Telegram 发送图片（仅 Telegram）。
 - `telegram_send_voice`：在 Telegram 发送语音消息（仅 Telegram）。
 - `message_react`：在消息上添加 emoji reaction（Telegram/Slack 运行时，参数随频道不同）。
 

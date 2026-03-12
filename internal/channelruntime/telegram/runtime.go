@@ -471,7 +471,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 
 	fileCacheDir := strings.TrimSpace(opts.FileCacheDir)
-	const filesEnabled = true
 	const filesMaxBytes = int64(20 * 1024 * 1024)
 	if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
 		return fmt.Errorf("telegram file cache dir: %w", err)
@@ -687,7 +686,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 
 				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, d, logger, logOpts, client, reg, api, filesEnabled, fileCacheDir, filesMaxBytes, sharedGuard, cfg, allowed, job, botUser, model, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
+				final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, d, logger, logOpts, client, reg, api, fileCacheDir, filesMaxBytes, sharedGuard, cfg, allowed, job, botUser, model, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
 				cancel()
 
 				if runErr != nil {
@@ -1250,7 +1249,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}
 
 			var downloaded []telegramDownloadedFile
-			if filesEnabled && (messageHasDownloadableFile(msg) || (msg.ReplyTo != nil && messageHasDownloadableFile(msg.ReplyTo))) {
+			if messageHasDownloadableFile(msg) || (msg.ReplyTo != nil && messageHasDownloadableFile(msg.ReplyTo)) {
 				telegramCacheDir := filepath.Join(fileCacheDir, "telegram")
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				downloaded, err = downloadTelegramMessageFiles(ctx, api, telegramCacheDir, filesMaxBytes, msg, chatID)
@@ -1440,6 +1439,8 @@ func emojiForTelegramPlanStep(step string) string {
 		return "✍️"
 	case strings.Contains(lower, "_send_file"):
 		return "🗂️"
+	case strings.Contains(lower, "_send_photo"):
+		return "📷"
 	case strings.Contains(lower, "_send_voice"):
 		return "🎙️"
 	case strings.Contains(lower, "bash"):

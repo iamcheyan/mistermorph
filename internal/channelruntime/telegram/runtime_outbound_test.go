@@ -125,6 +125,7 @@ func TestEmojiForTelegramPlanStep(t *testing.T) {
 		{step: "read_file config", want: "📖"},
 		{step: "write_file result", want: "✍️"},
 		{step: "telegram_send_file something", want: "🗂️"},
+		{step: "telegram_send_photo something", want: "📷"},
 		{step: "telegram_send_voice something", want: "🎙️"},
 		{step: "run bash script", want: "🧑‍💻"},
 		{step: "todo_update next steps", want: "🗓️"},

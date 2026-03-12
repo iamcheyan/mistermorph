@@ -63,6 +63,10 @@ func runToolsCmd(cmd *cobra.Command, _ []string, registryFactory func() *tools.R
 		Description: "[telegram only] Sends a local file (under file_cache_dir) to the active chat.",
 	})
 	addToolPreview(telegramPreviews, toolPreview{
+		Name:        "telegram_send_photo",
+		Description: "[telegram only] Sends a local image (under file_cache_dir) to the active chat as an inline photo.",
+	})
+	addToolPreview(telegramPreviews, toolPreview{
 		Name:        "telegram_send_voice",
 		Description: "[telegram only] Sends a voice message from a local audio file under file_cache_dir.",
 	})
