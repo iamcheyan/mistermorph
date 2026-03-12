@@ -11,3 +11,5 @@ dump
 # Admin SPA dependencies
 web/console/node_modules/
 web/console/dist/
+
+dist/
