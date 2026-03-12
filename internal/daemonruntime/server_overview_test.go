@@ -102,7 +102,7 @@ func TestPokeRouteTriggersHeartbeatAndUpdatesOverview(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context) error {
+		Poke: func(context.Context, PokeInput) error {
 			calls++
 			return nil
 		},
@@ -150,7 +150,7 @@ func TestPokeRouteRequiresAuthAndPost(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context) error {
+		Poke: func(context.Context, PokeInput) error {
 			return nil
 		},
 	})
@@ -183,7 +183,7 @@ func TestPokeRouteReturnsConflictWhenHeartbeatAlreadyRunning(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context) error {
+		Poke: func(context.Context, PokeInput) error {
 			return ErrPokeBusy
 		},
 	})
@@ -212,5 +212,37 @@ func TestPokeRouteUnavailableWhenHeartbeatIsNotConfigured(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+}
+
+func TestPokeRoutePassesBodyPreviewToCallback(t *testing.T) {
+	mux := http.NewServeMux()
+	var got PokeInput
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "serve",
+		AuthToken: "token",
+		Poke: func(_ context.Context, input PokeInput) error {
+			got = input
+			return nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/poke", strings.NewReader("{\"reason\":\"ci failed\"}"))
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if !got.HasBody {
+		t.Fatalf("expected poke input to report body presence: %#v", got)
+	}
+	if got.ContentType != "application/json" {
+		t.Fatalf("content type = %q, want application/json", got.ContentType)
+	}
+	if got.BodyText != "{\"reason\":\"ci failed\"}" {
+		t.Fatalf("body text = %q, want JSON body", got.BodyText)
 	}
 }

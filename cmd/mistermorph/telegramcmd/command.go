@@ -12,6 +12,7 @@ import (
 	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
@@ -146,8 +147,8 @@ func runTelegramWithOptionalHeartbeat(
 	defer cancel()
 	pokeRequests := make(chan heartbeatruntime.PokeRequest)
 	hbOpts.PokeRequests = pokeRequests
-	telegramOpts.Server.Poke = func(ctx context.Context) error {
-		return heartbeatruntime.Trigger(ctx, pokeRequests)
+	telegramOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+		return heartbeatruntime.Trigger(ctx, pokeRequests, input)
 	}
 
 	errCh := make(chan error, 2)

@@ -8,16 +8,22 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
 
-type PokeRequest chan error
+type PokeRequest struct {
+	Input  daemonruntime.PokeInput
+	Result chan error
+}
 
-func Trigger(ctx context.Context, requests chan<- PokeRequest) error {
+func Trigger(ctx context.Context, requests chan<- PokeRequest, input daemonruntime.PokeInput) error {
 	if requests == nil {
 		return fmt.Errorf("heartbeat poke is unavailable")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	req := make(PokeRequest, 1)
+	req := PokeRequest{
+		Input:  input.Normalize(),
+		Result: make(chan error, 1),
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -26,7 +32,7 @@ func Trigger(ctx context.Context, requests chan<- PokeRequest) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case err := <-req:
+	case err := <-req.Result:
 		return err
 	}
 }

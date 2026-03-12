@@ -33,7 +33,7 @@ import (
 
 type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
-type PokeFunc func(ctx context.Context) error
+type PokeFunc func(ctx context.Context, input PokeInput) error
 
 var ErrPokeBusy = errors.New("poke already running")
 
@@ -196,11 +196,16 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		input, err := readPokeInput(r)
+		if err != nil {
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
+			return
+		}
 		if poke == nil {
 			http.Error(w, "poke unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := poke(r.Context()); err != nil {
+		if err := poke(r.Context(), input); err != nil {
 			if errors.Is(err, ErrPokeBusy) {
 				http.Error(w, "heartbeat already running", http.StatusConflict)
 				return

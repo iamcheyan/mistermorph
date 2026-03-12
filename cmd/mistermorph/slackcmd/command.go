@@ -12,6 +12,7 @@ import (
 	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -142,8 +143,8 @@ func runSlackWithOptionalHeartbeat(
 	defer cancel()
 	pokeRequests := make(chan heartbeatruntime.PokeRequest)
 	hbOpts.PokeRequests = pokeRequests
-	slackOpts.Server.Poke = func(ctx context.Context) error {
-		return heartbeatruntime.Trigger(ctx, pokeRequests)
+	slackOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+		return heartbeatruntime.Trigger(ctx, pokeRequests, input)
 	}
 
 	errCh := make(chan error, 2)

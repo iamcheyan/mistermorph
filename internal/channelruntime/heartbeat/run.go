@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -89,15 +90,19 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	state := &heartbeatutil.State{}
 	var wg sync.WaitGroup
 
-	runTaskAsync := func(task string, checklistEmpty bool) string {
+	runTaskAsync := func(task string, checklistEmpty bool, wakeSignal daemonruntime.PokeInput) string {
 		if ctx.Err() != nil {
 			return "context_canceled"
 		}
 		runAt := time.Now().UTC()
 		taskRunID := heartbeatTaskRunID(runAt)
-		meta := depsutil.BuildHeartbeatMetaFromDeps(d, opts.Source, opts.Interval, opts.ChecklistPath, checklistEmpty, map[string]any{
+		extra := map[string]any{
 			"task_run_id": taskRunID,
-		})
+		}
+		if pokeMeta := wakeSignal.MetaValue(); pokeMeta != nil {
+			extra["poke"] = pokeMeta
+		}
+		meta := depsutil.BuildHeartbeatMetaFromDeps(d, opts.Source, opts.Interval, opts.ChecklistPath, checklistEmpty, extra)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -114,6 +119,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				SharedGuard:             sharedGuard,
 				Config:                  cfg,
 				TaskTimeout:             opts.TaskTimeout,
+				WakeSignal:              wakeSignal,
 				MemoryOrchestrator:      orchestrator,
 				MemoryProjectionWorker:  projectionWorker,
 				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
@@ -139,13 +145,15 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return ""
 	}
 
-	runTick := func() heartbeatutil.TickResult {
+	runTick := func(wakeSignal daemonruntime.PokeInput) heartbeatutil.TickResult {
 		result := heartbeatutil.Tick(
 			state,
 			func() (string, bool, error) {
 				return depsutil.BuildHeartbeatTaskFromDeps(d, opts.ChecklistPath)
 			},
-			runTaskAsync,
+			func(task string, checklistEmpty bool) string {
+				return runTaskAsync(task, checklistEmpty, wakeSignal)
+			},
 		)
 		switch result.Outcome {
 		case heartbeatutil.TickBuildError:
@@ -162,12 +170,12 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}
 
 	handlePoke := func(req PokeRequest) {
-		err := ErrorFromTickResult(runTick())
-		if req == nil {
+		err := ErrorFromTickResult(runTick(req.Input))
+		if req.Result == nil {
 			return
 		}
 		select {
-		case req <- err:
+		case req.Result <- err:
 		default:
 		}
 	}
@@ -191,12 +199,12 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				handlePoke(req)
 				initialTriggered = true
 			case <-initialTimer.C:
-				runTick()
+				runTick(daemonruntime.PokeInput{})
 				initialTriggered = true
 			}
 		}
 	} else {
-		runTick()
+		runTick(daemonruntime.PokeInput{})
 	}
 
 	ticker := time.NewTicker(opts.Interval)
@@ -213,7 +221,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			}
 			handlePoke(req)
 		case <-ticker.C:
-			runTick()
+			runTick(daemonruntime.PokeInput{})
 		}
 	}
 }
@@ -230,6 +238,7 @@ type heartbeatTaskOptions struct {
 	SharedGuard             *guard.Guard
 	Config                  agent.Config
 	TaskTimeout             time.Duration
+	WakeSignal              daemonruntime.PokeInput
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 	MemoryInjectionEnabled  bool
@@ -263,6 +272,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+	promptprofile.AppendWakeSignalBlock(&promptSpec, opts.WakeSignal)
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
 		snap, memErr := opts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
 			SubjectID:      heartbeatMemorySubjectID,
