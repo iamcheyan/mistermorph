@@ -153,12 +153,16 @@ Guard approvals are asynchronous by design:
 - Approval state is stored in file state (`<file_state_dir>/<guard.dir_name>/approvals/guard_approvals.json` by default).
 - Approval expiry is **hard-coded to 5 minutes** in M1.
 
-Daemon (`mistermorph serve`) exposes minimal management endpoints (authenticated with `server.auth_token`):
+Long-running modes that start the embedded admin server (including `mistermorph serve`) expose minimal management endpoints authenticated with `server.auth_token`:
 
 - `GET /approvals/{id}` (status + metadata; never returns `resume_state`)
 - `POST /approvals/{id}/approve`
 - `POST /approvals/{id}/deny`
 - `POST /approvals/{id}/resume` (re-queues the paused task)
+- `POST /poke`
+  - triggers one heartbeat loop when heartbeat is enabled for that runtime
+  - returns `409 Conflict` if a heartbeat run is already in progress
+  - accepts any request body; the server keeps only a small textual preview and treats it as untrusted wake context for the heartbeat run
 
 Audit:
 

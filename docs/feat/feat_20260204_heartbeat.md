@@ -55,13 +55,14 @@ Defaults (no explicit config needed):
 - `checklist_path` defaults to `~/.morph/HEARTBEAT.md`.
 
 ### 2) Heartbeat Scheduler (Controller Layer)
-Implement a small scheduler in **daemon** and **telegram** entrypoints:
-- **Daemon** (`cmd/mistermorph/serve.go`): run a goroutine with `time.Ticker` that enqueues heartbeat runs into the task queue (respect `max_queue`).
-- **Telegram** (`cmd/mistermorph/telegram.go`): run a goroutine that triggers heartbeat runs and **sends alert-only** messages to the configured chat id.
+Implement a small scheduler in long-running runtimes:
+- **Daemon** (`cmd/mistermorph/daemoncmd/serve.go`): run a goroutine with `time.Ticker` that enqueues heartbeat runs into the task queue (respect `max_queue`).
+- **Telegram / Slack** (`cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`): run a heartbeat runtime alongside the channel runtime; alerts are delivered via the runtime notifier.
 
 Behavior:
 - If the agent is already saturated (e.g., queue full), skip with log.
 - If the previous heartbeat is still running, skip to avoid piling up.
+- The embedded admin server also exposes `POST /poke` as a manual wake trigger. It runs one heartbeat immediately when idle, and returns `409 Conflict` if a heartbeat is already in progress.
 
 ### 3) Heartbeat Task Contract
 Heartbeats are normal agent runs with **special metadata** and a strict response contract.
@@ -101,6 +102,7 @@ Heartbeats should rely on **lightweight, local inputs** supplied by the controll
 - Queue length (daemon) or per-chat backlog (telegram).
 - Guard approval backlog (pending approvals count).
 - Last tool error / LLM error (if recorded).
+- Optional wake payload preview from `POST /poke` (small textual preview only; untrusted context).
 
 This data should be **passed via meta** rather than retrieved via tools.
 
@@ -151,8 +153,16 @@ Behavior details:
 - Keep the checklist short; recommended max length: **100 lines**.
 - Prefer **self-resolving** actions. Avoid asking the user unless it is genuinely blocked.
 
+### 5) Manual Wake Endpoint
+
+- `POST /poke` is the manual wake endpoint.
+- It is authenticated with `server.auth_token`.
+- The request body is intentionally schema-free. The server keeps at most a small textual preview and, when available, injects it into the heartbeat prompt as a `[[ Wake Signal ]]` block.
+- The wake signal is treated as **untrusted context**, not as direct instructions.
+- If heartbeat is already running, the server returns `409 Conflict`; callers should retry later.
+
 ## Open Questions
-- Should the daemon export a `/heartbeat` HTTP endpoint for external monitors?
+- Should wake signals also be persisted into a dedicated audit stream beyond normal logs and heartbeat meta?
 
 ## TODO
 - [x] Add `heartbeat` config section + defaults in `assets/config/config.example.yaml` and `cmd/mistermorph/defaults.go` (enabled/interval/checklist_path with `~/.morph/HEARTBEAT.md` default).

@@ -204,22 +204,26 @@ Notes:
 ### 5.3 Heartbeat Runtime Path
 
 ```text
-heartbeat ticker (runtime scheduler)
+heartbeat ticker OR authenticated POST /poke
   -> heartbeatutil.Tick(state, buildTask, enqueueTask)
   -> BuildHeartbeatTask(HEARTBEAT.md)
-  -> enqueue heartbeat job (meta.trigger=heartbeat)
+  -> heartbeat meta envelope (trigger=heartbeat, optional poke payload preview)
   -> agent.Engine.Run (normal tools/skills enabled)
+  -> optional [[ Wake Signal ]] prompt block
   -> summary output (runtime-defined sink, e.g. logs/chat)
 ```
 
 Notes:
 
 - Heartbeat shares the same agent execution core; it differs mainly by scheduler path and metadata envelope.
+- `/poke` is a wake trigger, not a task submission API. Its body is not schema-validated; at most a small textual preview is forwarded as untrusted context.
+- If `/poke` arrives while heartbeat is already running, the admin server returns `409 Conflict` and the caller must retry.
 - Scheduler-side skip reasons include `already_running`, `worker_busy`, `worker_queue_full`, and `empty_task`.
 - Consecutive failures are tracked by `heartbeatutil.State`; alert escalation is emitted after threshold.
 - Code:
   - shared helpers: `internal/heartbeatutil/heartbeat.go`, `internal/heartbeatutil/scheduler.go`
-  - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/heartbeat/run.go`, `cmd/mistermorph/telegramcmd/command.go`
+  - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/heartbeat/run.go`, `cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`
+  - admin server surface: `internal/daemonruntime/server.go`, `internal/daemonruntime/poke.go`
 
 ### 5.4 Plan Creation and Progress Lifecycle
 
