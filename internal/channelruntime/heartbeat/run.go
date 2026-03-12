@@ -309,17 +309,13 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	summary := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 	if opts.MemoryOrchestrator != nil {
 		if _, memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-			TaskRunID: opts.TaskRunID,
-			SessionID: heartbeatMemorySessionID,
-			SubjectID: heartbeatMemorySubjectID,
-			Channel:   "heartbeat",
-			Participants: []memory.MemoryParticipant{{
-				ID:       "0",
-				Nickname: "agent",
-				Protocol: "",
-			}},
-			TaskText:    task,
-			FinalOutput: summary,
+			TaskRunID:    opts.TaskRunID,
+			SessionID:    heartbeatMemorySessionID,
+			SubjectID:    heartbeatMemorySubjectID,
+			Channel:      "heartbeat",
+			Participants: heartbeatMemoryParticipants(),
+			TaskText:     task,
+			FinalOutput:  summary,
 			SessionContext: memory.SessionContext{
 				ConversationID: heartbeatMemorySubjectID,
 			},
