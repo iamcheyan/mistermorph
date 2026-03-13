@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type runtimeLoopOptions struct {
@@ -17,6 +18,7 @@ type runtimeLoopOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	Server                        ServerOptions
 	Hooks                         Hooks
 	BaseURL                       string
@@ -42,6 +44,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
 		TaskTimeout:                   opts.TaskTimeout,
 		MaxConcurrency:                opts.MaxConcurrency,
+		FileCacheDir:                  strings.TrimSpace(opts.FileCacheDir),
 		Server: ServerOptions{
 			Listen:    strings.TrimSpace(opts.Server.Listen),
 			AuthToken: strings.TrimSpace(opts.Server.AuthToken),
@@ -69,6 +72,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.AllowedTeamIDs = normalizeRunStringSlice(opts.AllowedTeamIDs)
 	opts.AllowedChannelIDs = normalizeRunStringSlice(opts.AllowedChannelIDs)
 	opts.GroupTriggerMode = strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
+	opts.FileCacheDir = strings.TrimSpace(opts.FileCacheDir)
 	opts.Server.Listen = strings.TrimSpace(opts.Server.Listen)
 	opts.Server.AuthToken = strings.TrimSpace(opts.Server.AuthToken)
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
@@ -101,6 +105,10 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.BaseURL == "" {
 		opts.BaseURL = "https://slack.com/api"
 	}
+	if opts.FileCacheDir == "" {
+		opts.FileCacheDir = "~/.cache/morph"
+	}
+	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
 	if opts.Server.Listen == "" {
 		opts.Server.Listen = "127.0.0.1:8787"
 	}
