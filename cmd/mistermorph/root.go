@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -211,15 +211,16 @@ func initConfig() {
 		return
 	}
 
-	viper.SetConfigFile(cfgFile)
-	if err := viper.ReadInConfig(); err != nil {
-		if !explicit && isConfigNotFoundError(err) {
+	warnf := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
+	}
+	if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
+		if !explicit && os.IsNotExist(err) {
 			return
 		}
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 		return
 	}
-
 	expandConfiguredDirKey("file_state_dir")
 	expandConfiguredDirKey("file_cache_dir")
 }
@@ -237,14 +238,6 @@ func resolveConfigFile() (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func isConfigNotFoundError(err error) bool {
-	if os.IsNotExist(err) {
-		return true
-	}
-	var notFound viper.ConfigFileNotFoundError
-	return errors.As(err, &notFound)
 }
 
 func expandConfiguredDirKey(key string) {
