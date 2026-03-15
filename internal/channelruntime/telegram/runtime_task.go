@@ -18,9 +18,8 @@ import (
 
 	"github.com/nickalie/go-webpbin"
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -37,8 +36,6 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
-	PlanCreateClient        llm.Client
-	PlanCreateModel         string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -51,13 +48,17 @@ const (
 
 var encodeImageToWebP = defaultEncodeImageToWebP
 
-func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, sharedGuard *guard.Guard, cfg agent.Config, allowedIDs map[int64]bool, job telegramJob, botUsername string, model string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+	if rt == nil {
+		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
+	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
 	if sendTelegramText == nil {
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
 	}
+	logger := rt.Logger
 	task := job.Text
-	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, model, runtimeOpts.ImageRecognitionEnabled, logger)
+	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, rt.MainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -65,27 +66,9 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	if historyMsg != nil {
 		llmHistory = append(llmHistory, *historyMsg)
 	}
-	if baseReg == nil {
-		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
-	}
 
 	// Per-run registry.
-	reg := buildTelegramRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     model,
-		PlanCreateClient: runtimeOpts.PlanCreateClient,
-		PlanCreateModel:  runtimeOpts.PlanCreateModel,
-	})
-	toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
-		Channel:          "telegram",
-		ChatType:         job.ChatType,
-		ChatID:           job.ChatID,
-		SpeakerUserID:    job.FromUserID,
-		SpeakerUsername:  job.FromUsername,
-		MentionUsernames: append([]string(nil), job.MentionUsers...),
-		UserInputRaw:     job.Text,
-	})
+	reg := buildTelegramRegistry(rt.BaseRegistry, job.ChatType)
 	toolAPI := newTelegramToolAPI(api)
 	if api != nil {
 		reg.Register(telegramtools.NewSendVoiceTool(toolAPI, job.ChatID, fileCacheDir, filesMaxBytes, nil))
@@ -98,30 +81,28 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		reg.Register(reactTool)
 	}
 
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendTelegramRuntimeBlocks(&promptSpec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
-
 	memSubjectID := telegramMemorySubjectID(job)
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
-		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjectionWithAdapter(telegramMemoryInjectionAdapter{job: job}, runtimeOpts.MemoryInjectionMaxItems)
-		if memErr != nil {
-			if logger != nil {
-				logger.Warn("memory_injection_error", "source", "telegram", "subject_id", memSubjectID, "chat_id", job.ChatID, "error", memErr.Error())
+	memoryHooks := taskruntime.MemoryHooks{
+		Source:    "telegram",
+		SubjectID: memSubjectID,
+		LogFields: map[string]any{"chat_id": job.ChatID},
+	}
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
+		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
+		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
+		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
+			return runtimeOpts.MemoryOrchestrator.PrepareInjectionWithAdapter(telegramMemoryInjectionAdapter{job: job}, maxItems)
+		}
+		memoryHooks.ShouldRecord = func(final *agent.Final) bool {
+			return shouldWriteMemory(shouldPublishTelegramText(final), runtimeOpts.MemoryEnabled, runtimeOpts.MemoryOrchestrator, memSubjectID)
+		}
+		memoryHooks.Record = func(final *agent.Final, _ string) error {
+			return recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final)
+		}
+		memoryHooks.NotifyRecorded = func() {
+			if runtimeOpts.MemoryProjectionWorker != nil {
+				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
 			}
-		} else if strings.TrimSpace(snap) != "" {
-			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
-			if logger != nil {
-				logger.Info("memory_injection_applied", "source", "telegram", "subject_id", memSubjectID, "chat_id", job.ChatID, "snapshot_len", len(snap))
-			}
-		} else if logger != nil {
-			logger.Debug("memory_injection_skipped", "source", "telegram", "reason", "empty_snapshot", "subject_id", memSubjectID, "chat_id", job.ChatID)
 		}
 	}
 
@@ -129,7 +110,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 		if runCtx == nil || runCtx.Plan == nil {
 			return
 		}
-		msg, err := generateTelegramPlanProgressMessage(ctx, client, model, task, runCtx.Plan, update, requestTimeout)
+		msg, err := generateTelegramPlanProgressMessage(ctx, rt.MainClient, rt.MainModel, task, runCtx.Plan, update, requestTimeout)
 		if err != nil {
 			logger.Warn("telegram_plan_progress_error", "error", err.Error())
 			return
@@ -142,22 +123,8 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
-	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID, job.ChatType, model)
+	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID, job.ChatType, rt.MainModel)
 	streamHandler := streamPublisher.StreamHandler()
-
-	engineOpts := []agent.Option{
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithGuard(sharedGuard),
-		agent.WithPlanStepUpdate(planUpdateHook),
-	}
-	engine := agent.New(
-		client,
-		reg,
-		cfg,
-		promptSpec,
-		engineOpts...,
-	)
 	meta := job.Meta
 	if meta == nil {
 		meta = map[string]any{
@@ -172,16 +139,33 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	if botUsername != "" {
 		meta["telegram_bot_username"] = botUsername
 	}
-	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:          model,
+	result, err := rt.Run(ctx, taskruntime.RunRequest{
+		Task:           task,
+		Model:          rt.MainModel,
 		Scene:          "telegram.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,
 		OnStream:       streamHandler,
+		StickySkills:   stickySkills,
+		Registry:       reg,
+		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
+				Channel:          "telegram",
+				ChatType:         job.ChatType,
+				ChatID:           job.ChatID,
+				SpeakerUserID:    job.FromUserID,
+				SpeakerUsername:  job.FromUsername,
+				MentionUsernames: append([]string(nil), job.MentionUsers...),
+				UserInputRaw:     job.Text,
+			})
+			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
+		},
+		PlanStepUpdate: planUpdateHook,
+		Memory:         memoryHooks,
 	})
 	if err != nil {
-		return final, agentCtx, loadedSkills, nil, err
+		return result.Final, result.Context, result.LoadedSkills, nil, err
 	}
 
 	var reaction *telegramtools.Reaction
@@ -196,16 +180,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 			)
 		}
 	}
-
-	publishText := shouldPublishTelegramText(final)
-	if shouldWriteMemory(publishText, runtimeOpts.MemoryEnabled, runtimeOpts.MemoryOrchestrator, memSubjectID) {
-		if err := recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final); err != nil {
-			logger.Warn("memory_update_error", "error", err.Error())
-		} else if runtimeOpts.MemoryProjectionWorker != nil {
-			runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-		}
-	}
-	return final, agentCtx, loadedSkills, reaction, nil
+	return result.Final, result.Context, result.LoadedSkills, reaction, nil
 }
 
 func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {

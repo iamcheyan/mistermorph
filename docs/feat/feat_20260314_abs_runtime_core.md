@@ -1,10 +1,10 @@
 ---
 date: 2026-03-14
-title: Channel Agent Runtime Core Abstraction Plan
-status: proposed
+title: Channel Agent Runtime Core Abstraction Plan (V2)
+status: revised
 ---
 
-# Channel Agent Runtime Core Abstraction Plan
+# Channel Agent Runtime Core Abstraction Plan (V2)
 
 ## 1) Goal
 
@@ -24,6 +24,43 @@ This document is not about:
 - redesigning `agent.Engine`
 - changing public integration API surfaces
 
+## 1.1) V2 Clarification: What Was Actually Finished vs. What Was Not
+
+This V2 update exists because V1 could reasonably be misread as "runtime abstraction is already basically done."
+
+That is not the current reality.
+
+What was already extracted before V2:
+
+- low-level worker primitives in `internal/channelruntime/core`
+- memory orchestration primitives and hooks
+- `depsutil` for logger / route / client / prompt-spec dependency passing
+- bus abstractions and channel-specific transport adapters
+
+What was **not** actually extracted before V2:
+
+- one shared internal task-execution runtime that all channels call
+- one shared place that wires:
+  - main / plan / addressing clients
+  - runtime tools
+  - prompt spec + skills
+  - persona / local tool notes / todo workflow / memory prompt blocks
+  - guard
+  - MCP
+  - `agent.Engine` construction
+
+The main source of confusion was `integration.Runtime`:
+
+- it already looked like a shared task-execution runtime
+- `console` had even started delegating to it at one point
+- but `integration.Runtime` is an embedding-facing facade, not the intended internal runtime core
+- using it internally proved the common execution layer exists, but it did **not** mean the internal abstraction had been completed at the right boundary
+
+V2 therefore makes one distinction explicit:
+
+- `runtimecore` already exists, but it is only the lower-level orchestration primitive layer
+- the actual missing layer is a shared **task-execution runtime** above `runtimecore`
+
 ## 2) Current State (Code-Verified)
 
 The codebase already shares low-level primitives:
@@ -42,16 +79,18 @@ But execution is still duplicated per channel runtime:
 - each channel performs the same task lifecycle transitions (`queued -> running -> done/failed`)
 - each channel wires similar `run*Task` flow with per-channel prompt/runtime blocks
 - each channel decides memory injection/recording strategy itself
+- until V2, `console` also proved the gap from the other side: it temporarily reused `integration.Runtime` to get a shared execution stack, which showed the shared stack is real, but also showed it does not belong in `integration`
 
 Memory status today:
 
 - Slack/Telegram runtime loops construct memory orchestrator + projection worker and wire task-level injection/recording.
 - LINE/Lark already expose memory runtime options, but their `run*Task` paths are not yet wired to memory orchestrator calls.
 
-In short, current shape is:
+In short, current shape before V2 correction was:
 
 - multiple runtimes reusing common libraries
-- not multiple runtimes calling one runtime core
+- one embedding runtime facade (`integration.Runtime`) that partially overlaps with the missing internal runtime layer
+- not multiple runtimes calling one shared internal task runtime
 
 ## 3) Similarities and Differences
 
@@ -157,13 +196,13 @@ Reason:
                                Platform API
 ```
 
-## 5.1 Runtime Core Package
+## 5.1 Revised Package Split (V2)
 
-Add a new package:
+Keep the existing package:
 
 - `internal/channelruntime/core`
 
-Core owns:
+`runtimecore` owns:
 
 - per-conversation worker registry
 - versioned job execution gate
@@ -172,109 +211,101 @@ Core owns:
 - common error/outbound publish flow
 - common memory hook call points in the task lifecycle
 
-Core does not own:
+Add a new package above it:
+
+- `internal/channelruntime/taskruntime`
+
+`taskruntime` owns:
+
+- LLM route / client selection for runtime purposes
+- runtime tool registration
+- prompt-spec assembly with skills
+- prompt profile augmentation:
+  - persona identity
+  - local tool notes
+  - plan-create guidance
+  - todo workflow
+  - memory summaries
+  - channel/runtime-specific blocks when needed
+- guard injection
+- MCP tool wiring
+- `agent.Engine` construction
+- one canonical "run one task" path used by:
+  - console
+  - daemon submit path
+  - Slack / Telegram / LINE / Lark adapters
+
+`runtimecore` still does not own:
 
 - channel transport ingestion (webhook/polling/socket)
 - channel prompt policy details
 - channel-specific tool registration details
 - channel-specific memory identity and participant mapping policy
 
-## 5.2 Channel Adapter Contract (Minimal)
+`integration` stays outside this split:
 
-```go
-type InboundEnvelope struct {
-  ConversationKey string
-  TaskID          string
-  Text            string
-  SentAt          time.Time
-  Channel         string
-  Meta            map[string]any
-}
+- `integration.Runtime` becomes a consumer or thin facade over `taskruntime`
+- it is no longer treated as the internal abstraction target itself
 
-type TaskResult struct {
-  FinalText      string
-  LoadedSkills   []string
-  HistoryAppends []chathistory.ChatHistoryItem
-  Lightweight    bool
-}
+## 5.2 Concrete Boundary After V2
 
-type MemoryIntegration struct {
-  Enabled bool
-  Hooks   MemoryHooks
-}
+After the actual V2 extraction, the intended boundary is simpler than the earlier adapter-contract sketch.
 
-type MemoryHooks struct {
-  // Resolve channel-specific subject/session/participant context from inbound envelope and job.
-  BuildInjectionRequest func(env InboundEnvelope, job any, maxItems int) (memoryruntime.PrepareInjectionRequest, bool, error)
-  // Apply prepared memory snapshot into channel task input (usually prompt spec augmentation).
-  ApplyInjectionSnapshot func(job any, snapshot string) (any, error)
-  // Build channel-specific record request from run result and source history.
-  BuildRecordRequest func(env InboundEnvelope, job any, run TaskResult, sourceHistory []chathistory.ChatHistoryItem) (memoryruntime.RecordRequest, bool, error)
-}
+`taskruntime` owns only two things:
 
-type Adapter interface {
-  ParseInbound(msg busruntime.BusMessage) (InboundEnvelope, error)
-  ShouldAccept(ctx context.Context, env InboundEnvelope, history []chathistory.ChatHistoryItem) (bool, []chathistory.ChatHistoryItem, error)
-  BuildJob(env InboundEnvelope, version uint64) (any, error)
-  RunTask(ctx context.Context, job any, history []chathistory.ChatHistoryItem, stickySkills []string) (TaskResult, error)
-  PublishOutbound(ctx context.Context, env InboundEnvelope, text string, kind string) error
-  TaskInfoQueued(env InboundEnvelope, model string, timeout time.Duration) daemonruntime.TaskInfo
-  MemoryIntegration() MemoryIntegration
-}
-```
+1. bootstrap of shared execution dependencies
+   - logger / log options
+   - main-loop route + client
+   - plan-create route + client
+   - shared base registry
+   - shared guard
+2. run-one-task execution wiring
+   - runtime tool registration
+   - prompt spec loading with sticky skills
+   - shared prompt blocks
+   - optional channel prompt augmentation callback
+   - `agent.Engine` construction
+   - optional memory injection / record callbacks
+   - optional plan-progress / stream callbacks
 
-Notes:
+Everything else stays outside `taskruntime`:
 
-- `ShouldAccept` covers group-trigger decision and optional ignored-message history append in one place.
-- `RunTask` remains channel-owned and can keep current `run*Task` implementation first.
-- `HistoryAppends` allows channel-specific history events (reaction notes, agent output, etc.) without core knowing channel semantics.
-- memory is a first-class adapter contract; all channels implement memory hooks when memory is enabled.
+- inbound transport and event parsing
+- addressing / group-trigger decisions
+- per-channel `job` structs
+- worker lifecycle and versioning
+- history storage and trimming
+- outbound publish semantics
+- reaction / attachment / image-download behavior
+- channel-specific memory identity derivation
 
-## 5.3 Core Loop Responsibility Split
+The key simplification rule is:
 
-Core-level algorithm:
+- do not define a universal channel adapter framework unless runtimecore migration later proves it is actually needed
+- do not force all channels through one common `InboundEnvelope` / `Adapter` interface up front
+- keep the shared layer at "run one task" and nothing more
 
-1. parse inbound envelope
-2. fetch/create worker by `ConversationKey`
-3. snapshot history + sticky skills + worker version
-4. call adapter `ShouldAccept(...)`
-5. enqueue typed job
-6. on worker execution:
-   - run pre-run memory hook and apply injection snapshot (when memory enabled)
-   - mark running
-   - call adapter `RunTask(...)` with timeout
-   - on error: fail task + publish error via adapter
-   - on success: run post-run memory hook and record memory event (when memory enabled)
-   - on success: publish output via adapter (if any)
-   - apply history appends + sticky skills updates
-   - mark done
+## 5.3 Current Concrete Shape
 
-Adapter-level algorithm:
+The concrete shape after this extraction is:
 
-- convert channel bus message to envelope/job
-- perform group trigger, image download, mention handling, etc.
-- construct prompt/runtime tool specifics
-- map channel identity to memory subject/session/participants
-- create outbound publish semantics for that channel
+- `runtimecore`
+  - conversation worker queue
+  - task lifecycle/status bookkeeping
+  - shared memory runtime bootstrap helpers
+- `taskruntime`
+  - shared task execution wiring
+- channel packages
+  - transport + inbound parsing
+  - addressing / group policy
+  - channel-specific registry additions
+  - channel-specific prompt blocks
+  - channel-specific memory identity and record details
+  - outbound send / reaction behavior
 
-## 6) Data Model Choices
+This is intentionally less ambitious than a full adapter framework.
 
-## Keep canonical key in core as string
-
-- core only sees `ConversationKey string`
-- adapters convert native ids:
-  - Telegram `int64 chat_id` <-> `tg:<chat_id>`
-  - Slack thread-scoped history key handled in adapter history appends/policy
-  - LINE/Lark already string-based
-
-## Keep history store in core, but key strategy adapter-controlled
-
-- core provides map and trimming behavior
-- adapter provides:
-  - history scope key for write/read
-  - history cap by mode/policy
-
-This preserves Slack thread-specific behavior without leaking thread semantics into core.
+## 6) Data and Memory Constraints
 
 ## 6.1 Cross-Channel Memory Event Contract
 
@@ -300,18 +331,96 @@ Channel adapters are responsible for deriving these fields from native channel i
 
 ## 7) Migration Plan (Incremental)
 
-## Phase 1: Extract shared worker/lifecycle kernel
+## Phase 0: Correct boundary assumptions (V2)
 
-- implement `core.Runtime` with generic conversation worker + queue + task state updates
-- keep each channel `run*Task` unchanged
-- adapt one channel first (recommend LINE or Lark for lower feature complexity)
+- document explicitly that `runtimecore` is not the full abstraction target
+- stop using `integration.Runtime` as the implicit internal core for console
+- align console task execution wiring with Slack/Telegram-style internal runtime wiring first
+
+Acceptance:
+
+- no internal runtime path depends on `integration.Runtime` as its execution core
+- document clearly states which layer already exists and which layer is still missing
+
+## Phase 1: Extract shared task-execution runtime above `runtimecore`
+
+- implement `internal/channelruntime/taskruntime`
+- move shared single-task execution wiring there
+- keep channel transport / adapter code untouched
+- keep `run*Task` behavior equivalent during the move
+
+Acceptance:
+
+- console and daemon can call the new shared task-execution layer
+- no prompt/tool/guard/MCP behavior drift
+
+## 7.1 Phase 1 Work Breakdown (Execution Plan)
+
+The implementation order for Phase 1 should be explicit and narrow:
+
+1. Add `internal/channelruntime/taskruntime` bootstrap layer
+   - own logger / log-options capture from `depsutil.CommonDependencies`
+   - own main-loop and plan-create route resolution
+   - own main client / plan client construction
+   - own shared base registry lookup
+   - own shared guard lookup
+   - expose stable runtime struct fields needed by adapters:
+     - main route / client / model
+     - plan route / client / model
+     - logger / log options
+     - agent config
+     - base registry / shared guard
+2. Add shared per-task execution entrypoint
+   - clone or accept adapter-prepared registry
+   - register runtime tools in one place
+   - build prompt spec with sticky skills
+   - always apply shared prompt augmentations in one place:
+     - persona identity
+     - local tool notes
+     - plan-create guidance
+     - todo workflow
+   - allow adapter-owned hooks for:
+     - channel prompt blocks
+     - plan progress callbacks
+     - stream callbacks
+     - memory injection / record callbacks
+     - per-run meta / scene / current-message inputs
+3. Migrate `console` first
+   - replace local duplicated main/plan client wiring with `taskruntime`
+   - replace local duplicated agent/prompt/runtime-tool execution path with shared per-task execution entrypoint
+   - keep console-specific registry bootstrap, MCP bootstrap, and runtime API adapter unchanged
+4. Migrate LINE and Lark second
+   - move their `run*Task` shared execution flow onto `taskruntime`
+   - keep image/history builders and memory identity helpers adapter-owned
+5. Migrate Slack and Telegram last
+   - preserve reaction tools, plan-progress hooks, lightweight publish policy, and stream handling
+   - only move shared execution wiring; do not absorb Slack thread policy or Telegram media handling into `taskruntime`
+6. Add focused regression tests
+   - bootstrap route/client reuse behavior
+   - prompt augmentation ordering
+   - memory injection / record hook execution
+   - console task execution path
+   - one migrated channel sanity test per channel family
+
+Acceptance for the work breakdown:
+
+- no internal runtime path constructs prompt/tool/guard wiring ad hoc once migrated
+- channel `run*Task` wrappers become adapter-focused and materially smaller
+- `console` no longer carries a private copy of task execution wiring
+- `integration.Runtime` remains untouched in this phase unless needed as a thin consumer later
+
+## Phase 2: Keep shared worker/lifecycle kernel in `runtimecore`
+
+- keep `runtimecore` as the conversation worker + queue + task state layer
+- keep each channel `run*Task` unchanged at first
+- migrate one simpler channel adapter first (recommend LINE or Lark)
 
 Acceptance:
 
 - functional behavior unchanged for migrated channel
 - no prompt/tool behavior drift
 
-## Phase 2: Move shared history/sticky-skills handling into core
+## Phase 3: Move shared history/sticky-skills handling into `runtimecore`
 
 - unify reset/version invalidation behavior
 - unify history append ordering contract
@@ -321,7 +430,7 @@ Acceptance:
 
 - history snapshots and post-run history are equivalent to pre-migration behavior
 
-## Phase 3: Migrate all channels to core execution path
+## Phase 4: Migrate all channels to `taskruntime` + `runtimecore`
 
 - migrate LINE and Lark first (simpler channel behavior)
 - migrate Slack and Telegram second (thread/reaction/stream complexity)
@@ -333,7 +442,7 @@ Acceptance:
 - `go test ./internal/channelruntime/...` remains green
 - regression checks for group trigger and outbound reply paths pass
 
-## Phase 4: Cross-channel memory integration (required)
+## Phase 5: Cross-channel memory integration (required)
 
 - add core memory hook call points:
   - pre-run memory injection
@@ -349,7 +458,7 @@ Acceptance:
 - LINE/Lark memory injection and recording work under `memory.enabled=true`
 - all 4 channels honor `memory.injection.enabled` and `memory.injection.max_items` consistently
 
-## Phase 5: Integration hardening
+## Phase 6: Integration hardening
 
 - add cross-channel integration tests for memory-enabled runtime flows
 - validate memory event/projector compatibility and no schema drift
@@ -373,7 +482,8 @@ Acceptance:
 
 - Runtime core extraction must be internal-only refactor at first.
 - Existing integration entrypoints and behavior contract remain stable.
-- Any required integration API expansion must be additive and backward compatible, and is out of scope for this plan.
+- If `integration.Runtime` is later reimplemented on top of `taskruntime`, this remains an internal compatibility-preserving refactor.
+- Any outward integration API expansion must be additive and backward compatible, and is out of scope for this plan.
 
 ## 8.2 Console Runtime Positioning (Agreed)
 
@@ -397,7 +507,7 @@ The console runtime is positioned as a first-class channel adapter with its own 
    - Keep backward compatibility by allowing fallback from `<channel>.serve_listen` to existing `server.listen` during migration.
    - Console was later simplified again to use an in-process local runtime transport, so it no longer needs a dedicated `console.serve_listen`.
 5. Core lifecycle:
-   - Console inbound submit must follow the same adapter->core->run->lifecycle flow as other channels.
+   - Console inbound submit must follow the same adapter->taskruntime->runtimecore->run->lifecycle flow as other channels.
 6. Memory identity:
    - Console memory `subject_id` / `session_id` must use `console:*` convention.
 7. Compatibility meaning (clarified):
@@ -405,6 +515,15 @@ The console runtime is positioned as a first-class channel adapter with its own 
    - Any API/config changes required by this repositioning should be additive first, with clear fallback and deprecation path.
 8. Verification:
    - Add parity and integration tests for console runtime against the shared runtime API contract and auth boundaries.
+
+## 8.3 Console Status After V2 Clarification
+
+- Console is no longer treated as evidence that abstraction is already finished just because it once used `integration.Runtime`.
+- The correct reading is:
+  - Console had temporarily crossed a package boundary to reuse a shared execution facade.
+  - That proved the missing shared layer was real.
+  - It did not prove the internal runtime abstraction had already been completed.
+- In V2, console should first be aligned with channel-internal wiring, then migrated onto `taskruntime` once that layer exists.
 
 ## 9) Risks and Mitigations
 
@@ -420,14 +539,16 @@ The console runtime is positioned as a first-class channel adapter with its own 
 ## 10) Recommendation
 
 - Proceed with extraction.
-- Start from the minimum core that removes duplicated orchestration only.
+- Treat V1 as "primitives extracted, core runtime not finished" rather than "abstraction complete."
+- Build the missing shared task-execution layer above `runtimecore`, not inside `integration`.
 - Keep `run*Task` logic channel-owned in first iteration.
 - Expand shared surface only after proving no behavior regressions.
 
 This is the smallest path from:
 
 - "shared low-level libs"
+- "one embedding-facing runtime facade that partially overlaps"
 
 to:
 
-- "channel runtimes calling one runtime core."
+- "channel runtimes calling one internal taskruntime + runtimecore stack."

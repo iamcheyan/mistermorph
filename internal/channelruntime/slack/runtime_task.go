@@ -3,15 +3,13 @@ package slack
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -28,23 +26,14 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
-	PlanCreateClient        llm.Client
-	PlanCreateModel         string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
 
 func runSlackTask(
 	ctx context.Context,
-	d Dependencies,
-	logger *slog.Logger,
-	logOpts agent.LogOptions,
-	client llm.Client,
-	baseReg *tools.Registry,
+	rt *taskruntime.Runtime,
 	api *slackAPI,
-	sharedGuard *guard.Guard,
-	cfg agent.Config,
-	model string,
 	job slackJob,
 	history []chathistory.ChatHistoryItem,
 	historyCap int,
@@ -55,7 +44,11 @@ func runSlackTask(
 	runtimeOpts runtimeTaskOptions,
 	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
+	if rt == nil {
+		return nil, nil, nil, nil, fmt.Errorf("slack task runtime is nil")
+	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
@@ -69,17 +62,7 @@ func runSlackTask(
 		llmHistory = append(llmHistory, *historyMsg)
 	}
 
-	if baseReg == nil {
-		return nil, nil, nil, nil, fmt.Errorf("base registry is nil")
-	}
-	reg := buildSlackRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     model,
-		PlanCreateClient: runtimeOpts.PlanCreateClient,
-		PlanCreateModel:  runtimeOpts.PlanCreateModel,
-	})
-	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
+	reg := buildSlackRegistry(rt.BaseRegistry, job.ChatType)
 	toolAPI := newSlackToolAPI(api)
 	if api != nil && strings.TrimSpace(job.ChannelID) != "" {
 		reg.Register(slacktools.NewSendFileTool(toolAPI, job.ChannelID, job.ThreadTS, allowedChannelIDs, fileCacheDir, 0))
@@ -92,65 +75,60 @@ func runSlackTask(
 		reg.Register(reactTool)
 	}
 
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendSlackRuntimeBlocks(&promptSpec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
-
 	memSubjectID := slackMemorySubjectID(job)
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
-		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      memSubjectID,
-			RequestContext: slackMemoryRequestContext(job.ChatType),
-			MaxItems:       runtimeOpts.MemoryInjectionMaxItems,
-		})
-		if memErr != nil {
-			if logger != nil {
-				logger.Warn("memory_injection_error", "source", "slack", "subject_id", memSubjectID, "error", memErr.Error())
-			}
-		} else if strings.TrimSpace(snap) != "" {
-			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
-			if logger != nil {
-				logger.Info("memory_injection_applied", "source", "slack", "subject_id", memSubjectID, "channel_id", job.ChannelID, "snapshot_len", len(snap))
+	memoryHooks := taskruntime.MemoryHooks{
+		Source:    "slack",
+		SubjectID: memSubjectID,
+		LogFields: map[string]any{"channel_id": job.ChannelID},
+	}
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
+		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
+		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
+		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
+			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+				SubjectID:      memSubjectID,
+				RequestContext: slackMemoryRequestContext(job.ChatType),
+				MaxItems:       maxItems,
+			})
+		}
+		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
+			recordedAt := time.Now().UTC()
+			_, err := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+				TaskRunID:      slackMemoryTaskRunID(job),
+				SessionID:      slackMemorySessionID(job),
+				SubjectID:      memSubjectID,
+				Channel:        "slack",
+				Participants:   slackMemoryParticipants(job),
+				TaskText:       task,
+				FinalOutput:    strings.TrimSpace(finalOutput),
+				SourceHistory:  buildSlackMemoryHistory(history, job, finalOutput, recordedAt, historyCap),
+				SessionContext: slackMemorySessionContext(job),
+			})
+			return err
+		}
+		memoryHooks.NotifyRecorded = func() {
+			if runtimeOpts.MemoryProjectionWorker != nil {
+				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
 			}
 		}
 	}
 
-	engine := agent.New(
-		client,
-		reg,
-		cfg,
-		promptSpec,
-		func() []agent.Option {
-			opts := []agent.Option{
-				agent.WithLogger(logger),
-				agent.WithLogOptions(logOpts),
-				agent.WithGuard(sharedGuard),
+	var planUpdateHook func(*agent.Context, agent.PlanStepUpdate)
+	if sendSlackText != nil {
+		planUpdateHook = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+			if runCtx == nil || runCtx.Plan == nil {
+				return
 			}
-			if sendSlackText != nil {
-				planUpdateHook := func(runCtx *agent.Context, update agent.PlanStepUpdate) {
-					if runCtx == nil || runCtx.Plan == nil {
-						return
-					}
-					msg := generateSlackPlanProgressMessage(runCtx.Plan, update)
-					if strings.TrimSpace(msg) == "" {
-						return
-					}
-					correlationID := fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS)
-					if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
-						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-					}
-				}
-				opts = append(opts, agent.WithPlanStepUpdate(planUpdateHook))
+			msg := generateSlackPlanProgressMessage(runCtx.Plan, update)
+			if strings.TrimSpace(msg) == "" {
+				return
 			}
-			return opts
-		}()...,
-	)
+			correlationID := fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS)
+			if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
+				logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+			}
+		}
+	}
 
 	meta := map[string]any{
 		"trigger":            "slack",
@@ -161,15 +139,24 @@ func runSlackTask(
 		"slack_thread_ts":    job.ThreadTS,
 		"slack_from_user_id": job.UserID,
 	}
-	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:          model,
+	result, err := rt.Run(ctx, taskruntime.RunRequest{
+		Task:           task,
+		Model:          rt.MainModel,
 		Scene:          "slack.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,
+		StickySkills:   stickySkills,
+		Registry:       reg,
+		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
+			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
+		},
+		PlanStepUpdate: planUpdateHook,
+		Memory:         memoryHooks,
 	})
 	if err != nil {
-		return final, runCtx, loadedSkills, nil, err
+		return result.Final, result.Context, result.LoadedSkills, nil, err
 	}
 
 	var reaction *slacktools.Reaction
@@ -184,36 +171,7 @@ func runSlackTask(
 			)
 		}
 	}
-
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		finalOutput := strings.TrimSpace(depsutil.FormatFinalOutput(final))
-		recordedAt := time.Now().UTC()
-		recordOffset, memErr := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-			TaskRunID:      slackMemoryTaskRunID(job),
-			SessionID:      slackMemorySessionID(job),
-			SubjectID:      memSubjectID,
-			Channel:        "slack",
-			Participants:   slackMemoryParticipants(job),
-			TaskText:       task,
-			FinalOutput:    finalOutput,
-			SourceHistory:  buildSlackMemoryHistory(history, job, finalOutput, recordedAt, historyCap),
-			SessionContext: slackMemorySessionContext(job),
-		})
-		if memErr != nil {
-			if logger != nil {
-				logger.Warn("memory_record_error", "source", "slack", "subject_id", memSubjectID, "error", memErr.Error())
-			}
-		} else {
-			if logger != nil {
-				logger.Debug("memory_record_ok", "source", "slack", "subject_id", memSubjectID, "offset_file", recordOffset.File, "offset_line", recordOffset.Line)
-			}
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-
-	return final, runCtx, loadedSkills, reaction, nil
+	return result.Final, result.Context, result.LoadedSkills, reaction, nil
 }
 
 func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob) (*llm.Message, *llm.Message, error) {

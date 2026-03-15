@@ -41,6 +41,46 @@ func TestAPIKeyForProviderWithValues_CloudflareFallback(t *testing.T) {
 	}
 }
 
+func TestRuntimeValuesFromReader_ReadsMisterMorphLLMAPIKeyFromEnv(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-llm-key")
+
+	v := viper.New()
+	v.SetEnvPrefix("MISTER_MORPH")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+
+	values := RuntimeValuesFromReader(v)
+	if values.APIKey != "env-llm-key" {
+		t.Fatalf("RuntimeValuesFromReader().APIKey = %q, want env-llm-key", values.APIKey)
+	}
+
+	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if resolved.ClientConfig.APIKey != "env-llm-key" {
+		t.Fatalf("resolved api key = %q, want env-llm-key", resolved.ClientConfig.APIKey)
+	}
+}
+
+func TestRuntimeValuesFromReader_UsesEnvWhenConfigOmitsLLMAPIKey(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-llm-key")
+
+	v := viper.New()
+	v.SetEnvPrefix("MISTER_MORPH")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader("llm:\n  provider: openai\n  model: gpt-5.2\n")); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	values := RuntimeValuesFromReader(v)
+	if values.APIKey != "env-llm-key" {
+		t.Fatalf("RuntimeValuesFromReader().APIKey = %q, want env-llm-key", values.APIKey)
+	}
+}
+
 func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	values := RuntimeValues{
 		Model:           "gpt-5.2",

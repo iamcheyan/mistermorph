@@ -55,8 +55,14 @@ type runtimeEndpointConfigRaw struct {
 }
 
 type runtimeEndpointClient interface {
-	HealthMode(ctx context.Context) (string, error)
+	Health(ctx context.Context) (runtimeEndpointHealth, error)
 	Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error)
+}
+
+type runtimeEndpointHealth struct {
+	Mode       string
+	CanSubmit  bool
+	InstanceID string
 }
 
 type runtimeEndpoint struct {
@@ -398,11 +404,14 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type endpointSnapshot struct {
-		Ref       string
-		Name      string
-		URL       string
-		Connected bool
-		Mode      string
+		Ref               string
+		Name              string
+		URL               string
+		Connected         bool
+		Mode              string
+		CanSubmit         bool
+		InstanceID        string
+		SubmitEndpointRef string
 	}
 
 	snapshots := make([]endpointSnapshot, len(s.endpoints))
@@ -412,27 +421,50 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		go func(i int, ep runtimeEndpoint) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(r.Context(), endpointHealthTimeout)
-			mode, err := ep.Client.HealthMode(ctx)
+			health, err := ep.Client.Health(ctx)
 			cancel()
 			snapshots[i] = endpointSnapshot{
-				Ref:       ep.Ref,
-				Name:      ep.Name,
-				URL:       ep.URL,
-				Connected: err == nil,
-				Mode:      mode,
+				Ref:        ep.Ref,
+				Name:       ep.Name,
+				URL:        ep.URL,
+				Connected:  err == nil,
+				Mode:       health.Mode,
+				CanSubmit:  health.CanSubmit,
+				InstanceID: health.InstanceID,
 			}
 		}(i, ep)
 	}
 	wg.Wait()
 
+	localInstanceID := ""
+	for _, item := range snapshots {
+		if item.Ref == consoleLocalEndpointRef && item.Connected && item.CanSubmit && strings.TrimSpace(item.InstanceID) != "" {
+			localInstanceID = strings.TrimSpace(item.InstanceID)
+			break
+		}
+	}
+	if localInstanceID != "" {
+		for i := range snapshots {
+			item := &snapshots[i]
+			if item.Ref == consoleLocalEndpointRef || !item.Connected || item.CanSubmit {
+				continue
+			}
+			if strings.TrimSpace(item.InstanceID) == localInstanceID {
+				item.SubmitEndpointRef = consoleLocalEndpointRef
+			}
+		}
+	}
+
 	items := make([]map[string]any, 0, len(snapshots))
 	for _, item := range snapshots {
 		items = append(items, map[string]any{
-			"endpoint_ref": item.Ref,
-			"name":         item.Name,
-			"url":          item.URL,
-			"connected":    item.Connected,
-			"mode":         item.Mode,
+			"endpoint_ref":        item.Ref,
+			"name":                item.Name,
+			"url":                 item.URL,
+			"connected":           item.Connected,
+			"mode":                item.Mode,
+			"can_submit":          item.CanSubmit,
+			"submit_endpoint_ref": item.SubmitEndpointRef,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

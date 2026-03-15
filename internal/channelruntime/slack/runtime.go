@@ -12,11 +12,11 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
-	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -24,7 +24,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/tools"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
 
@@ -218,43 +217,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 
 	requestTimeout := opts.RequestTimeout
-	mainRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return err
-	}
-	client, err := depsutil.CreateClient(d.CreateLLMClient, mainRoute)
-	if err != nil {
-		return err
-	}
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
-	if err != nil {
-		return err
-	}
-	addressingClient := client
-	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
-		if err != nil {
-			return err
-		}
-	}
-	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return err
-	}
-	planClient := client
-	if planRoute.SameProfile(mainRoute) {
-		planClient = client
-	} else if planRoute.SameProfile(addressingRoute) {
-		planClient = addressingClient
-	} else {
-		planClient, err = depsutil.CreateClient(d.CreateLLMClient, planRoute)
-		if err != nil {
-			return err
-		}
-	}
-	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	planModel := strings.TrimSpace(planRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	if opts.InspectRequest {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
@@ -279,43 +241,41 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		}
 		defer func() { _ = promptInspector.Close() }()
 	}
-	client = llminspect.WrapClient(client, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          mainRoute.ClientConfig.Endpoint,
-		Model:            model,
-	})
-	addressingClient = llminspect.WrapClient(addressingClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          addressingRoute.ClientConfig.Endpoint,
-		Model:            addressingModel,
-	})
-	planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          planRoute.ClientConfig.Endpoint,
-		Model:            planModel,
-	})
-	logOpts := depsutil.LogOptionsFromCommon(d)
-	reg := depsutil.RegistryFromCommon(d)
-	if reg == nil {
-		reg = tools.NewRegistry()
+	decorateRuntimeClient := func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+		return llminspect.WrapClient(client, llminspect.ClientOptions{
+			PromptInspector:  promptInspector,
+			RequestInspector: requestInspector,
+			APIBase:          route.ClientConfig.Endpoint,
+			Model:            strings.TrimSpace(route.ClientConfig.Model),
+		})
 	}
-
-	cfg := opts.AgentLimits.ToConfig()
+	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+		AgentConfig:     opts.AgentLimits.ToConfig(),
+		ClientDecorator: decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
+	}
+	mainRoute := execRuntime.MainRoute
+	model := execRuntime.MainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	if err != nil {
+		return err
+	}
+	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
+	addressingClient := execRuntime.MainClient
+	if !addressingRoute.SameProfile(mainRoute) {
+		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
+		if err != nil {
+			return err
+		}
+		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
+	}
 	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        logger,
-		Decorate: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
-			return llminspect.WrapClient(client, llminspect.ClientOptions{
-				PromptInspector:  promptInspector,
-				RequestInspector: requestInspector,
-				APIBase:          route.ClientConfig.Endpoint,
-				Model:            strings.TrimSpace(route.ClientConfig.Model),
-			})
-		},
+		Decorate:      decorateRuntimeClient,
 	})
 	if err != nil {
 		return err
@@ -328,8 +288,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		PlanCreateClient:        planClient,
-		PlanCreateModel:         planModel,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -388,10 +346,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 
 	var (
 		mu                  sync.Mutex
-		history                          = make(map[string][]chathistory.ChatHistoryItem)
-		stickySkillsByConv               = make(map[string][]string)
-		userIdentityCache                = make(map[string]slackUserIdentityCacheEntry)
-		sharedGuard         *guard.Guard = depsutil.GuardFromCommon(d, logger)
+		history             = make(map[string][]chathistory.ChatHistoryItem)
+		stickySkillsByConv  = make(map[string][]string)
+		userIdentityCache   = make(map[string]slackUserIdentityCacheEntry)
 		enqueueSlackInbound func(context.Context, busruntime.BusMessage) error
 	)
 
@@ -465,15 +422,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
 			final, _, loadedSkills, reaction, runErr := runSlackTask(
 				runCtx,
-				d,
-				logger,
-				logOpts,
-				client,
-				reg,
+				execRuntime,
 				api,
-				sharedGuard,
-				cfg,
-				model,
 				job,
 				h,
 				slackHistoryCap,

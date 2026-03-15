@@ -9,20 +9,29 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-func TestInProcessRuntimeEndpointClientHealthMode(t *testing.T) {
+func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
-		Mode:          "console",
-		AuthToken:     "dev-token",
+		Mode:      "console",
+		AuthToken: "dev-token",
+		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+			return daemonruntime.SubmitTaskResponse{}, nil
+		},
 		HealthEnabled: true,
 	})
 	client := newInProcessRuntimeEndpointClient(handler, "dev-token")
 
-	mode, err := client.HealthMode(context.Background())
+	health, err := client.Health(context.Background())
 	if err != nil {
-		t.Fatalf("HealthMode() error = %v", err)
+		t.Fatalf("Health() error = %v", err)
 	}
-	if mode != "console" {
-		t.Fatalf("HealthMode() = %q, want %q", mode, "console")
+	if health.Mode != "console" {
+		t.Fatalf("Health().Mode = %q, want %q", health.Mode, "console")
+	}
+	if !health.CanSubmit {
+		t.Fatal("Health().CanSubmit = false, want true")
+	}
+	if health.InstanceID == "" {
+		t.Fatal("Health().InstanceID is empty")
 	}
 }
 

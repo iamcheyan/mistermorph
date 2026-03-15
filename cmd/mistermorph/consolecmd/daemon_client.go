@@ -44,22 +44,22 @@ func (c *daemonTaskClient) ready() error {
 	return nil
 }
 
-func (c *daemonTaskClient) HealthMode(ctx context.Context) (string, error) {
+func (c *daemonTaskClient) Health(ctx context.Context) (runtimeEndpointHealth, error) {
 	if err := c.readyBaseURL(); err != nil {
-		return "", err
+		return runtimeEndpointHealth{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
-		return "", err
+		return runtimeEndpointHealth{}, err
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", err
+		return runtimeEndpointHealth{}, err
 	}
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return parseHealthModeResponse(resp.StatusCode, raw)
+	return parseHealthResponse(resp.StatusCode, raw)
 }
 
 func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {
@@ -96,15 +96,21 @@ func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath strin
 	return resp.StatusCode, raw, nil
 }
 
-func parseHealthModeResponse(statusCode int, raw []byte) (string, error) {
+func parseHealthResponse(statusCode int, raw []byte) (runtimeEndpointHealth, error) {
 	if statusCode < 200 || statusCode >= 300 {
-		return "", fmt.Errorf("daemon health http %d: %s", statusCode, strings.TrimSpace(string(raw)))
+		return runtimeEndpointHealth{}, fmt.Errorf("daemon health http %d: %s", statusCode, strings.TrimSpace(string(raw)))
 	}
 	var out struct {
-		Mode string `json:"mode"`
+		Mode          string `json:"mode"`
+		SubmitEnabled bool   `json:"submit_enabled"`
+		InstanceID    string `json:"instance_id"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", fmt.Errorf("invalid daemon health response: %w", err)
+		return runtimeEndpointHealth{}, fmt.Errorf("invalid daemon health response: %w", err)
 	}
-	return strings.ToLower(strings.TrimSpace(out.Mode)), nil
+	return runtimeEndpointHealth{
+		Mode:       strings.ToLower(strings.TrimSpace(out.Mode)),
+		CanSubmit:  out.SubmitEnabled,
+		InstanceID: strings.TrimSpace(out.InstanceID),
+	}, nil
 }

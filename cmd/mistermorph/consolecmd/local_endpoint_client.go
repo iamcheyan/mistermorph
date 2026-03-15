@@ -38,12 +38,12 @@ func (c *inProcessRuntimeEndpointClient) ready() error {
 	return nil
 }
 
-func (c *inProcessRuntimeEndpointClient) HealthMode(ctx context.Context) (string, error) {
+func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEndpointHealth, error) {
 	status, raw, err := c.roundTrip(ctx, http.MethodGet, "/health", nil, false)
 	if err != nil {
-		return "", err
+		return runtimeEndpointHealth{}, err
 	}
-	return parseHealthModeResponse(status, raw)
+	return parseHealthResponse(status, raw)
 }
 
 func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {

@@ -14,6 +14,7 @@ import (
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -21,7 +22,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/tools"
 )
 
 func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
@@ -86,43 +86,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	}
 
 	requestTimeout := opts.RequestTimeout
-	mainRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return err
-	}
-	client, err := depsutil.CreateClient(d.CreateLLMClient, mainRoute)
-	if err != nil {
-		return err
-	}
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
-	if err != nil {
-		return err
-	}
-	addressingClient := client
-	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
-		if err != nil {
-			return err
-		}
-	}
-	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return err
-	}
-	planClient := client
-	if planRoute.SameProfile(mainRoute) {
-		planClient = client
-	} else if planRoute.SameProfile(addressingRoute) {
-		planClient = addressingClient
-	} else {
-		planClient, err = depsutil.CreateClient(d.CreateLLMClient, planRoute)
-		if err != nil {
-			return err
-		}
-	}
-	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	planModel := strings.TrimSpace(planRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	if opts.InspectRequest {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
@@ -147,43 +110,41 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		}
 		defer func() { _ = promptInspector.Close() }()
 	}
-	client = llminspect.WrapClient(client, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          mainRoute.ClientConfig.Endpoint,
-		Model:            model,
-	})
-	addressingClient = llminspect.WrapClient(addressingClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          addressingRoute.ClientConfig.Endpoint,
-		Model:            addressingModel,
-	})
-	planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          planRoute.ClientConfig.Endpoint,
-		Model:            planModel,
-	})
-	reg := depsutil.RegistryFromCommon(d)
-	if reg == nil {
-		reg = tools.NewRegistry()
+	decorateRuntimeClient := func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+		return llminspect.WrapClient(client, llminspect.ClientOptions{
+			PromptInspector:  promptInspector,
+			RequestInspector: requestInspector,
+			APIBase:          route.ClientConfig.Endpoint,
+			Model:            strings.TrimSpace(route.ClientConfig.Model),
+		})
 	}
-	logOpts := depsutil.LogOptionsFromCommon(d)
-	cfg := opts.AgentLimits.ToConfig()
-	sharedGuard := depsutil.GuardFromCommon(d, logger)
+	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+		AgentConfig:     opts.AgentLimits.ToConfig(),
+		ClientDecorator: decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
+	}
+	mainRoute := execRuntime.MainRoute
+	model := execRuntime.MainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	if err != nil {
+		return err
+	}
+	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
+	addressingClient := execRuntime.MainClient
+	if !addressingRoute.SameProfile(mainRoute) {
+		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
+		if err != nil {
+			return err
+		}
+		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
+	}
 	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        logger,
-		Decorate: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
-			return llminspect.WrapClient(client, llminspect.ClientOptions{
-				PromptInspector:  promptInspector,
-				RequestInspector: requestInspector,
-				APIBase:          route.ClientConfig.Endpoint,
-				Model:            strings.TrimSpace(route.ClientConfig.Model),
-			})
-		},
+		Decorate:      decorateRuntimeClient,
 	})
 	if err != nil {
 		return err
@@ -197,8 +158,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		PlanCreateClient:        planClient,
-		PlanCreateModel:         planModel,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -275,14 +234,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
 			final, _, loadedSkills, runErr := runLarkTask(
 				runCtx,
-				d,
-				logger,
-				logOpts,
-				client,
-				reg,
-				sharedGuard,
-				cfg,
-				model,
+				execRuntime,
 				job,
 				h,
 				sticky,

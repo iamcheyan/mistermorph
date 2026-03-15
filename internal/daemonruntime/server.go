@@ -3,7 +3,9 @@ package daemonruntime
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +117,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	authToken := strings.TrimSpace(opts.AuthToken)
 	reader := opts.TaskReader
 	submit := opts.Submit
+	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
 	var pokeMu sync.RWMutex
@@ -135,11 +138,15 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 				return
 			}
 			payload := map[string]any{
-				"ok":   true,
-				"time": time.Now().Format(time.RFC3339Nano),
+				"ok":             true,
+				"time":           time.Now().Format(time.RFC3339Nano),
+				"submit_enabled": submit != nil,
 			}
 			if mode != "" {
 				payload["mode"] = mode
+			}
+			if instanceID != "" {
+				payload["instance_id"] = instanceID
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -172,6 +179,12 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		if _, ok := payload["mode"]; !ok && mode != "" {
 			payload["mode"] = mode
+		}
+		if _, ok := payload["submit_enabled"]; !ok {
+			payload["submit_enabled"] = submit != nil
+		}
+		if _, ok := payload["instance_id"]; !ok && instanceID != "" {
+			payload["instance_id"] = instanceID
 		}
 		if _, ok := payload["started_at"]; !ok {
 			payload["started_at"] = startedAt.Format(time.RFC3339)
@@ -756,6 +769,15 @@ func buildRuntimeMetrics() map[string]any {
 		"heap_objects":     mem.HeapObjects,
 		"gc_cycles":        mem.NumGC,
 	}
+}
+
+func buildRuntimeInstanceID() string {
+	stateDir := strings.TrimSpace(statepaths.FileStateDir())
+	if stateDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(stateDir)))
+	return "inst_" + hex.EncodeToString(sum[:8])
 }
 
 func channelOverviewFromMode(mode string) map[string]any {

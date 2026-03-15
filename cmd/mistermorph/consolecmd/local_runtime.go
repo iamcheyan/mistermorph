@@ -11,18 +11,23 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/integration"
+	"github.com/quailyquaily/mistermorph/guard"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
+	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
 )
 
@@ -46,9 +51,11 @@ type consoleLocalTaskJob struct {
 
 type consoleLocalRuntime struct {
 	logger                  *slog.Logger
-	runtime                 *integration.Runtime
 	store                   *daemonruntime.MemoryStore
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
+	commonDeps              depsutil.CommonDependencies
+	taskRuntime             *taskruntime.Runtime
+	mcpHost                 *mcphost.Host
 	memoryEnabled           bool
 	defaultTimeout          time.Duration
 	defaultModel            string
@@ -68,17 +75,57 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		return nil, err
 	}
 	slog.SetDefault(logger)
+	logOpts := logutil.LogOptionsFromViper()
 
 	llmValues := llmutil.RuntimeValuesFromViper()
-	mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
+	commonDeps := depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return logger, nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return logOpts
+		},
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRoute(llmValues, purpose)
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
+			if err != nil {
+				return nil, err
+			}
+			return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger), nil
+		},
+		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+			cfg := skillsutil.SkillsConfigFromViper()
+			if len(stickySkills) > 0 {
+				cfg.Requested = append(cfg.Requested, stickySkills...)
+			}
+			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		},
+	}
+
+	baseRegistry, mcpHost := buildConsoleBaseRegistry(context.Background(), logger)
+	sharedGuard := buildConsoleGuardFromViper(logger)
+	commonDeps.Registry = func() *tools.Registry {
+		return baseRegistry
+	}
+	commonDeps.Guard = func(_ *slog.Logger) *guard.Guard {
+		return sharedGuard
+	}
+	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+		AgentConfig:          consoleAgentConfigFromViper(),
+		DefaultModelFallback: "gpt-5.2",
+	})
 	if err != nil {
 		return nil, err
 	}
-	defaultModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	if defaultModel == "" {
-		defaultModel = "gpt-5.2"
+	if warning := consoleLLMCredentialsWarning(execRuntime.MainRoute); warning != "" {
+		logger.Warn("console_llm_credentials_missing",
+			"provider", execRuntime.MainProvider,
+			"hint", warning,
+		)
 	}
-	defaultProvider := strings.TrimSpace(mainRoute.ClientConfig.Provider)
 
 	defaultTimeout := viper.GetDuration("timeout")
 	if defaultTimeout <= 0 {
@@ -86,14 +133,6 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 
 	workersCtx, cancelWorkers := context.WithCancel(context.Background())
-	commonDeps := depsutil.CommonDependencies{
-		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRoute(llmValues, purpose)
-		},
-		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			return llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
-		},
-	}
 	memoryEnabled := viper.GetBool("memory.enabled")
 	memRuntime, err := runtimecore.NewMemoryRuntime(commonDeps, runtimecore.MemoryRuntimeOptions{
 		Enabled:       memoryEnabled,
@@ -122,12 +161,14 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	store := daemonruntime.NewMemoryStore(serverMaxQueue)
 	out := &consoleLocalRuntime{
 		logger:                  logger,
-		runtime:                 integration.New(integration.DefaultConfig()),
 		store:                   store,
+		commonDeps:              commonDeps,
+		taskRuntime:             execRuntime,
+		mcpHost:                 mcpHost,
 		memoryEnabled:           memoryEnabled,
 		defaultTimeout:          defaultTimeout,
-		defaultModel:            defaultModel,
-		defaultProvider:         defaultProvider,
+		defaultModel:            execRuntime.MainModel,
+		defaultProvider:         execRuntime.MainProvider,
 		memoryInjectionEnabled:  viper.GetBool("memory.injection.enabled"),
 		memoryInjectionMaxItems: viper.GetInt("memory.injection.max_items"),
 		memRuntime:              memRuntime,
@@ -155,6 +196,31 @@ func (r *consoleLocalRuntime) Close() {
 	}
 	if r.memRuntime.Cleanup != nil {
 		r.memRuntime.Cleanup()
+	}
+	if r.mcpHost != nil {
+		_ = r.mcpHost.Close()
+	}
+}
+
+func consoleLLMCredentialsWarning(route llmutil.ResolvedRoute) string {
+	provider := strings.ToLower(strings.TrimSpace(route.ClientConfig.Provider))
+	switch provider {
+	case "bedrock":
+		// Bedrock may rely on ambient AWS credentials outside llm.* config.
+		return ""
+	case "cloudflare":
+		if strings.TrimSpace(route.Values.CloudflareAccountID) == "" {
+			return "set llm.cloudflare.account_id to enable Console Local chat submit"
+		}
+		if strings.TrimSpace(route.ClientConfig.APIKey) == "" {
+			return "set llm.cloudflare.api_token, llm.api_key, or MISTER_MORPH_LLM_API_KEY to enable Console Local chat submit"
+		}
+		return ""
+	default:
+		if strings.TrimSpace(route.ClientConfig.APIKey) == "" {
+			return "set llm.api_key or MISTER_MORPH_LLM_API_KEY to enable Console Local chat submit"
+		}
+		return ""
 	}
 }
 
@@ -293,55 +359,53 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
-
-	runOpts := agent.RunOptions{
-		Model: strings.TrimSpace(job.Model),
-		Scene: "console.loop",
-		Meta: map[string]any{
-			"trigger":         "console",
-			"console_task_id": job.TaskID,
-		},
+	task := strings.TrimSpace(job.Task)
+	if task == "" {
+		return nil, nil, fmt.Errorf("empty console task")
 	}
-
+	model := strings.TrimSpace(job.Model)
+	if model == "" {
+		model = r.defaultModel
+	}
 	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
-	if r.memoryEnabled && r.memRuntime.Orchestrator != nil && memSubjectID != "" && r.memoryInjectionEnabled {
-		snap, memErr := r.memRuntime.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      memSubjectID,
-			RequestContext: memory.ContextPrivate,
-			MaxItems:       r.memoryInjectionMaxItems,
-		})
-		if memErr != nil {
-			r.logger.Warn("memory_injection_error", "source", "console", "subject_id", memSubjectID, "error", memErr.Error())
-		} else if msg := renderConsoleMemoryHistoryMessage(snap); msg != "" {
-			runOpts.History = append(runOpts.History, llm.Message{
-				Role:    "user",
-				Content: msg,
+	memoryHooks := taskruntime.MemoryHooks{
+		Source:    "console",
+		SubjectID: memSubjectID,
+	}
+	if r.memoryEnabled && r.memRuntime.Orchestrator != nil && memSubjectID != "" {
+		memoryHooks.InjectionEnabled = r.memoryInjectionEnabled
+		memoryHooks.InjectionMaxItems = r.memoryInjectionMaxItems
+		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
+			return r.memRuntime.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+				SubjectID:      memSubjectID,
+				RequestContext: memory.ContextPrivate,
+				MaxItems:       maxItems,
 			})
-			r.logger.Info("memory_injection_applied", "source", "console", "subject_id", memSubjectID, "snapshot_len", len(snap))
-		} else {
-			r.logger.Debug("memory_injection_skipped", "source", "console", "reason", "empty_snapshot", "subject_id", memSubjectID)
 		}
-	}
-
-	final, agentCtx, err := r.runtime.RunTask(ctx, strings.TrimSpace(job.Task), runOpts)
-	if err != nil {
-		return final, agentCtx, err
-	}
-
-	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
-	if r.memoryEnabled && output != "" && r.memRuntime.Orchestrator != nil && memSubjectID != "" {
-		recordOffset, memErr := r.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, output))
-		if memErr != nil {
-			r.logger.Warn("memory_record_error", "source", "console", "subject_id", memSubjectID, "error", memErr.Error())
-		} else {
-			r.logger.Debug("memory_record_ok", "source", "console", "subject_id", memSubjectID, "offset_file", recordOffset.File, "offset_line", recordOffset.Line)
+		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
+			_, err := r.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
+			return err
+		}
+		memoryHooks.NotifyRecorded = func() {
 			if r.memRuntime.ProjectionWorker != nil {
 				r.memRuntime.ProjectionWorker.NotifyRecordAppended()
 			}
 		}
 	}
-
-	return final, agentCtx, nil
+	result, err := r.taskRuntime.Run(ctx, taskruntime.RunRequest{
+		Task:  task,
+		Model: model,
+		Scene: "console.loop",
+		Meta: map[string]any{
+			"trigger":         "console",
+			"console_task_id": job.TaskID,
+		},
+		Memory: memoryHooks,
+	})
+	if err != nil {
+		return result.Final, result.Context, err
+	}
+	return result.Final, result.Context, nil
 }
 
 func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context) map[string]any {
@@ -372,14 +436,6 @@ func summarizeConsoleSteps(ctx *agent.Context) []map[string]any {
 		out = append(out, m)
 	}
 	return out
-}
-
-func renderConsoleMemoryHistoryMessage(snapshot string) string {
-	snapshot = strings.TrimSpace(snapshot)
-	if snapshot == "" {
-		return ""
-	}
-	return strings.TrimSpace("[[ Memory Summaries ]]\n" + snapshot)
 }
 
 func buildConsoleMemorySubjectID(conversationKey string) string {

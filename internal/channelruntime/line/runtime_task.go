@@ -9,10 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -29,8 +28,6 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
-	PlanCreateClient        llm.Client
-	PlanCreateModel         string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -39,25 +36,22 @@ const lineStickySkillsCap = 16
 
 func runLineTask(
 	ctx context.Context,
-	d Dependencies,
-	logger *slog.Logger,
-	logOpts agent.LogOptions,
-	client llm.Client,
-	baseReg *tools.Registry,
-	sharedGuard *guard.Guard,
-	cfg agent.Config,
-	model string,
+	rt *taskruntime.Runtime,
 	job lineJob,
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
 ) (*agent.Final, *agent.Context, []string, error) {
+	if rt == nil {
+		return nil, nil, nil, fmt.Errorf("line task runtime is nil")
+	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")
 	}
-	historyMsg, currentMsg, err := buildLinePromptMessages(history, job, model, runtimeOpts.ImageRecognitionEnabled, logger)
+	historyMsg, currentMsg, err := buildLinePromptMessages(history, job, rt.MainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -66,55 +60,43 @@ func runLineTask(
 		llmHistory = append(llmHistory, *historyMsg)
 	}
 
-	if baseReg == nil {
-		return nil, nil, nil, fmt.Errorf("base registry is nil")
-	}
-	reg := buildLineRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     model,
-		PlanCreateClient: runtimeOpts.PlanCreateClient,
-		PlanCreateModel:  runtimeOpts.PlanCreateModel,
-	})
-	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
-
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendLineRuntimeBlocks(&promptSpec, isLineGroupChat(job.ChatType))
 	memSubjectID := lineMemorySubjectID(job)
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
-		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      memSubjectID,
-			RequestContext: lineMemoryRequestContext(job.ChatType),
-			MaxItems:       runtimeOpts.MemoryInjectionMaxItems,
-		})
-		if memErr != nil {
-			if logger != nil {
-				logger.Warn("memory_injection_error", "source", "line", "subject_id", memSubjectID, "chat_id", job.ChatID, "error", memErr.Error())
-			}
-		} else if strings.TrimSpace(snap) != "" {
-			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
-			if logger != nil {
-				logger.Info("memory_injection_applied", "source", "line", "subject_id", memSubjectID, "chat_id", job.ChatID, "snapshot_len", len(snap))
+	memoryHooks := taskruntime.MemoryHooks{
+		Source:    "line",
+		SubjectID: memSubjectID,
+		LogFields: map[string]any{"chat_id": job.ChatID},
+	}
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
+		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
+		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
+		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
+			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+				SubjectID:      memSubjectID,
+				RequestContext: lineMemoryRequestContext(job.ChatType),
+				MaxItems:       maxItems,
+			})
+		}
+		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
+			recordedAt := time.Now().UTC()
+			_, err := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+				TaskRunID:      strings.TrimSpace(job.TaskID),
+				SessionID:      lineMemorySessionID(job),
+				SubjectID:      memSubjectID,
+				Channel:        "line",
+				Participants:   lineMemoryParticipants(job),
+				TaskText:       task,
+				FinalOutput:    strings.TrimSpace(finalOutput),
+				SourceHistory:  buildLineMemoryHistory(history, job, finalOutput, recordedAt),
+				SessionContext: lineMemorySessionContext(job),
+			})
+			return err
+		}
+		memoryHooks.NotifyRecorded = func() {
+			if runtimeOpts.MemoryProjectionWorker != nil {
+				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
 			}
 		}
 	}
-
-	engine := agent.New(
-		client,
-		reg,
-		cfg,
-		promptSpec,
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithGuard(sharedGuard),
-	)
 
 	meta := map[string]any{
 		"trigger":         "line",
@@ -123,44 +105,25 @@ func runLineTask(
 		"line_user_id":    job.FromUserID,
 		"line_message_id": job.MessageID,
 	}
-	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:          model,
+	result, err := rt.Run(ctx, taskruntime.RunRequest{
+		Task:           task,
+		Model:          rt.MainModel,
 		Scene:          "line.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,
+		StickySkills:   stickySkills,
+		Registry:       buildLineRegistry(rt.BaseRegistry, job.ChatType),
+		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
+			promptprofile.AppendLineRuntimeBlocks(spec, isLineGroupChat(job.ChatType))
+		},
+		Memory: memoryHooks,
 	})
 	if err != nil {
-		return final, runCtx, loadedSkills, err
+		return result.Final, result.Context, result.LoadedSkills, err
 	}
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		finalOutput := strings.TrimSpace(depsutil.FormatFinalOutput(final))
-		recordedAt := time.Now().UTC()
-		recordOffset, memErr := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-			TaskRunID:      strings.TrimSpace(job.TaskID),
-			SessionID:      lineMemorySessionID(job),
-			SubjectID:      memSubjectID,
-			Channel:        "line",
-			Participants:   lineMemoryParticipants(job),
-			TaskText:       task,
-			FinalOutput:    finalOutput,
-			SourceHistory:  buildLineMemoryHistory(history, job, finalOutput, recordedAt),
-			SessionContext: lineMemorySessionContext(job),
-		})
-		if memErr != nil {
-			if logger != nil {
-				logger.Warn("memory_record_error", "source", "line", "subject_id", memSubjectID, "chat_id", job.ChatID, "error", memErr.Error())
-			}
-		} else {
-			if logger != nil {
-				logger.Debug("memory_record_ok", "source", "line", "subject_id", memSubjectID, "chat_id", job.ChatID, "offset_file", recordOffset.File, "offset_line", recordOffset.Line)
-			}
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-	return final, runCtx, loadedSkills, nil
+	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
 func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
