@@ -206,23 +206,48 @@ func initConfig() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 
-	cfgFile, explicit := resolveConfigFile()
-	if cfgFile == "" {
-		return
-	}
-
 	warnf := func(format string, args ...any) {
 		_, _ = fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
 	}
-	if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
-		if !explicit && os.IsNotExist(err) {
+
+	cfgFile, explicit := resolveConfigFile()
+	if cfgFile != "" {
+		if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
+			if !explicit && os.IsNotExist(err) {
+				return
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 			return
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
-		return
+		expandConfiguredDirKey("file_state_dir")
+		expandConfiguredDirKey("file_cache_dir")
 	}
-	expandConfiguredDirKey("file_state_dir")
-	expandConfiguredDirKey("file_cache_dir")
+
+	for _, msg := range deprecatedConfigWarnings(viper.GetViper(), os.LookupEnv) {
+		warnf("%s", msg)
+	}
+}
+
+func deprecatedConfigWarnings(v *viper.Viper, lookupEnv func(string) (string, bool)) []string {
+	if v == nil {
+		return nil
+	}
+	listen := strings.TrimSpace(v.GetString("server.listen"))
+	if listen == "" {
+		return nil
+	}
+
+	envSet := false
+	if lookupEnv != nil {
+		_, envSet = lookupEnv(envPrefix + "_SERVER_LISTEN")
+	}
+	if !v.InConfig("server.listen") && !envSet {
+		return nil
+	}
+
+	return []string{
+		"server.listen is deprecated; prefer explicit --server-url for submit and channel-specific *.serve_listen for runtime APIs",
+	}
 }
 
 func resolveConfigFile() (string, bool) {

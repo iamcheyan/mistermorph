@@ -168,9 +168,9 @@ Notes:
 - See [`docs/bus.md`](docs/bus.md) for bus routing and ordering semantics.
 
 
-## Daemon mode
+## Daemon mode (deprecated)
 
-Run a local HTTP daemon that accepts tasks sequentially (one-by-one), so you don’t need to restart the process for each task.
+Legacy local HTTP daemon mode. Prefer channel-specific runtime endpoints plus explicit `mistermorph submit --server-url ...`.
 
 Start the daemon:
 
@@ -357,7 +357,7 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 - `--inspect-prompt`
 - `--inspect-request`
 
-**serve**
+**serve** (deprecated)
 - `--server-listen`
 - `--server-auth-token`
 - `--server-max-queue`

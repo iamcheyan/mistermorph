@@ -39,8 +39,9 @@ type ServeDependencies struct {
 
 func NewServeCmd(deps ServeDependencies) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run as a local daemon that accepts tasks over HTTP",
+		Use:        "serve",
+		Short:      "Run as a local daemon that accepts tasks over HTTP",
+		Deprecated: "use channel-specific runtimes or explicit runtime endpoints instead; standalone daemon mode is deprecated",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listen := strings.TrimSpace(configutil.FlagOrViperString(cmd, "server-listen", "server.listen"))
 			if listen == "" {
@@ -495,6 +496,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 	cmd.Flags().Int("server-max-queue", 100, "Max queued tasks in memory.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_daemon_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_daemon_YYYYMMDD_HHmmss.md.")
+	_ = cmd.Flags().MarkDeprecated("server-listen", "use channel-specific *.serve_listen or explicit --server-url instead")
 
 	return cmd
 }
