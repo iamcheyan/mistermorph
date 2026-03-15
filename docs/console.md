@@ -14,10 +14,61 @@ Stack:
 
 ## Runtime Notes
 
-- Console APIs are served under `/api`.
+- Console APIs are served under `<console.base_path>/api` (default: `/console/api`).
 - Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
-- Runtime endpoints are configured under `console.endpoints` in `config.yaml`.
-- Console itself does not persist task history.
+- `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
+  - It runs tasks in its own runtime loop via shared runtime core.
+  - Memory subject/session id for this endpoint uses `console:*` prefix (current key: `console:main`).
+  - Runtime API server listens on `console.serve_listen` (fallback `server.listen`, then `127.0.0.1:8791`) and is protected by `server.auth_token`.
+- Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
+- Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`); console itself does not persist history on disk.
+
+## Architecture (ASCII)
+
+```text
+            +---------------------------+
+            | Browser (Console SPA)     |
+            | web/console               |
+            +-------------+-------------+
+                          |
+                          v
+            +-------------+-------------+
+            | Console Backend           |
+            | <base_path>/api           |
+            | /auth/* /endpoints /proxy |
+            +-------------+-------------+
+                          |
+       +------------------+------------------+
+       |                                     |
+ +-----v------+                      +-------v--------+
+ | Console    |                      | Remote Runtime |
+ | Local      |                      | endpoint(s)    |
+ | endpoint   |                      | (from config)  |
+ +-----+------+                      +-------+--------+
+       |                                     |
+       +------------------+------------------+
+                          |
+                          v
+            +-------------+-------------+
+            | daemonruntime API surface |
+            | /health /overview /tasks  |
+            | /state/* /memory/*        |
+            | /audit/* /contacts/*      |
+            +-------------+-------------+
+                          |
+                          v
+            +-------------+-------------+
+            | channelruntime/core       |
+            | runner + task lifecycle   |
+            | + memory runtime wiring   |
+            +-------------+-------------+
+                          |
+                          v
+                     +----+----+
+                     | agent   |
+                     | Engine  |
+                     +---------+
+```
 
 ## Features
 
@@ -119,7 +170,7 @@ pnpm install
 pnpm build
 ```
 
-2. Start daemon (task API source):
+2. (Optional) Start daemon if you also want a remote endpoint:
 
 ```bash
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
@@ -129,15 +180,20 @@ go run ./cmd/mistermorph serve --server-auth-token dev-token
 3. Start console backend + static hosting:
 
 ```bash
+MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 MISTER_MORPH_ENDPOINT_MAIN_TOKEN=dev-token \
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 go run ./cmd/mistermorph console serve --console-static-dir ./web/console/dist
 ```
 
-Example `config.yaml` snippet:
+Example `config.yaml` snippet (`console.endpoints` is optional now):
 
 ```yaml
+server:
+  auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
+
 console:
+  serve_listen: "127.0.0.1:8791"
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"
@@ -150,7 +206,7 @@ console:
 
 ## Dev (hot reload)
 
-1. Start daemon:
+1. (Optional) Start daemon:
 
 ```bash
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \

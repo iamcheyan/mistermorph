@@ -54,11 +54,16 @@ type runtimeEndpointConfigRaw struct {
 	AuthToken string `mapstructure:"auth_token"`
 }
 
+type runtimeEndpointClient interface {
+	HealthMode(ctx context.Context) (string, error)
+	Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error)
+}
+
 type runtimeEndpoint struct {
 	Ref    string
 	Name   string
 	URL    string
-	Client *daemonTaskClient
+	Client runtimeEndpointClient
 }
 
 type server struct {
@@ -69,6 +74,7 @@ type server struct {
 	limiter       *loginLimiter
 	endpoints     []runtimeEndpoint
 	endpointByRef map[string]runtimeEndpoint
+	localRuntime  *consoleLocalRuntime
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -176,7 +182,7 @@ func resolveStaticDir(raw string) (string, error) {
 
 func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("missing console.endpoints (configure at least one endpoint)")
+		return nil, nil
 	}
 
 	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
@@ -220,8 +226,16 @@ func newServer(cfg serveConfig) (*server, error) {
 		sessionStorePath = filepath.Join(cfg.stateDir, "console", "sessions.json")
 	}
 
-	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints))
-	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints))
+	localRuntime, err := newConsoleLocalRuntime()
+	if err != nil {
+		return nil, err
+	}
+
+	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
+	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
+	localEndpoint := localRuntime.Endpoint()
+	endpoints = append(endpoints, localEndpoint)
+	endpointByRef[localEndpoint.Ref] = localEndpoint
 	for _, item := range cfg.endpoints {
 		ep := runtimeEndpoint{
 			Ref:    item.Ref,
@@ -241,10 +255,15 @@ func newServer(cfg serveConfig) (*server, error) {
 		limiter:       newLoginLimiter(),
 		endpoints:     endpoints,
 		endpointByRef: endpointByRef,
+		localRuntime:  localRuntime,
 	}, nil
 }
 
 func (s *server) run() error {
+	if s != nil && s.localRuntime != nil {
+		defer s.localRuntime.Close()
+	}
+
 	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 
