@@ -39,13 +39,16 @@ const router = createRouter({
 
 const NAV_ITEMS_META = [
   { id: "/chat", titleKey: "nav_chat", icon: "QIconMessageChatSquare" },
-  { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
-  { id: "/stats", titleKey: "nav_stats", icon: "QIconGrid" },
-  { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
-  { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
-  { id: "/files", titleKey: "nav_files", icon: "QIconFileLock" },
   { id: "/contacts", titleKey: "nav_contacts", icon: "QIconUsers" },
+  { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
+  { id: "__sep_primary", separator: true },
+  { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
+  { id: "/files", titleKey: "nav_files", icon: "QIconFileLock" },
+  { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
+  { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
+  { id: "__sep_secondary", separator: true },
   { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
+  { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
 ];
 
 router.beforeEach(async (to) => {

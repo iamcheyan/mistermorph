@@ -1,4 +1,6 @@
 .sidebar-controls {
+  position: relative;
+  z-index: 12;
   height: var(--chrome-bar-height);
   padding: 8px;
   border-bottom: 1px solid var(--line-soft);
@@ -16,6 +18,8 @@
 }
 
 .sidebar-controls-row {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -24,6 +28,8 @@
 }
 
 .sidebar-endpoint {
+  position: relative;
+  z-index: 14;
   min-width: 0;
 }
 
@@ -37,11 +43,11 @@
 }
 
 .sidebar-endpoint-selected {
-  display: grid;
   min-width: 0;
 }
 
 .sidebar-endpoint-name {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -63,6 +69,8 @@
 }
 
 .sidebar-shortcuts {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;

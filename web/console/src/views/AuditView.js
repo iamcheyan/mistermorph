@@ -1,8 +1,17 @@
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import "./AuditView.css";
 
 import AppPage from "../components/AppPage";
-import { formatBytes, formatTime, runtimeApiFetch, safeJSON, toBool, toInt, translate } from "../core/context";
+import {
+  endpointState,
+  formatBytes,
+  formatTime,
+  runtimeApiFetch,
+  safeJSON,
+  toBool,
+  toInt,
+  translate,
+} from "../core/context";
 
 const AUDIT_ITEMS_PER_PAGE = 50;
 
@@ -299,6 +308,14 @@ const AuditView = {
       await loadChunk(cursor);
     }
 
+    async function goPrev() {
+      await goPage(pageValue.value - 1);
+    }
+
+    async function goNext() {
+      await goPage(pageValue.value + 1);
+    }
+
     async function onFileChange(item) {
       if (!item || typeof item !== "object" || typeof item.value !== "string") {
         return;
@@ -317,6 +334,12 @@ const AuditView = {
     }
 
     onMounted(init);
+    watch(
+      () => endpointState.selectedRef,
+      () => {
+        void init();
+      }
+    );
     return {
       t,
       loading,
@@ -330,6 +353,8 @@ const AuditView = {
       pageText,
       refreshLatest,
       goPage,
+      goPrev,
+      goNext,
       onFileChange,
       formatBytes,
     };
@@ -345,19 +370,39 @@ const AuditView = {
             @change="onFileChange"
           />
         </div>
-        <QButton class="outlined" :loading="loading" @click="refreshLatest">{{ t("audit_latest") }}</QButton>
-        <QPagination
+        <QButton
+          class="outlined icon"
+          :loading="loading"
+          :title="t('action_refresh')"
+          :aria-label="t('action_refresh')"
+          @click="refreshLatest"
+        >
+          <QIconRefresh class="icon" />
+        </QButton>
+        <div
           v-if="meta.total_pages > 0"
           class="audit-pagination"
-          :modelValue="pageValue"
-          :totalPage="meta.total_pages"
-          :hasPrev="pageValue > 1"
-          :hasNext="pageValue < meta.total_pages"
-          @update:modelValue="goPage"
-          @change:prev="goPage"
-          @change:next="goPage"
-          @change:goto="goPage"
-        />
+        >
+          <QButton
+            class="plain sm icon"
+            :disabled="pageValue <= 1"
+            :title="t('audit_newer')"
+            :aria-label="t('audit_newer')"
+            @click="goPrev"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <code class="audit-page-indicator">{{ pageText }}</code>
+          <QButton
+            class="plain sm icon"
+            :disabled="pageValue >= meta.total_pages"
+            :title="t('audit_older')"
+            :aria-label="t('audit_older')"
+            @click="goNext"
+          >
+            <QIconArrowRight class="icon" />
+          </QButton>
+        </div>
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />

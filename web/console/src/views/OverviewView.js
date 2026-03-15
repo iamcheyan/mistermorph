@@ -2,6 +2,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import "./OverviewView.css";
 
+import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
 
 const OverviewView = {
@@ -12,14 +13,12 @@ const OverviewView = {
     const loading = ref(false);
     let refreshTimer = null;
     const endpointRows = computed(() =>
-      endpointState.items.map((item) => ({
-        endpoint_ref: item.endpoint_ref || "",
-        name: item.name || item.endpoint_ref || "-",
-        url: item.url || "-",
+      visibleEndpoints(endpointState.items).map((item) => ({
+        ...endpointDisplayItem(item, t),
+        url: item.url || "",
         connected: toBool(item.connected, false),
       }))
     );
-    const connectedRows = computed(() => endpointRows.value.filter((item) => item.connected));
     const hasAnyEndpoint = computed(() => endpointRows.value.length > 0);
 
     function openEndpoint(item) {
@@ -91,18 +90,31 @@ const OverviewView = {
               @keydown.enter.prevent="item.connected && openEndpoint(item)"
               @keydown.space.prevent="item.connected && openEndpoint(item)"
             >
-              <div class="endpoint-overview-head my-2">
-                <span class="channel-runtime-dot">
-                  <QBadge
-                    :type="item.connected ? 'success' : 'default'"
-                    size="md"
-                    variant="filled"
-                    :dot="true"
-                  />
-                </span>
-                <code class="endpoint-overview-name">{{ item.name }}</code>
+              <div class="endpoint-overview-head">
+                <div class="endpoint-overview-title">
+                  <div class="endpoint-overview-name-row">
+                    <span class="channel-runtime-dot">
+                      <QBadge
+                        :type="item.connected ? 'success' : 'default'"
+                        size="md"
+                        variant="filled"
+                        :dot="true"
+                      />
+                    </span>
+                    <code class="endpoint-overview-name">{{ item.title }}</code>
+                  </div>
+                </div>
               </div>
-              <code class="endpoint-overview-url">{{ item.url }}</code>
+              <code class="endpoint-overview-url">{{ item.url || item.location }}</code>
+              <span class="endpoint-channel-badge-list">
+                <span
+                  v-for="badge in item.channelBadges"
+                  :key="badge.tone + ':' + badge.label"
+                  :class="['endpoint-channel-badge', 'is-' + badge.tone]"
+                >
+                  {{ badge.label }}
+                </span>
+              </span>
             </div>
             <p v-if="endpointRows.length === 0 && !loading" class="muted">{{ t("no_endpoints") }}</p>
           </div>

@@ -72,7 +72,8 @@
 .page-body > .toolbar,
 .page-body > .chat-composer,
 .page-body > .stat-groups,
-.page-body > .audit-meta {
+.page-body > .audit-meta,
+.page-body > .memory-meta {
   margin: 0;
 }
 

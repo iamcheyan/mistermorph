@@ -108,7 +108,15 @@ const TasksView = {
         <div class="tool-item">
           <QInput v-model="limitText" inputType="number" :placeholder="t('placeholder_limit')" />
         </div>
-        <QButton class="outlined" :loading="loading" @click="load">{{ t("action_refresh") }}</QButton>
+        <QButton
+          class="outlined icon"
+          :loading="loading"
+          :title="t('action_refresh')"
+          :aria-label="t('action_refresh')"
+          @click="load"
+        >
+          <QIconRefresh class="icon" />
+        </QButton>
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />

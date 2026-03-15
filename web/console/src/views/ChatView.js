@@ -1,10 +1,17 @@
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./ChatView.css";
 
 import AppPage from "../components/AppPage";
-import { endpointState, runtimeApiFetch, translate } from "../core/context";
+import { endpointChannelLabel } from "../core/endpoints";
+import {
+  endpointState,
+  runtimeApiFetchForEndpoint,
+  runtimeEndpointByRef,
+  translate,
+} from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
+const COMPOSER_MAX_ROWS = 5;
 
 function normalizeTaskStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
@@ -54,6 +61,83 @@ const ChatView = {
     const sending = ref(false);
     const err = ref("");
     const pollTimers = new Set();
+    const composerField = ref(null);
+
+    const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
+    const submitEndpointRef = computed(() => {
+      const selected = selectedEndpoint.value;
+      if (!selected) {
+        return "";
+      }
+      const mapped = String(selected.submit_endpoint_ref || "").trim();
+      if (mapped) {
+        return mapped;
+      }
+      return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
+    });
+    const submitBlockedMessage = computed(() => {
+      const selected = selectedEndpoint.value;
+      if (!selected || !selected.connected) {
+        return "";
+      }
+      if (submitEndpointRef.value) {
+        return "";
+      }
+      return t("chat_submit_unsupported", {
+        name: selected.name || selected.endpoint_ref || "-",
+      });
+    });
+    const chatReadonly = computed(() => Boolean(submitBlockedMessage.value));
+    const readonlyTitle = computed(() => {
+      return t("chat_readonly_title", {
+        channel: endpointChannelLabel(selectedEndpoint.value?.mode, t),
+      });
+    });
+    const readonlyReason = computed(() => {
+      const selected = selectedEndpoint.value;
+      if (!selected) {
+        return "";
+      }
+      return t("chat_readonly_reason", {
+        name: selected.name || selected.endpoint_ref || "-",
+        channel: endpointChannelLabel(selected.mode, t),
+      });
+    });
+    const composerDisabled = computed(() => Boolean(submitBlockedMessage.value) || sending.value);
+    const sendDisabled = computed(
+      () => composerDisabled.value || String(taskInput.value || "").trim() === ""
+    );
+
+    function composerTextarea() {
+      const root = composerField.value?.$el || composerField.value;
+      if (!root || typeof root.querySelector !== "function") {
+        return null;
+      }
+      return root.querySelector("textarea");
+    }
+
+    function syncComposerHeight() {
+      void nextTick(() => {
+        const textarea = composerTextarea();
+        if (!textarea) {
+          return;
+        }
+        const styles = window.getComputedStyle(textarea);
+        const lineHeight = Number.parseFloat(styles.lineHeight) || 20;
+        const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+        const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+        const borderTop = Number.parseFloat(styles.borderTopWidth) || 0;
+        const borderBottom = Number.parseFloat(styles.borderBottomWidth) || 0;
+        const minHeight = lineHeight + paddingTop + paddingBottom + borderTop + borderBottom;
+        const maxHeight =
+          lineHeight * COMPOSER_MAX_ROWS + paddingTop + paddingBottom + borderTop + borderBottom;
+
+        textarea.style.height = "auto";
+        const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+        textarea.style.height = `${nextHeight}px`;
+        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+      });
+    }
 
     function clearPollTimers() {
       for (const timerID of pollTimers) {
@@ -131,9 +215,9 @@ const ChatView = {
       pollTimers.add(timerID);
     }
 
-    async function pollTask(taskID, historyID) {
+    async function pollTask(taskID, historyID, endpointRef) {
       try {
-        const detail = await runtimeApiFetch(`/tasks/${encodeURIComponent(taskID)}`);
+        const detail = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}`);
         const status = normalizeTaskStatus(detail?.status);
         const hasResult = detail && detail.result !== undefined && detail.result !== null;
         const resultText = stringifyResult(detail?.result);
@@ -154,7 +238,7 @@ const ChatView = {
         });
         if (!isTerminalStatus(status)) {
           schedulePoll(async () => {
-            await pollTask(taskID, historyID);
+            await pollTask(taskID, historyID, endpointRef);
           });
         }
       } catch (e) {
@@ -168,6 +252,11 @@ const ChatView = {
     async function submitTask() {
       const task = String(taskInput.value || "").trim();
       if (!task || sending.value) {
+        return;
+      }
+      const endpointRef = submitEndpointRef.value;
+      if (!endpointRef) {
+        err.value = submitBlockedMessage.value || t("msg_select_endpoint");
         return;
       }
       sending.value = true;
@@ -185,7 +274,7 @@ const ChatView = {
       });
 
       try {
-        const submitted = await runtimeApiFetch("/tasks", {
+        const submitted = await runtimeApiFetchForEndpoint(endpointRef, "/tasks", {
           method: "POST",
           body: { task },
         });
@@ -199,7 +288,7 @@ const ChatView = {
           status,
           text: `${t("chat_task_prefix")} ${taskID}\n\n${t("chat_polling_hint")}`,
         });
-        await pollTask(taskID, agentHistoryID);
+        await pollTask(taskID, agentHistoryID, endpointRef);
       } catch (e) {
         const message = e?.message || t("msg_load_failed");
         err.value = message;
@@ -217,6 +306,7 @@ const ChatView = {
         role: "system",
         text: t("chat_intro"),
       });
+      syncComposerHeight();
     });
     onUnmounted(() => {
       clearPollTimers();
@@ -225,8 +315,13 @@ const ChatView = {
       () => endpointState.selectedRef,
       () => {
         clearPollTimers();
+        err.value = "";
+        syncComposerHeight();
       }
     );
+    watch(taskInput, () => {
+      syncComposerHeight();
+    });
 
     return {
       t,
@@ -234,6 +329,13 @@ const ChatView = {
       taskInput,
       sending,
       err,
+      composerField,
+      submitBlockedMessage,
+      chatReadonly,
+      readonlyTitle,
+      readonlyReason,
+      composerDisabled,
+      sendDisabled,
       submitTask,
       roleText,
       statusText,
@@ -242,24 +344,49 @@ const ChatView = {
   },
   template: `
     <AppPage :title="t('chat_title')" class="chat-page">
-      <div class="chat-history">
-        <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-          <header class="chat-history-head">
-            <code class="chat-history-role">{{ roleText(item.role) }}</code>
-            <code v-if="item.status" class="chat-history-status">{{ statusText(item.status) }}</code>
-          </header>
-          <pre class="chat-history-body">{{ item.text }}</pre>
-          <code v-if="item.taskId" class="chat-history-task">{{ t("chat_task_prefix") }} {{ item.taskId }}</code>
-        </article>
-        <p v-if="chatHistoryItems.length === 0" class="muted">{{ t("chat_empty") }}</p>
-      </div>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <div class="chat-composer">
-        <QTextarea v-model="taskInput" :rows="4" :placeholder="t('chat_input_placeholder')" />
-        <div class="chat-composer-actions">
-          <QButton class="primary" :loading="sending" @click="submitTask">{{ t("chat_action_send") }}</QButton>
+      <section v-if="chatReadonly" class="chat-readonly frame">
+        <h3 class="chat-readonly-title">{{ readonlyTitle }}</h3>
+        <p class="chat-readonly-text">{{ readonlyReason }}</p>
+      </section>
+      <template v-else>
+        <div class="chat-history">
+          <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
+            <header class="chat-history-head">
+              <code class="chat-history-role">{{ roleText(item.role) }}</code>
+              <code v-if="item.status" class="chat-history-status">{{ statusText(item.status) }}</code>
+            </header>
+            <pre class="chat-history-body">{{ item.text }}</pre>
+            <code v-if="item.taskId" class="chat-history-task">{{ t("chat_task_prefix") }} {{ item.taskId }}</code>
+          </article>
+          <p v-if="chatHistoryItems.length === 0" class="muted">{{ t("chat_empty") }}</p>
         </div>
-      </div>
+        <div class="chat-composer">
+          <QTextarea
+            ref="composerField"
+            v-model="taskInput"
+            :rows="1"
+            :disabled="composerDisabled"
+            :placeholder="t('chat_input_placeholder')"
+            @keydown.enter.exact.prevent="submitTask"
+          >
+            <template #append>
+              <div class="chat-composer-append">
+                <QButton
+                  class="primary sm icon chat-composer-send"
+                  :loading="sending"
+                  :disabled="sendDisabled"
+                  :title="t('chat_action_send')"
+                  :aria-label="t('chat_action_send')"
+                  @click="submitTask"
+                >
+                  <QIconSend class="icon" />
+                </QButton>
+              </div>
+            </template>
+          </QTextarea>
+        </div>
+      </template>
     </AppPage>
   `,
 };

@@ -1,7 +1,8 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import "./MemoryView.css";
 
 import AppPage from "../components/AppPage";
-import { formatBytes, formatTime, runtimeApiFetch, translate } from "../core/context";
+import { endpointState, formatBytes, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
 
@@ -227,21 +228,23 @@ const MemoryView = {
       await loadContent(item.id);
     }
 
-    function metaText(item) {
+    function metaItems(item) {
       if (!item) {
-        return "";
+        return [];
       }
-      const parts = [groupTitle(t, item.group)];
+      const parts = [
+        { label: t("memory_label_mode"), value: groupTitle(t, item.group) },
+      ];
       if (item.date) {
-        parts.push(item.date);
+        parts.push({ label: t("memory_meta_date"), value: item.date });
       }
       if (item.sizeBytes > 0) {
-        parts.push(formatBytes(item.sizeBytes));
+        parts.push({ label: t("memory_meta_size"), value: formatBytes(item.sizeBytes) });
       }
       if (item.modTime) {
-        parts.push(formatTime(item.modTime));
+        parts.push({ label: t("memory_meta_updated"), value: formatTime(item.modTime) });
       }
-      return parts.join(" | ");
+      return parts;
     }
 
     async function init() {
@@ -249,6 +252,12 @@ const MemoryView = {
     }
 
     onMounted(init);
+    watch(
+      () => endpointState.selectedRef,
+      () => {
+        void init();
+      }
+    );
     return {
       t,
       loading,
@@ -268,7 +277,7 @@ const MemoryView = {
       onModeChange,
       onDateChange,
       onSessionChange,
-      metaText,
+      metaItems,
     };
   },
   template: `
@@ -297,13 +306,21 @@ const MemoryView = {
             @change="onSessionChange"
           />
         </div>
-        <QButton class="outlined" :loading="loading" @click="refresh">{{ t("action_refresh") }}</QButton>
         <QButton class="primary" :loading="saving" @click="save">{{ t("action_save") }}</QButton>
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
-      <p v-if="selectedMemory" class="muted">{{ metaText(selectedMemory) }}</p>
+      <div v-if="selectedMemory" class="memory-meta">
+        <div
+          v-for="item in metaItems(selectedMemory)"
+          :key="item.label"
+          class="memory-meta-item"
+        >
+          <span class="memory-meta-label">{{ item.label }}</span>
+          <strong class="memory-meta-value">{{ item.value }}</strong>
+        </div>
+      </div>
       <p v-else-if="modeValue === 'short_term'" class="muted">{{ t("memory_no_sessions_for_date") }}</p>
       <p v-else class="muted">{{ t("memory_no_files") }}</p>
       <QTextarea v-model="content" :rows="22" :disabled="!selectedMemory" />

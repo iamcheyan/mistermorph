@@ -60,6 +60,9 @@ async function loadEndpoints() {
         url: item && typeof item.url === "string" ? item.url : "",
         connected: toBool(item && item.connected, false),
         mode: item && typeof item.mode === "string" ? item.mode : "",
+        can_submit: toBool(item && item.can_submit, false),
+        submit_endpoint_ref:
+          item && typeof item.submit_endpoint_ref === "string" ? item.submit_endpoint_ref : "",
       }))
     : [];
   endpointState.items = items.filter((item) => item.endpoint_ref);
@@ -67,8 +70,16 @@ async function loadEndpoints() {
   return endpointState.items;
 }
 
-async function runtimeApiFetch(pathname, options = {}) {
-  const endpointRef = endpointState.selectedRef.trim();
+function runtimeEndpointByRef(endpointRef) {
+  const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
+  if (!ref) {
+    return null;
+  }
+  return endpointState.items.find((item) => item && item.endpoint_ref === ref) || null;
+}
+
+async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
+  endpointRef = String(endpointRef || "").trim();
   if (!endpointRef) {
     const err = new Error(translate("msg_select_endpoint"));
     err.status = 400;
@@ -85,6 +96,10 @@ async function runtimeApiFetch(pathname, options = {}) {
   q.set("endpoint", endpointRef);
   q.set("uri", normalizedURI);
   return apiFetch(`/proxy?${q.toString()}`, options);
+}
+
+async function runtimeApiFetch(pathname, options = {}) {
+  return runtimeApiFetchForEndpoint(endpointState.selectedRef.trim(), pathname, options);
 }
 
 function safeJSON(raw, fallback) {
@@ -198,6 +213,8 @@ export {
   loadEndpoints,
   ensureEndpointSelection,
   runtimeApiFetch,
+  runtimeApiFetchForEndpoint,
+  runtimeEndpointByRef,
   safeJSON,
   formatTime,
   formatRemainingUntil,

@@ -31,6 +31,18 @@
   min-width: 170px;
 }
 
+.toolbar .q-button.icon {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px !important;
+}
+
+.toolbar .q-button.icon .icon {
+  width: 13px;
+  min-width: 13px;
+  height: 13px;
+}
+
 .stack {
   display: grid;
   gap: 8px;

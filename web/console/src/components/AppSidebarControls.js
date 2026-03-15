@@ -25,10 +25,7 @@ const AppSidebarControls = {
   },
   emits: ["endpoint-change", "go-overview", "go-settings"],
   methods: {
-    shortcutClass(kind) {
-      if (kind === "settings" && this.currentPath === "/settings") {
-        return "outlined xs icon sidebar-shortcut is-active";
-      }
+    shortcutClass() {
       return "outlined xs icon sidebar-shortcut";
     },
   },
@@ -52,20 +49,12 @@ const AppSidebarControls = {
         </div>
         <div class="sidebar-shortcuts">
           <QButton
-            :class="shortcutClass('overview')"
+            :class="shortcutClass()"
             :title="t('nav_overview')"
             :aria-label="t('nav_overview')"
             @click="$emit('go-overview')"
           >
             <QIconGrid class="icon" />
-          </QButton>
-          <QButton
-            :class="shortcutClass('settings')"
-            :title="t('nav_settings')"
-            :aria-label="t('nav_settings')"
-            @click="$emit('go-settings')"
-          >
-            <QIconSettings class="icon" />
           </QButton>
         </div>
       </div>

@@ -209,7 +209,6 @@ const StatsView = {
             @change="onModelChange"
           />
         </div>
-        <QButton class="outlined" :loading="loading" @click="load">{{ t("action_refresh") }}</QButton>
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />

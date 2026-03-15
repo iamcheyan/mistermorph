@@ -1,9 +1,13 @@
 .sidebar-nav {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   align-content: start;
   padding-right: 0;
 }
@@ -12,12 +16,19 @@
   width: 100%;
 }
 
+.nav-divider {
+  height: 0;
+  margin: 10px 9px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .nav-btn {
   display: flex;
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
   width: 100%;
+  min-width: 0;
   text-align: left;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -46,6 +57,9 @@
 
 .nav-label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-btn:focus-visible {
@@ -83,4 +97,9 @@
   display: grid;
   gap: 4px;
   padding: 0 12px;
+}
+
+.mobile-drawer-nav .nav-divider {
+  margin-left: 0;
+  margin-right: 0;
 }
