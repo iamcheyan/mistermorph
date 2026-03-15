@@ -78,6 +78,26 @@ function runtimeEndpointByRef(endpointRef) {
   return endpointState.items.find((item) => item && item.endpoint_ref === ref) || null;
 }
 
+function pushUniqueEndpointRef(list, value) {
+  const ref = typeof value === "string" ? value.trim() : "";
+  if (!ref || list.includes(ref)) {
+    return;
+  }
+  list.push(ref);
+}
+
+function taskEndpointRefsForSelection(endpointRef = endpointState.selectedRef) {
+  const refs = [];
+  const selected = runtimeEndpointByRef(endpointRef);
+  if (!selected) {
+    pushUniqueEndpointRef(refs, endpointRef);
+    return refs;
+  }
+  pushUniqueEndpointRef(refs, selected.endpoint_ref);
+  pushUniqueEndpointRef(refs, selected.submit_endpoint_ref);
+  return refs;
+}
+
 async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
   endpointRef = String(endpointRef || "").trim();
   if (!endpointRef) {
@@ -100,6 +120,29 @@ async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
 
 async function runtimeApiFetch(pathname, options = {}) {
   return runtimeApiFetchForEndpoint(endpointState.selectedRef.trim(), pathname, options);
+}
+
+async function runtimeApiFetchFirstForEndpoints(endpointRefs, pathname, options = {}) {
+  const refs = Array.isArray(endpointRefs)
+    ? endpointRefs.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (refs.length === 0) {
+    const err = new Error(translate("msg_select_endpoint"));
+    err.status = 400;
+    throw err;
+  }
+  let lastErr = null;
+  for (const endpointRef of refs) {
+    try {
+      return await runtimeApiFetchForEndpoint(endpointRef, pathname, options);
+    } catch (err) {
+      lastErr = err;
+      if (err?.status !== 404) {
+        throw err;
+      }
+    }
+  }
+  throw lastErr || new Error(`HTTP 404`);
 }
 
 function safeJSON(raw, fallback) {
@@ -214,7 +257,9 @@ export {
   ensureEndpointSelection,
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
+  runtimeApiFetchFirstForEndpoints,
   runtimeEndpointByRef,
+  taskEndpointRefsForSelection,
   safeJSON,
   formatTime,
   formatRemainingUntil,

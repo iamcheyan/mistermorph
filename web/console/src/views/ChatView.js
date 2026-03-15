@@ -12,6 +12,7 @@ import {
 
 const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
+const CHAT_HISTORY_LIMIT = 100;
 
 function normalizeTaskStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
@@ -46,6 +47,77 @@ function stringifyResult(result) {
   }
 }
 
+function taskCreatedAt(task) {
+  const value = Date.parse(String(task?.created_at || "").trim());
+  return Number.isFinite(value) ? value : 0;
+}
+
+function taskRawJSON(task) {
+  if (!task) {
+    return "";
+  }
+  return stringifyResult(task);
+}
+
+function taskOutputText(task) {
+  const summary = String(task?.result?.output || "").trim();
+  if (summary) {
+    return summary;
+  }
+  const finalOutput = task?.result?.final?.output;
+  if (typeof finalOutput === "string") {
+    return finalOutput.trim();
+  }
+  if (finalOutput !== undefined && finalOutput !== null) {
+    return stringifyResult(finalOutput);
+  }
+  return "";
+}
+
+function taskAgentText(task, t) {
+  const output = taskOutputText(task);
+  if (output) {
+    return output;
+  }
+  const errorText = String(task?.error || "").trim();
+  if (errorText) {
+    return errorText;
+  }
+  const status = normalizeTaskStatus(task?.status);
+  if (isTerminalStatus(status)) {
+    return t("chat_result_empty");
+  }
+  return t("chat_polling_hint");
+}
+
+function taskHistoryItems(task, t) {
+  const taskID = String(task?.id || "").trim();
+  if (!taskID) {
+    return [];
+  }
+  const items = [];
+  const userText = String(task?.task || "").trim();
+  if (userText) {
+    items.push({
+      id: `${taskID}:user`,
+      role: "user",
+      text: userText,
+      status: "",
+      taskId: "",
+      rawJSON: "",
+    });
+  }
+  items.push({
+    id: `${taskID}:agent`,
+    role: "agent",
+    text: taskAgentText(task, t),
+    status: normalizeTaskStatus(task?.status),
+    taskId: taskID,
+    rawJSON: taskRawJSON(task),
+  });
+  return items;
+}
+
 function newHistoryID() {
   return `${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -57,11 +129,15 @@ const ChatView = {
   setup() {
     const t = translate;
     const chatHistoryItems = ref([]);
+    const historyLoading = ref(false);
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
     const pollTimers = new Set();
     const composerField = ref(null);
+    const rawDialogOpen = ref(false);
+    const rawDialogJSON = ref("");
+    const rawDialogTaskID = ref("");
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const submitEndpointRef = computed(() => {
@@ -191,6 +267,7 @@ const ChatView = {
         text: String(partial?.text || ""),
         status: String(partial?.status || ""),
         taskId: String(partial?.taskId || ""),
+        rawJSON: String(partial?.rawJSON || ""),
       };
       chatHistoryItems.value = [...chatHistoryItems.value, item];
       return item.id;
@@ -201,10 +278,12 @@ const ChatView = {
       if (idx < 0) {
         return;
       }
-      chatHistoryItems.value[idx] = {
-        ...chatHistoryItems.value[idx],
+      const next = chatHistoryItems.value.slice();
+      next[idx] = {
+        ...next[idx],
         ...patch,
       };
+      chatHistoryItems.value = next;
     }
 
     function schedulePoll(fn) {
@@ -219,22 +298,10 @@ const ChatView = {
       try {
         const detail = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}`);
         const status = normalizeTaskStatus(detail?.status);
-        const hasResult = detail && detail.result !== undefined && detail.result !== null;
-        const resultText = stringifyResult(detail?.result);
-        const errorText = String(detail?.error || "").trim();
-        const lines = [`${t("chat_task_prefix")} ${taskID}`];
-        if (hasResult && resultText) {
-          lines.push(resultText);
-        } else if (errorText) {
-          lines.push(errorText);
-        } else if (isTerminalStatus(status)) {
-          lines.push(t("chat_result_empty"));
-        } else {
-          lines.push(t("chat_polling_hint"));
-        }
         patchHistoryItem(historyID, {
           status,
-          text: lines.join("\n\n"),
+          text: taskAgentText(detail, t),
+          rawJSON: taskRawJSON(detail),
         });
         if (!isTerminalStatus(status)) {
           schedulePoll(async () => {
@@ -245,8 +312,64 @@ const ChatView = {
         patchHistoryItem(historyID, {
           status: "failed",
           text: e?.message || t("msg_load_failed"),
+          rawJSON: "",
         });
       }
+    }
+
+    async function loadHistory() {
+      clearPollTimers();
+      err.value = "";
+      const endpointRef = submitEndpointRef.value;
+      if (!endpointRef) {
+        chatHistoryItems.value = [];
+        return;
+      }
+      historyLoading.value = true;
+      try {
+        const data = await runtimeApiFetchForEndpoint(
+          endpointRef,
+          `/tasks?limit=${CHAT_HISTORY_LIMIT}`
+        );
+        const tasks = Array.isArray(data?.items) ? [...data.items] : [];
+        tasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
+        const nextItems = tasks.flatMap((task) => taskHistoryItems(task, t));
+        chatHistoryItems.value =
+          nextItems.length > 0
+            ? nextItems
+            : [
+                {
+                  id: "chat-intro",
+                  role: "system",
+                  text: t("chat_intro"),
+                  status: "",
+                  taskId: "",
+                  rawJSON: "",
+                },
+              ];
+        for (const item of chatHistoryItems.value) {
+          if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
+            schedulePoll(async () => {
+              await pollTask(item.taskId, item.id, endpointRef);
+            });
+          }
+        }
+      } catch (e) {
+        chatHistoryItems.value = [];
+        err.value = e?.message || t("msg_load_failed");
+      } finally {
+        historyLoading.value = false;
+      }
+    }
+
+    function openRawDialog(item) {
+      rawDialogTaskID.value = String(item?.taskId || "").trim();
+      rawDialogJSON.value = String(item?.rawJSON || "").trim();
+      rawDialogOpen.value = rawDialogJSON.value !== "";
+    }
+
+    function closeRawDialog() {
+      rawDialogOpen.value = false;
     }
 
     async function submitTask() {
@@ -269,7 +392,7 @@ const ChatView = {
       });
       const agentHistoryID = pushHistoryItem({
         role: "agent",
-        text: t("chat_agent_waiting"),
+        text: t("chat_polling_hint"),
         status: "queued",
       });
 
@@ -286,7 +409,8 @@ const ChatView = {
         patchHistoryItem(agentHistoryID, {
           taskId: taskID,
           status,
-          text: `${t("chat_task_prefix")} ${taskID}\n\n${t("chat_polling_hint")}`,
+          text: t("chat_polling_hint"),
+          rawJSON: "",
         });
         await pollTask(taskID, agentHistoryID, endpointRef);
       } catch (e) {
@@ -295,27 +419,25 @@ const ChatView = {
         patchHistoryItem(agentHistoryID, {
           status: "failed",
           text: message,
+          rawJSON: "",
         });
       } finally {
         sending.value = false;
+        syncComposerHeight();
       }
     }
 
     onMounted(() => {
-      pushHistoryItem({
-        role: "system",
-        text: t("chat_intro"),
-      });
+      void loadHistory();
       syncComposerHeight();
     });
     onUnmounted(() => {
       clearPollTimers();
     });
     watch(
-      () => endpointState.selectedRef,
+      () => [endpointState.selectedRef, submitEndpointRef.value],
       () => {
-        clearPollTimers();
-        err.value = "";
+        void loadHistory();
         syncComposerHeight();
       }
     );
@@ -326,6 +448,7 @@ const ChatView = {
     return {
       t,
       chatHistoryItems,
+      historyLoading,
       taskInput,
       sending,
       err,
@@ -340,6 +463,11 @@ const ChatView = {
       roleText,
       statusText,
       historyClass,
+      openRawDialog,
+      closeRawDialog,
+      rawDialogOpen,
+      rawDialogJSON,
+      rawDialogTaskID,
     };
   },
   template: `
@@ -351,15 +479,27 @@ const ChatView = {
       </section>
       <template v-else>
         <div class="chat-history">
+          <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
           <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
             <header class="chat-history-head">
               <code class="chat-history-role">{{ roleText(item.role) }}</code>
               <code v-if="item.status" class="chat-history-status">{{ statusText(item.status) }}</code>
             </header>
-            <pre class="chat-history-body">{{ item.text }}</pre>
-            <code v-if="item.taskId" class="chat-history-task">{{ t("chat_task_prefix") }} {{ item.taskId }}</code>
+            <div class="chat-history-body">{{ item.text }}</div>
+            <footer v-if="item.taskId || item.rawJSON" class="chat-history-foot">
+              <code v-if="item.taskId" class="chat-history-task">{{ t("chat_task_prefix") }} {{ item.taskId }}</code>
+              <QButton
+                v-if="item.rawJSON"
+                class="plain sm icon chat-history-raw"
+                :title="t('chat_action_show_raw')"
+                :aria-label="t('chat_action_show_raw')"
+                @click="openRawDialog(item)"
+              >
+                <span class="chat-history-raw-glyph">{ }</span>
+              </QButton>
+            </footer>
           </article>
-          <p v-if="chatHistoryItems.length === 0" class="muted">{{ t("chat_empty") }}</p>
+          <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
         </div>
         <div class="chat-composer">
           <QTextarea
@@ -385,6 +525,18 @@ const ChatView = {
               </div>
             </template>
           </QTextarea>
+        </div>
+        <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
+          <section class="chat-raw-dialog frame">
+            <header class="chat-raw-head">
+              <div class="chat-raw-copy">
+                <code class="chat-raw-kicker">{{ t("chat_task_prefix") }} {{ rawDialogTaskID || "-" }}</code>
+                <h3 class="chat-raw-title">{{ t("chat_raw_title") }}</h3>
+              </div>
+              <QButton class="plain sm" @click="closeRawDialog">{{ t("action_close") }}</QButton>
+            </header>
+            <pre class="chat-raw-body">{{ rawDialogJSON }}</pre>
+          </section>
         </div>
       </template>
     </AppPage>

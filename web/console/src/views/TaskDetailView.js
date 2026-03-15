@@ -2,7 +2,12 @@ import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import AppPage from "../components/AppPage";
-import { endpointState, runtimeApiFetch, translate } from "../core/context";
+import {
+  endpointState,
+  runtimeApiFetchFirstForEndpoints,
+  taskEndpointRefsForSelection,
+  translate,
+} from "../core/context";
 
 const TaskDetailView = {
   components: {
@@ -21,7 +26,10 @@ const TaskDetailView = {
       err.value = "";
       try {
         const id = route.params.id || "";
-        const data = await runtimeApiFetch(`/tasks/${encodeURIComponent(id)}`);
+        const data = await runtimeApiFetchFirstForEndpoints(
+          taskEndpointRefsForSelection(),
+          `/tasks/${encodeURIComponent(id)}`
+        );
         detailJSON.value = JSON.stringify(data, null, 2);
       } catch (e) {
         detailJSON.value = "";
@@ -37,7 +45,7 @@ const TaskDetailView = {
 
     onMounted(load);
     watch(
-      () => [route.params.id, endpointState.selectedRef],
+      () => [route.params.id, endpointState.selectedRef, endpointState.items.length],
       () => {
         void load();
       }

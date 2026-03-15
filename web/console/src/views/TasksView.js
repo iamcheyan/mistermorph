@@ -3,7 +3,32 @@ import { useRouter } from "vue-router";
 import "./TasksView.css";
 
 import AppPage from "../components/AppPage";
-import { TASK_STATUS_META, endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
+import { endpointChannelLabel } from "../core/endpoints";
+import {
+  TASK_STATUS_META,
+  endpointState,
+  formatTime,
+  runtimeApiFetchForEndpoint,
+  runtimeEndpointByRef,
+  taskEndpointRefsForSelection,
+  translate,
+} from "../core/context";
+
+function taskCreatedAt(task) {
+  const value = Date.parse(String(task?.created_at || "").trim());
+  return Number.isFinite(value) ? value : 0;
+}
+
+function taskTextPreview(task) {
+  const text = String(task?.task || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= 180) {
+    return text;
+  }
+  return `${text.slice(0, 177)}...`;
+}
 
 const TasksView = {
   components: {
@@ -41,8 +66,45 @@ const TasksView = {
         }
         const limit = Math.max(1, Math.min(200, parseInt(limitText.value || "20", 10) || 20));
         q.set("limit", String(limit));
-        const data = await runtimeApiFetch(`/tasks?${q.toString()}`);
-        items.value = Array.isArray(data.items) ? data.items : [];
+        const endpointRefs = taskEndpointRefsForSelection();
+        const settled = await Promise.allSettled(
+          endpointRefs.map(async (endpointRef) => {
+            const endpoint = runtimeEndpointByRef(endpointRef);
+            const data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks?${q.toString()}`);
+            return {
+              endpointRef,
+              endpoint,
+              items: Array.isArray(data?.items) ? data.items : [],
+            };
+          })
+        );
+        const failures = settled.filter((entry) => entry.status === "rejected");
+        const successes = settled.filter((entry) => entry.status === "fulfilled");
+        if (successes.length === 0) {
+          throw failures[0]?.reason || new Error(t("msg_load_failed"));
+        }
+        const merged = new Map();
+        for (const entry of successes) {
+          const { endpoint, endpointRef, items: rows } = entry.value;
+          const sourceLabel = endpointChannelLabel(endpoint?.mode, t);
+          for (const item of rows) {
+            const id = String(item?.id || "").trim();
+            if (!id) {
+              continue;
+            }
+            const nextItem = {
+              ...item,
+              source_label: sourceLabel,
+              source_endpoint_ref: endpointRef,
+              task_preview: taskTextPreview(item),
+            };
+            const current = merged.get(id);
+            if (!current || taskCreatedAt(nextItem) >= taskCreatedAt(current)) {
+              merged.set(id, nextItem);
+            }
+          }
+        }
+        items.value = Array.from(merged.values()).sort((left, right) => taskCreatedAt(right) - taskCreatedAt(left));
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
       } finally {
@@ -65,14 +127,14 @@ const TasksView = {
     }
 
     function summary(item) {
-      const source = item.source || "daemon";
+      const source = item.source_label || item.source || "runtime";
       const status = (item.status || "unknown").toUpperCase();
-      return `[${status}] ${item.id} | ${source} | ${item.model || "-"} | ${formatTime(item.created_at)}`;
+      return `[${status}] ${source} | ${item.model || "-"} | ${formatTime(item.created_at)} | ${item.id}`;
     }
 
     onMounted(load);
     watch(
-      () => endpointState.selectedRef,
+      () => [endpointState.selectedRef, endpointState.items.length],
       () => {
         void load();
       }
@@ -90,6 +152,7 @@ const TasksView = {
       openTask,
       goChat,
       summary,
+      taskTextPreview,
       emptyTitle,
       emptyHint,
     };
@@ -122,7 +185,10 @@ const TasksView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <div class="stack">
         <div v-for="item in items" :key="item.id" class="task-row">
-          <code class="task-line">{{ summary(item) }}</code>
+          <div class="task-copy">
+            <code class="task-line">{{ summary(item) }}</code>
+            <p v-if="item.task_preview" class="task-preview">{{ item.task_preview }}</p>
+          </div>
           <QButton class="plain" @click="openTask(item.id)">{{ t("task_detail") }}</QButton>
         </div>
         <section v-if="items.length === 0 && !loading" class="task-empty frame">

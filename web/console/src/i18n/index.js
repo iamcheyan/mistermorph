@@ -123,8 +123,11 @@ const I18N = {
     chat_role_system: "System",
     chat_task_prefix: "Task",
     chat_polling_hint: "Waiting for task updates...",
+    chat_history_loading: "Loading chat history...",
     chat_result_empty: "Task finished with no output.",
     chat_empty: "No chat history",
+    chat_action_show_raw: "Show raw JSON",
+    chat_raw_title: "Raw JSON",
     chat_missing_task_id: "Task submitted but ID is missing",
     chat_submit_unsupported:
       "Endpoint \"{name}\" is read-only from this Console. Open that instance's own Console, or switch to a local endpoint that can submit tasks.",
@@ -175,6 +178,7 @@ const I18N = {
 
     action_save: "Save",
     action_back: "Back",
+    action_close: "Close",
     action_refresh: "Refresh",
     action_logout: "Logout",
 
@@ -339,8 +343,11 @@ const I18N = {
     chat_role_system: "系统",
     chat_task_prefix: "任务",
     chat_polling_hint: "任务执行中，正在持续刷新...",
+    chat_history_loading: "正在加载聊天记录...",
     chat_result_empty: "任务完成，但没有返回内容。",
     chat_empty: "暂无聊天记录",
+    chat_action_show_raw: "查看原始 JSON",
+    chat_raw_title: "原始 JSON",
     chat_missing_task_id: "任务已提交，但缺少任务 ID",
     chat_submit_unsupported:
       "当前 Console 无法向 endpoint \"{name}\" 发送任务。请打开该实例自己的 Console，或切换到可提交任务的本地 endpoint。",
@@ -391,6 +398,7 @@ const I18N = {
 
     action_save: "保存",
     action_back: "返回",
+    action_close: "关闭",
     action_refresh: "刷新",
     action_logout: "退出",
 
@@ -555,8 +563,11 @@ const I18N = {
     chat_role_system: "System",
     chat_task_prefix: "Task",
     chat_polling_hint: "タスク更新を待っています...",
+    chat_history_loading: "チャット履歴を読み込み中...",
     chat_result_empty: "タスクは完了しましたが出力がありません。",
     chat_empty: "チャット履歴はありません",
+    chat_action_show_raw: "生の JSON を表示",
+    chat_raw_title: "生の JSON",
     chat_missing_task_id: "タスクは送信されましたが ID がありません",
     chat_submit_unsupported:
       "endpoint \"{name}\" にはこの Console からタスク送信できません。そのインスタンス自身の Console を開くか、送信可能なローカル endpoint に切り替えてください。",
@@ -607,6 +618,7 @@ const I18N = {
 
     action_save: "保存",
     action_back: "戻る",
+    action_close: "閉じる",
     action_refresh: "更新",
     action_logout: "ログアウト",
 

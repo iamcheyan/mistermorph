@@ -2,18 +2,30 @@
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  align-items: center;
+  align-items: start;
   padding: 8px 10px 12px;
+}
+
+.task-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .task-line {
   display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-1);
+}
+
+.task-preview {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-0);
 }
 
 .task-empty {
