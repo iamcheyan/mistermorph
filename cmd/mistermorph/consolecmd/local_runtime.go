@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -28,9 +29,9 @@ import (
 const (
 	consoleLocalEndpointRef   = "ep_console_local"
 	consoleLocalEndpointName  = "Console Local"
+	consoleLocalEndpointURL   = "in-process://console-local"
 	consoleConversationKey    = "console:main"
 	consoleTaskOutputMaxChars = 4000
-	consoleServeListenDefault = "127.0.0.1:8791"
 )
 
 type consoleLocalTaskJob struct {
@@ -55,8 +56,8 @@ type consoleLocalRuntime struct {
 	memoryInjectionEnabled  bool
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
+	handler                 http.Handler
 	authToken               string
-	serveListen             string
 	cancelWorkers           context.CancelFunc
 	seq                     atomic.Uint64
 }
@@ -107,12 +108,11 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memRuntime.ProjectionWorker.Start(workersCtx)
 	}
 
-	serveListen := resolveConsoleServeListen()
 	authToken := strings.TrimSpace(viper.GetString("server.auth_token"))
 	if authToken == "" {
 		cancelWorkers()
 		memRuntime.Cleanup()
-		return nil, fmt.Errorf("missing server.auth_token (set via MISTER_MORPH_SERVER_AUTH_TOKEN) for console runtime API")
+		return nil, fmt.Errorf("missing server.auth_token (set via MISTER_MORPH_SERVER_AUTH_TOKEN) for console local runtime")
 	}
 	serverMaxQueue := viper.GetInt("server.max_queue")
 	if serverMaxQueue <= 0 {
@@ -132,7 +132,6 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memoryInjectionMaxItems: viper.GetInt("memory.injection.max_items"),
 		memRuntime:              memRuntime,
 		authToken:               authToken,
-		serveListen:             serveListen,
 		cancelWorkers:           cancelWorkers,
 	}
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
@@ -143,15 +142,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			out.handleTaskJob(workerCtx, conversationKey, job)
 		},
 	)
-	if _, err := daemonruntime.StartServer(workersCtx, logger, daemonruntime.ServerOptions{
-		Listen: serveListen,
-		Routes: out.routesOptions(strings.TrimSpace(authToken)),
-	}); err != nil {
-		cancelWorkers()
-		memRuntime.Cleanup()
-		return nil, fmt.Errorf("start console runtime api server: %w", err)
-	}
-	logger.Info("console_runtime_server_start", "addr", serveListen)
+	out.handler = daemonruntime.NewHandler(out.routesOptions(strings.TrimSpace(authToken)))
 	return out, nil
 }
 
@@ -168,12 +159,11 @@ func (r *consoleLocalRuntime) Close() {
 }
 
 func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
-	url := "http://" + strings.TrimSpace(r.serveListen)
 	return runtimeEndpoint{
 		Ref:    consoleLocalEndpointRef,
 		Name:   consoleLocalEndpointName,
-		URL:    url,
-		Client: newDaemonTaskClient(url, r.authToken),
+		URL:    consoleLocalEndpointURL,
+		Client: newInProcessRuntimeEndpointClient(r.handler, r.authToken),
 	}
 }
 
@@ -201,16 +191,6 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			}, nil
 		},
 	}
-}
-
-func resolveConsoleServeListen() string {
-	if listen := strings.TrimSpace(viper.GetString("console.serve_listen")); listen != "" {
-		return listen
-	}
-	if legacy := strings.TrimSpace(viper.GetString("server.listen")); legacy != "" {
-		return legacy
-	}
-	return consoleServeListenDefault
 }
 
 func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {

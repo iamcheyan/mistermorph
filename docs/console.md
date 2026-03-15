@@ -14,12 +14,13 @@ Stack:
 
 ## Runtime Notes
 
-- Console APIs are served under `<console.base_path>/api` (default: `/console/api`).
+- Console APIs are served under `<console.base_path>/api` (default: `/api`).
 - Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
 - `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
   - It runs tasks in its own runtime loop via shared runtime core.
   - Memory subject/session id for this endpoint uses `console:*` prefix (current key: `console:main`).
-  - Runtime API server listens on `console.serve_listen` (fallback `server.listen`, then `127.0.0.1:8791`) and is protected by `server.auth_token`.
+  - Its runtime API is wired in-process through the shared `daemonruntime` handlers; no extra TCP listener is started.
+  - The local runtime still reuses the auth-gated runtime API contract and therefore requires `server.auth_token`.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
 - Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`); console itself does not persist history on disk.
 
@@ -193,7 +194,6 @@ server:
   auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
 
 console:
-  serve_listen: "127.0.0.1:8791"
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"

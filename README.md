@@ -228,7 +228,6 @@ server:
   auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
 
 console:
-  serve_listen: "127.0.0.1:8791"
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"

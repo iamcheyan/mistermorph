@@ -393,9 +393,9 @@ The console runtime is positioned as a first-class channel adapter with its own 
      - `slack.serve_listen`
      - `line.serve_listen`
      - `lark.serve_listen`
-     - `console.serve_listen`
    - Give each channel a different default port to avoid collisions.
    - Keep backward compatibility by allowing fallback from `<channel>.serve_listen` to existing `server.listen` during migration.
+   - Console was later simplified again to use an in-process local runtime transport, so it no longer needs a dedicated `console.serve_listen`.
 5. Core lifecycle:
    - Console inbound submit must follow the same adapter->core->run->lifecycle flow as other channels.
 6. Memory identity:

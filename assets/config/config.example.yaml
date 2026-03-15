@@ -310,10 +310,7 @@ console:
   password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH
   # Session TTL for console bearer token.
   session_ttl: "12h"
-  # Runtime API listen address for built-in Console runtime (`/tasks`, `/overview`, files/memory APIs).
-  # Protected by server.auth_token.
-  # Fallback order: console.serve_listen -> server.listen -> 127.0.0.1:8791
-  serve_listen: ""
+  # Console always includes one built-in local runtime endpoint in-process.
   # Runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:

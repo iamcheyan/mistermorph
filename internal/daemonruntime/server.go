@@ -645,6 +645,20 @@ type ServerOptions struct {
 	Routes RoutesOptions
 }
 
+func NewHandler(opts RoutesOptions) http.Handler {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, opts)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	return mux
+}
+
 func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (*http.Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -657,17 +671,6 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 		return nil, errors.New("empty daemon listen address")
 	}
 
-	mux := http.NewServeMux()
-	RegisterRoutes(mux, opts.Routes)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		if r.Method == http.MethodHead {
-			return
-		}
-		_, _ = w.Write([]byte("ok\n"))
-	})
-
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -675,7 +678,7 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           mux,
+		Handler:           NewHandler(opts.Routes),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
