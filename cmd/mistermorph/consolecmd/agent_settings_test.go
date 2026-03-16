@@ -33,6 +33,10 @@ func TestReadAgentSettings(t *testing.T) {
 	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
 		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
 	}
+	if !got.Tools.WriteFileEnabled || !got.Tools.ContactsSendEnabled || !got.Tools.TodoUpdateEnabled ||
+		!got.Tools.PlanCreateEnabled || !got.Tools.URLFetchEnabled || !got.Tools.WebSearchEnabled {
+		t.Fatalf("got.Tools defaults not applied: %+v", got.Tools)
+	}
 	if got.Tools.BashEnabled {
 		t.Fatalf("got.Tools.BashEnabled = true, want false")
 	}

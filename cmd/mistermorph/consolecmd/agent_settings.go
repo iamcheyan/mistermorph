@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
@@ -165,6 +166,7 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 		return readAgentSettingsFromReader(viper.GetViper()), nil
 	}
 	tmp := viper.New()
+	integration.ApplyViperDefaults(tmp)
 	tmp.SetConfigType("yaml")
 	if err := tmp.ReadConfig(bytes.NewReader(data)); err != nil {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
@@ -208,6 +210,7 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 
 func validateAgentConfigDocument(data []byte) (*viper.Viper, error) {
 	tmp := viper.New()
+	integration.ApplyViperDefaults(tmp)
 	tmp.SetConfigType("yaml")
 	if err := tmp.ReadConfig(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("invalid config yaml: %w", err)
