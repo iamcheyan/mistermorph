@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
@@ -50,6 +51,7 @@ type RunOptions struct {
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
+	TaskStore                     daemonruntime.TaskView
 }
 
 type ServerOptions struct {
@@ -146,7 +148,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 	hooks := opts.Hooks
 	slog.SetDefault(logger)
-	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
+	daemonStore := opts.TaskStore
+	if daemonStore == nil {
+		daemonStore, err = daemonruntime.NewTaskViewForTarget("slack", opts.Server.MaxQueue)
+		if err != nil {
+			return err
+		}
+	}
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -314,6 +322,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:       "slack",
+				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
 				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
@@ -582,13 +591,15 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
+			topicID, topicTitle := slackManagedTopicInfo(inbound.TeamID, inbound.ChannelID, inbound.ThreadTS, inbound.MessageTS)
+			recordSlackQueuedTask(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     strings.TrimSpace(model),
 				Timeout:   taskTimeout.String(),
 				CreatedAt: createdAt,
+				TopicID:   topicID,
 				Result: map[string]any{
 					"source":            "slack",
 					"slack_team_id":     inbound.TeamID,
@@ -597,7 +608,11 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					"slack_thread_ts":   inbound.ThreadTS,
 					"slack_from_userID": inbound.UserID,
 				},
-			})
+			}, daemonruntime.TaskTrigger{
+				Source: "webhook",
+				Event:  "webhook_inbound",
+				Ref:    fmt.Sprintf("slack/%s/%s/%s", inbound.TeamID, inbound.ChannelID, inbound.MessageTS),
+			}, topicTitle)
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{
 			ConversationKey: msg.ConversationKey,
@@ -962,6 +977,33 @@ func normalizeThreshold(primary, secondary, def float64) float64 {
 
 func slackTaskID(teamID, channelID, messageTS string) string {
 	return daemonruntime.BuildTaskID("sl", teamID, channelID, messageTS)
+}
+
+func slackManagedTopicInfo(teamID, channelID, threadTS, messageTS string) (string, string) {
+	teamID = strings.TrimSpace(teamID)
+	channelID = strings.TrimSpace(channelID)
+	threadTS = strings.TrimSpace(threadTS)
+	messageTS = strings.TrimSpace(messageTS)
+	topicID := "slack:" + teamID + ":" + channelID
+	title := "Slack · " + channelID
+	if threadTS != "" && threadTS != messageTS {
+		topicID += ":thread:" + threadTS
+		title += " · thread"
+	}
+	return daemonruntime.TruncateUTF8(topicID, 120), daemonruntime.TruncateUTF8(title, 72)
+}
+
+func recordSlackQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) {
+	if store == nil {
+		return
+	}
+	if writer, ok := store.(interface {
+		UpsertWithTrigger(daemonruntime.TaskInfo, daemonruntime.TaskTrigger, string) error
+	}); ok {
+		_ = writer.UpsertWithTrigger(info, trigger, topicTitle)
+		return
+	}
+	_ = daemonruntime.RecordTaskUpsert(store, info, trigger)
 }
 
 func isSlackTaskContextCanceled(err error) bool {

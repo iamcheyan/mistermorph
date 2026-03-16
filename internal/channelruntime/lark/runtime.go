@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -45,7 +46,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		logger.Warn("lark_verification_token_empty", "hint", "set lark.verification_token to validate webhook requests")
 	}
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	daemonStore, err := daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue)
+	if err != nil {
+		return err
+	}
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
 		Logger:      logger,
@@ -184,6 +188,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:       "lark",
+				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
 				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
@@ -395,7 +400,14 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
+			triggerRef := strings.TrimSpace(inbound.EventID)
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.MessageID)
+			}
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.ChatID)
+			}
+			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
@@ -409,6 +421,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					"lark_chat_type":    inbound.ChatType,
 					"lark_from_open_id": inbound.FromUserID,
 				},
+			}, daemonruntime.TaskTrigger{
+				Source: "webhook",
+				Event:  "webhook_inbound",
+				Ref:    triggerRef,
 			})
 		}
 		logger.Info("lark_task_enqueued",

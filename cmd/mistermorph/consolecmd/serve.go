@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -34,6 +35,7 @@ type serveConfig struct {
 	password     string
 	passwordHash string
 	endpoints    []runtimeEndpointConfig
+	managedKinds []string
 	stateDir     string
 }
 
@@ -61,6 +63,7 @@ type runtimeEndpointClient interface {
 
 type runtimeEndpointHealth struct {
 	Mode       string
+	AgentName  string
 	CanSubmit  bool
 	InstanceID string
 }
@@ -81,6 +84,7 @@ type server struct {
 	endpoints     []runtimeEndpoint
 	endpointByRef map[string]runtimeEndpoint
 	localRuntime  *consoleLocalRuntime
+	managed       *managedRuntimeSupervisor
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -140,6 +144,10 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if err != nil {
 		return serveConfig{}, err
 	}
+	managedKinds, err := normalizeManagedRuntimeKinds(viper.GetStringSlice("console.managed_runtimes"))
+	if err != nil {
+		return serveConfig{}, err
+	}
 
 	return serveConfig{
 		listen:       listen,
@@ -149,6 +157,7 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		password:     viper.GetString("console.password"),
 		passwordHash: viper.GetString("console.password_hash"),
 		endpoints:    endpoints,
+		managedKinds: managedKinds,
 		stateDir:     stateDir,
 	}, nil
 }
@@ -236,6 +245,7 @@ func newServer(cfg serveConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds)
 
 	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
 	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
@@ -262,12 +272,16 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpoints:     endpoints,
 		endpointByRef: endpointByRef,
 		localRuntime:  localRuntime,
+		managed:       managed,
 	}, nil
 }
 
 func (s *server) run() error {
 	if s != nil && s.localRuntime != nil {
 		defer s.localRuntime.Close()
+	}
+	if s != nil && s.managed != nil {
+		defer s.managed.Close()
 	}
 
 	mux := http.NewServeMux()
@@ -277,6 +291,8 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
+	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
+	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 
 	if s.cfg.staticDir != "" {
@@ -297,11 +313,37 @@ func (s *server) run() error {
 	if err != nil {
 		return err
 	}
+	fatalErrCh := make(chan error, 1)
+	if s != nil && s.managed != nil {
+		if err := s.managed.Start(context.Background(), func(err error) {
+			if err == nil {
+				return
+			}
+			select {
+			case fatalErrCh <- err:
+			default:
+			}
+			_ = ln.Close()
+			_ = httpSrv.Close()
+		}); err != nil {
+			_ = ln.Close()
+			return err
+		}
+	}
 	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
 	if s.cfg.staticDir == "" {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
-	return httpSrv.Serve(ln)
+	err = httpSrv.Serve(ln)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	select {
+	case fatalErr := <-fatalErrCh:
+		return fatalErr
+	default:
+		return nil
+	}
 }
 
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -408,6 +450,7 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		Name              string
 		URL               string
 		Connected         bool
+		AgentName         string
 		Mode              string
 		CanSubmit         bool
 		InstanceID        string
@@ -422,16 +465,18 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(r.Context(), endpointHealthTimeout)
 			health, err := ep.Client.Health(ctx)
-			cancel()
-			snapshots[i] = endpointSnapshot{
+			snapshot := endpointSnapshot{
 				Ref:        ep.Ref,
 				Name:       ep.Name,
 				URL:        ep.URL,
 				Connected:  err == nil,
+				AgentName:  health.AgentName,
 				Mode:       health.Mode,
 				CanSubmit:  health.CanSubmit,
 				InstanceID: health.InstanceID,
 			}
+			cancel()
+			snapshots[i] = snapshot
 		}(i, ep)
 	}
 	wg.Wait()
@@ -462,6 +507,7 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			"name":                item.Name,
 			"url":                 item.URL,
 			"connected":           item.Connected,
+			"agent_name":          item.AgentName,
 			"mode":                item.Mode,
 			"can_submit":          item.CanSubmit,
 			"submit_endpoint_ref": item.SubmitEndpointRef,

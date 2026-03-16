@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,13 +18,16 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -35,36 +39,48 @@ const (
 	consoleLocalEndpointRef   = "ep_console_local"
 	consoleLocalEndpointName  = "Console Local"
 	consoleLocalEndpointURL   = "in-process://console-local"
-	consoleConversationKey    = "console:main"
 	consoleTaskOutputMaxChars = 4000
+	consoleTopicTitleMaxChars = 72
+	consoleTopicTitleTimeout  = 20 * time.Second
 )
 
 type consoleLocalTaskJob struct {
 	TaskID          string
 	ConversationKey string
+	TopicID         string
 	Task            string
 	Model           string
 	Timeout         time.Duration
 	CreatedAt       time.Time
+	Trigger         daemonruntime.TaskTrigger
+	AutoRenameTopic bool
 	Version         uint64
+}
+
+type consoleLocalRuntimeBundle struct {
+	taskRuntime     *taskruntime.Runtime
+	mcpHost         *mcphost.Host
+	defaultModel    string
+	defaultProvider string
 }
 
 type consoleLocalRuntime struct {
 	logger                  *slog.Logger
-	store                   *daemonruntime.MemoryStore
+	store                   *daemonruntime.ConsoleFileStore
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
+	bundleMu                sync.RWMutex
+	bundle                  *consoleLocalRuntimeBundle
+	managedRuntimeMu        sync.RWMutex
+	managedRuntimeRunning   map[string]bool
 	commonDeps              depsutil.CommonDependencies
-	taskRuntime             *taskruntime.Runtime
-	mcpHost                 *mcphost.Host
 	memoryEnabled           bool
 	defaultTimeout          time.Duration
-	defaultModel            string
-	defaultProvider         string
 	memoryInjectionEnabled  bool
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
 	handler                 http.Handler
 	authToken               string
+	agentName               string
 	cancelWorkers           context.CancelFunc
 	seq                     atomic.Uint64
 }
@@ -76,8 +92,13 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 	slog.SetDefault(logger)
 	logOpts := logutil.LogOptionsFromViper()
+	out := &consoleLocalRuntime{
+		logger: logger,
+	}
+	var baseRegistry *tools.Registry
+	var sharedGuard *guard.Guard
+	var mcpHost *mcphost.Host
 
-	llmValues := llmutil.RuntimeValuesFromViper()
 	commonDeps := depsutil.CommonDependencies{
 		Logger: func() (*slog.Logger, error) {
 			return logger, nil
@@ -86,7 +107,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			return logOpts
 		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRoute(llmValues, purpose)
+			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
@@ -96,6 +117,12 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger), nil
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
+		Registry: func() *tools.Registry {
+			return baseRegistry
+		},
+		Guard: func(_ *slog.Logger) *guard.Guard {
+			return sharedGuard
+		},
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := skillsutil.SkillsConfigFromViper()
 			if len(stickySkills) > 0 {
@@ -105,18 +132,13 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		},
 	}
 
-	baseRegistry, mcpHost := buildConsoleBaseRegistry(context.Background(), logger)
-	sharedGuard := buildConsoleGuardFromViper(logger)
-	commonDeps.Registry = func() *tools.Registry {
-		return baseRegistry
-	}
-	commonDeps.Guard = func(_ *slog.Logger) *guard.Guard {
-		return sharedGuard
-	}
-	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+	baseRegistry, mcpHost = buildConsoleBaseRegistry(context.Background(), logger)
+	sharedGuard = buildConsoleGuardFromViper(logger)
+	taskRuntimeOpts := taskruntime.BootstrapOptions{
 		AgentConfig:          consoleAgentConfigFromViper(),
 		DefaultModelFallback: "gpt-5.2",
-	})
+	}
+	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskRuntimeOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -153,28 +175,33 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memRuntime.Cleanup()
 		return nil, fmt.Errorf("missing server.auth_token (set via MISTER_MORPH_SERVER_AUTH_TOKEN) for console local runtime")
 	}
-	serverMaxQueue := viper.GetInt("server.max_queue")
-	if serverMaxQueue <= 0 {
-		serverMaxQueue = 100
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		RootDir:          statepaths.TaskTargetDir("console"),
+		HeartbeatTopicID: strings.TrimSpace(viper.GetString("tasks.targets.console.heartbeat_topic_id")),
+		Persist:          consoleTaskPersistenceEnabled(),
+	})
+	if err != nil {
+		cancelWorkers()
+		memRuntime.Cleanup()
+		return nil, err
 	}
-
-	store := daemonruntime.NewMemoryStore(serverMaxQueue)
-	out := &consoleLocalRuntime{
-		logger:                  logger,
-		store:                   store,
-		commonDeps:              commonDeps,
-		taskRuntime:             execRuntime,
-		mcpHost:                 mcpHost,
-		memoryEnabled:           memoryEnabled,
-		defaultTimeout:          defaultTimeout,
-		defaultModel:            execRuntime.MainModel,
-		defaultProvider:         execRuntime.MainProvider,
-		memoryInjectionEnabled:  viper.GetBool("memory.injection.enabled"),
-		memoryInjectionMaxItems: viper.GetInt("memory.injection.max_items"),
-		memRuntime:              memRuntime,
-		authToken:               authToken,
-		cancelWorkers:           cancelWorkers,
+	out.store = store
+	out.bundle = &consoleLocalRuntimeBundle{
+		taskRuntime:     execRuntime,
+		mcpHost:         mcpHost,
+		defaultModel:    execRuntime.MainModel,
+		defaultProvider: execRuntime.MainProvider,
 	}
+	out.managedRuntimeRunning = map[string]bool{}
+	out.commonDeps = commonDeps
+	out.memoryEnabled = memoryEnabled
+	out.defaultTimeout = defaultTimeout
+	out.memoryInjectionEnabled = viper.GetBool("memory.injection.enabled")
+	out.memoryInjectionMaxItems = viper.GetInt("memory.injection.max_items")
+	out.memRuntime = memRuntime
+	out.authToken = authToken
+	out.agentName = personautil.LoadAgentName(statepaths.FileStateDir())
+	out.cancelWorkers = cancelWorkers
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
 		make(chan struct{}, 1),
@@ -183,8 +210,68 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			out.handleTaskJob(workerCtx, conversationKey, job)
 		},
 	)
+	out.startHeartbeatLoop(workersCtx)
 	out.handler = daemonruntime.NewHandler(out.routesOptions(strings.TrimSpace(authToken)))
 	return out, nil
+}
+
+func (r *consoleLocalRuntime) currentBundle() *consoleLocalRuntimeBundle {
+	if r == nil {
+		return nil
+	}
+	r.bundleMu.RLock()
+	defer r.bundleMu.RUnlock()
+	return r.bundle
+}
+
+func (r *consoleLocalRuntime) defaultLLMConfig() (string, string) {
+	bundle := r.currentBundle()
+	if bundle == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(bundle.defaultProvider), strings.TrimSpace(bundle.defaultModel)
+}
+
+func (r *consoleLocalRuntime) ReloadAgentConfig() error {
+	if r == nil {
+		return fmt.Errorf("console runtime is not initialized")
+	}
+	baseRegistry, mcpHost := buildConsoleBaseRegistry(context.Background(), r.logger)
+	sharedGuard := buildConsoleGuardFromViper(r.logger)
+	deps := r.commonDeps
+	deps.Registry = func() *tools.Registry { return baseRegistry }
+	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
+	deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
+		AgentConfig:          consoleAgentConfigFromViper(),
+		DefaultModelFallback: "gpt-5.2",
+	})
+	if err != nil {
+		if mcpHost != nil {
+			_ = mcpHost.Close()
+		}
+		return err
+	}
+	if warning := consoleLLMCredentialsWarning(rt.MainRoute); warning != "" {
+		r.logger.Warn("console_llm_credentials_missing",
+			"provider", rt.MainProvider,
+			"hint", warning,
+		)
+	}
+	nextBundle := &consoleLocalRuntimeBundle{
+		taskRuntime:     rt,
+		mcpHost:         mcpHost,
+		defaultModel:    rt.MainModel,
+		defaultProvider: rt.MainProvider,
+	}
+	r.bundleMu.Lock()
+	prevBundle := r.bundle
+	r.bundle = nextBundle
+	r.bundleMu.Unlock()
+	if prevBundle != nil && prevBundle.mcpHost != nil {
+		_ = prevBundle.mcpHost.Close()
+	}
+	return nil
 }
 
 func (r *consoleLocalRuntime) Close() {
@@ -197,8 +284,9 @@ func (r *consoleLocalRuntime) Close() {
 	if r.memRuntime.Cleanup != nil {
 		r.memRuntime.Cleanup()
 	}
-	if r.mcpHost != nil {
-		_ = r.mcpHost.Close()
+	bundle := r.currentBundle()
+	if bundle != nil && bundle.mcpHost != nil {
+		_ = bundle.mcpHost.Close()
 	}
 }
 
@@ -236,27 +324,61 @@ func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
 	return daemonruntime.RoutesOptions{
 		Mode:          "console",
+		AgentName:     strings.TrimSpace(r.agentName),
 		AuthToken:     strings.TrimSpace(authToken),
 		TaskReader:    r.store,
+		TopicReader:   r.store,
+		TopicDeleter:  r.store,
 		Submit:        r.submitTask,
 		HealthEnabled: true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
+			provider, model := r.defaultLLMConfig()
 			return map[string]any{
 				"llm": map[string]any{
-					"provider": r.defaultProvider,
-					"model":    r.defaultModel,
+					"provider": provider,
+					"model":    model,
 				},
 				"channel": map[string]any{
 					"configured":          true,
-					"telegram_configured": false,
-					"slack_configured":    false,
-					"running":             "console",
-					"telegram_running":    false,
-					"slack_running":       false,
+					"telegram_configured": strings.TrimSpace(viper.GetString("telegram.bot_token")) != "",
+					"slack_configured": strings.TrimSpace(viper.GetString("slack.bot_token")) != "" &&
+						strings.TrimSpace(viper.GetString("slack.app_token")) != "",
+					"running":          "console",
+					"telegram_running": r.isManagedRuntimeRunning("telegram"),
+					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
 			}, nil
 		},
 	}
+}
+
+func (r *consoleLocalRuntime) SetManagedRuntimeRunning(kind string, running bool) {
+	if r == nil {
+		return
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return
+	}
+	r.managedRuntimeMu.Lock()
+	defer r.managedRuntimeMu.Unlock()
+	if r.managedRuntimeRunning == nil {
+		r.managedRuntimeRunning = map[string]bool{}
+	}
+	r.managedRuntimeRunning[kind] = running
+}
+
+func (r *consoleLocalRuntime) isManagedRuntimeRunning(kind string) bool {
+	if r == nil {
+		return false
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return false
+	}
+	r.managedRuntimeMu.RLock()
+	defer r.managedRuntimeMu.RUnlock()
+	return r.managedRuntimeRunning[kind]
 }
 
 func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
@@ -270,29 +392,70 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		model = r.defaultModel
+		_, model = r.defaultLLMConfig()
 	}
+	trigger := normalizeConsoleTrigger(req.Trigger, daemonruntime.TaskTrigger{
+		Source: "ui",
+		Event:  "chat_submit",
+		Ref:    "web/console",
+	})
+	return r.enqueueTask(
+		ctx,
+		strings.TrimSpace(req.Task),
+		model,
+		timeout,
+		strings.TrimSpace(req.TopicID),
+		strings.TrimSpace(req.TopicTitle),
+		trigger,
+	)
+}
 
+func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	if r == nil {
+		return daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime is not initialized")
+	}
 	now := time.Now().UTC()
 	seq := r.seq.Add(1)
 	taskID := daemonruntime.BuildTaskID("console", now.UnixNano(), seq, rand.Uint64())
-	r.store.Upsert(daemonruntime.TaskInfo{
+	topicID = strings.TrimSpace(topicID)
+	explicitTopicTitle := strings.TrimSpace(topicTitle)
+	autoRenameTopic := topicID == "" && explicitTopicTitle == ""
+	topicTitle = seedConsoleTopicTitle(task, topicTitle)
+	if topicID == "" {
+		topic, err := r.store.CreateTopic(topicTitle)
+		if err != nil {
+			return daemonruntime.SubmitTaskResponse{}, err
+		}
+		topicID = topic.ID
+		if strings.TrimSpace(topicTitle) == "" {
+			topicTitle = strings.TrimSpace(topic.Title)
+		}
+	}
+	conversationKey := buildConsoleConversationKey(topicID)
+
+	if err := r.store.UpsertWithTrigger(daemonruntime.TaskInfo{
 		ID:        taskID,
 		Status:    daemonruntime.TaskQueued,
-		Task:      strings.TrimSpace(req.Task),
+		Task:      strings.TrimSpace(task),
 		Model:     model,
 		Timeout:   timeout.String(),
 		CreatedAt: now,
-	})
+		TopicID:   topicID,
+	}, trigger, topicTitle); err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
 
-	err := r.runner.Enqueue(ctx, consoleConversationKey, func(version uint64) consoleLocalTaskJob {
+	err := r.runner.Enqueue(ctx, conversationKey, func(version uint64) consoleLocalTaskJob {
 		return consoleLocalTaskJob{
 			TaskID:          taskID,
-			ConversationKey: consoleConversationKey,
-			Task:            strings.TrimSpace(req.Task),
+			ConversationKey: conversationKey,
+			TopicID:         topicID,
+			Task:            strings.TrimSpace(task),
 			Model:           model,
 			Timeout:         timeout,
 			CreatedAt:       now,
+			Trigger:         trigger,
+			AutoRenameTopic: autoRenameTopic,
 			Version:         version,
 		}
 	})
@@ -301,8 +464,9 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	return daemonruntime.SubmitTaskResponse{
-		ID:     taskID,
-		Status: daemonruntime.TaskQueued,
+		ID:      taskID,
+		Status:  daemonruntime.TaskQueued,
+		TopicID: topicID,
 	}, nil
 }
 
@@ -352,6 +516,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			}
 		}
 	})
+	r.maybeRefreshTopicTitle(job, strings.TrimSpace(outputfmt.FormatFinalOutput(final)))
 }
 
 func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob) (*agent.Final, *agent.Context, error) {
@@ -365,7 +530,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	model := strings.TrimSpace(job.Model)
 	if model == "" {
-		model = r.defaultModel
+		_, model = r.defaultLLMConfig()
 	}
 	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
 	memoryHooks := taskruntime.MemoryHooks{
@@ -392,13 +557,18 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			}
 		}
 	}
-	result, err := r.taskRuntime.Run(ctx, taskruntime.RunRequest{
+	bundle := r.currentBundle()
+	if bundle == nil || bundle.taskRuntime == nil {
+		return nil, nil, fmt.Errorf("console task runtime is not initialized")
+	}
+	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
 		Task:  task,
 		Model: model,
 		Scene: "console.loop",
 		Meta: map[string]any{
-			"trigger":         "console",
-			"console_task_id": job.TaskID,
+			"trigger":          consoleTriggerSource(job.Trigger),
+			"console_task_id":  job.TaskID,
+			"console_topic_id": strings.TrimSpace(job.TopicID),
 		},
 		Memory: memoryHooks,
 	})
@@ -417,6 +587,84 @@ func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context) map[strin
 		out["steps"] = summarizeConsoleSteps(runCtx)
 	}
 	return out
+}
+
+func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, finalOutput string) {
+	if r == nil || !job.AutoRenameTopic {
+		return
+	}
+	topicID := strings.TrimSpace(job.TopicID)
+	if topicID == "" || topicID == daemonruntime.ConsoleDefaultTopicID || topicID == r.store.HeartbeatTopicID() {
+		return
+	}
+	taskText := strings.TrimSpace(job.Task)
+	if taskText == "" {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), consoleTopicTitleTimeout)
+		defer cancel()
+
+		title, err := r.generateTopicTitle(ctx, taskText, finalOutput)
+		if err != nil {
+			r.logger.Debug("console_topic_title_generate_failed", "topic_id", topicID, "error", err.Error())
+			return
+		}
+		if err := r.store.SetTopicTitle(topicID, title); err != nil {
+			r.logger.Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
+		}
+	}()
+}
+
+func (r *consoleLocalRuntime) generateTopicTitle(ctx context.Context, task string, finalOutput string) (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("console runtime is not initialized")
+	}
+	route, err := depsutil.ResolveLLMRouteFromCommon(r.commonDeps, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return "", err
+	}
+	client, err := depsutil.CreateClientFromCommon(r.commonDeps, route)
+	if err != nil {
+		return "", err
+	}
+	model := strings.TrimSpace(route.ClientConfig.Model)
+	if model == "" {
+		_, model = r.defaultLLMConfig()
+	}
+	task = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(task), " "), 1200)
+	finalOutput = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(finalOutput), " "), 1200)
+	if task == "" {
+		return "", fmt.Errorf("task is empty")
+	}
+	if finalOutput == "" {
+		finalOutput = "(no final output)"
+	}
+
+	result, err := client.Chat(ctx, llm.Request{
+		Model: model,
+		Scene: "console.topic_title",
+		Messages: []llm.Message{
+			{
+				Role: "system",
+				Content: "Generate a short conversation topic title. " +
+					"Reply with plain text only, keep the original language, use at most 8 words, and do not wrap the answer in quotes.",
+			},
+			{
+				Role:    "user",
+				Content: "User task:\n" + task + "\n\nFinal output:\n" + finalOutput,
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	title := sanitizeConsoleTopicTitle(result.Text)
+	if title == "" {
+		return "", fmt.Errorf("generated topic title is empty")
+	}
+	return title, nil
 }
 
 func summarizeConsoleSteps(ctx *agent.Context) []map[string]any {
@@ -438,21 +686,172 @@ func summarizeConsoleSteps(ctx *agent.Context) []map[string]any {
 	return out
 }
 
+func consoleTaskPersistenceEnabled() bool {
+	for _, target := range viper.GetStringSlice("tasks.persistence_targets") {
+		if strings.EqualFold(strings.TrimSpace(target), "console") {
+			return true
+		}
+	}
+	return false
+}
+
+func buildConsoleConversationKey(topicID string) string {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		topicID = daemonruntime.ConsoleDefaultTopicID
+	}
+	return "console:" + topicID
+}
+
+func seedConsoleTopicTitle(task string, explicit string) string {
+	if title := strings.TrimSpace(explicit); title != "" {
+		return title
+	}
+	task = strings.Join(strings.Fields(task), " ")
+	if task == "" {
+		return ""
+	}
+	title := daemonruntime.TruncateUTF8(task, consoleTopicTitleMaxChars)
+	if len([]rune(task)) > len([]rune(title)) {
+		title = strings.TrimSpace(title) + "..."
+	}
+	return strings.TrimSpace(title)
+}
+
+func sanitizeConsoleTopicTitle(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "\"'`")
+	raw = strings.Join(strings.Fields(strings.ReplaceAll(raw, "\n", " ")), " ")
+	raw = strings.TrimRight(raw, ".,;:!?，。！？；：")
+	raw = daemonruntime.TruncateUTF8(raw, consoleTopicTitleMaxChars)
+	return strings.TrimSpace(raw)
+}
+
 func buildConsoleMemorySubjectID(conversationKey string) string {
 	key := strings.TrimSpace(conversationKey)
 	if key == "" {
-		key = "main"
+		return buildConsoleConversationKey(daemonruntime.ConsoleDefaultTopicID)
 	}
 	if strings.HasPrefix(strings.ToLower(key), "console:") {
 		return key
 	}
-	return "console:" + key
+	return buildConsoleConversationKey(key)
+}
+
+func normalizeConsoleTrigger(in *daemonruntime.TaskTrigger, fallback daemonruntime.TaskTrigger) daemonruntime.TaskTrigger {
+	if in == nil {
+		return fallback
+	}
+	trigger := daemonruntime.TaskTrigger{
+		Source: strings.TrimSpace(in.Source),
+		Event:  strings.TrimSpace(in.Event),
+		Ref:    strings.TrimSpace(in.Ref),
+	}
+	if strings.TrimSpace(trigger.Source) == "" &&
+		strings.TrimSpace(trigger.Event) == "" &&
+		strings.TrimSpace(trigger.Ref) == "" {
+		return fallback
+	}
+	if strings.TrimSpace(trigger.Source) == "" {
+		trigger.Source = fallback.Source
+	}
+	if strings.TrimSpace(trigger.Event) == "" {
+		trigger.Event = fallback.Event
+	}
+	if strings.TrimSpace(trigger.Ref) == "" {
+		trigger.Ref = fallback.Ref
+	}
+	return trigger
+}
+
+func consoleTriggerSource(trigger daemonruntime.TaskTrigger) string {
+	if source := strings.TrimSpace(trigger.Source); source != "" {
+		return source
+	}
+	return "console"
+}
+
+func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	hbEnabled := viper.GetBool("heartbeat.enabled")
+	hbInterval := viper.GetDuration("heartbeat.interval")
+	if !hbEnabled || hbInterval <= 0 {
+		return
+	}
+	hbState := &heartbeatutil.State{}
+	hbChecklist := statepaths.HeartbeatChecklistPath()
+	heartbeatTopicID := r.store.HeartbeatTopicID()
+
+	runHeartbeatTick := func() heartbeatutil.TickResult {
+		result := heartbeatutil.Tick(
+			hbState,
+			func() (string, bool, error) {
+				return heartbeatutil.BuildHeartbeatTask(hbChecklist)
+			},
+			func(task string, checklistEmpty bool) string {
+				if _, err := r.enqueueTask(
+					context.Background(),
+					task,
+					func() string {
+						_, model := r.defaultLLMConfig()
+						return model
+					}(),
+					r.defaultTimeout,
+					heartbeatTopicID,
+					daemonruntime.ConsoleHeartbeatTopicTitle,
+					daemonruntime.TaskTrigger{
+						Source: "heartbeat",
+						Event:  "heartbeat_tick",
+						Ref:    "console",
+					},
+				); err != nil {
+					return err.Error()
+				}
+				return ""
+			},
+		)
+		switch result.Outcome {
+		case heartbeatutil.TickBuildError:
+			if strings.TrimSpace(result.AlertMessage) != "" {
+				r.logger.Warn("heartbeat_alert", "source", "console", "message", result.AlertMessage)
+			} else if result.BuildError != nil {
+				r.logger.Warn("heartbeat_task_error", "source", "console", "error", result.BuildError.Error())
+			}
+		case heartbeatutil.TickSkipped:
+			r.logger.Debug("heartbeat_skip", "source", "console", "reason", result.SkipReason)
+		}
+		return result
+	}
+
+	go func() {
+		initialTimer := time.NewTimer(15 * time.Second)
+		defer initialTimer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-initialTimer.C:
+		}
+		_ = runHeartbeatTick()
+
+		ticker := time.NewTicker(hbInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = runHeartbeatTick()
+			}
+		}
+	}()
 }
 
 func buildConsoleMemoryRecordRequest(job consoleLocalTaskJob, subjectID, output string) memoryruntime.RecordRequest {
 	subjectID = strings.TrimSpace(subjectID)
 	if subjectID == "" {
-		subjectID = "console:main"
+		subjectID = buildConsoleConversationKey(daemonruntime.ConsoleDefaultTopicID)
 	}
 	now := time.Now().UTC()
 	sentAt := job.CreatedAt
