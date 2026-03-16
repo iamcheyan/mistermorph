@@ -124,7 +124,7 @@ func TestHandleEndpointsReturnsEmptyAgentNameWhenHealthDoesNotProvideIt(t *testi
 	}
 }
 
-func TestHandleEndpointsMapsSubmitToConsoleLocalForSameInstance(t *testing.T) {
+func TestHandleEndpointsDoesNotMapSubmitForSameInstanceReadOnlyEndpoint(t *testing.T) {
 	s := &server{
 		endpoints: []runtimeEndpoint{
 			{
@@ -164,8 +164,8 @@ func TestHandleEndpointsMapsSubmitToConsoleLocalForSameInstance(t *testing.T) {
 	if payload.Items[1].Ref != "ep_main" {
 		t.Fatalf("item[1].Ref = %q, want %q", payload.Items[1].Ref, "ep_main")
 	}
-	if payload.Items[1].SubmitEndpointRef != consoleLocalEndpointRef {
-		t.Fatalf("item[1].SubmitEndpointRef = %q, want %q", payload.Items[1].SubmitEndpointRef, consoleLocalEndpointRef)
+	if payload.Items[1].SubmitEndpointRef != "" {
+		t.Fatalf("item[1].SubmitEndpointRef = %q, want empty", payload.Items[1].SubmitEndpointRef)
 	}
 }
 

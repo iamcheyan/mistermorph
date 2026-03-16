@@ -63,19 +63,12 @@ function endpointChannelTone(mode) {
 }
 
 function endpointChannelBadges(item, t) {
-  const badges = [
+  return [
     {
       label: endpointChannelLabel(item?.mode, t),
       tone: endpointChannelTone(item?.mode),
     },
   ];
-  if (normalizeEndpointRef(item?.submit_endpoint_ref) === CONSOLE_LOCAL_ENDPOINT_REF) {
-    badges.push({
-      label: endpointChannelLabel("console", t),
-      tone: endpointChannelTone("console"),
-    });
-  }
-  return badges;
 }
 
 function endpointLocationLabel(item, t) {
