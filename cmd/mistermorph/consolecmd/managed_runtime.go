@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -181,7 +182,11 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 		runOpts.Server.Listen = ""
 		runOpts.Server.AuthToken = ""
 		runOpts.Server.Poke = nil
-		runOpts.TaskStore = s.localRuntime.store
+		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 		return func(ctx context.Context) error {
 			return telegramruntime.Run(ctx, deps, runOpts)
 		}, cleanup, nil
@@ -194,13 +199,27 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 		runOpts.Server.Listen = ""
 		runOpts.Server.AuthToken = ""
 		runOpts.Server.Poke = nil
-		runOpts.TaskStore = s.localRuntime.store
+		taskStore, err := newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		runOpts.TaskStore = taskStore
 		return func(ctx context.Context) error {
 			return slackruntime.Run(ctx, deps, runOpts)
 		}, cleanup, nil
 	default:
 		cleanup()
 		return nil, nil, fmt.Errorf("unsupported managed runtime %q", kind)
+	}
+}
+
+func newManagedRuntimeTaskStore(kind string, maxItems int) (daemonruntime.TaskView, error) {
+	switch kind {
+	case managedRuntimeTelegram, managedRuntimeSlack:
+		return daemonruntime.NewTaskViewForTarget(kind, maxItems)
+	default:
+		return nil, fmt.Errorf("unsupported managed runtime %q", kind)
 	}
 }
 
