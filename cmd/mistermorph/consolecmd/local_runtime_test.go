@@ -21,7 +21,43 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/spf13/viper"
 )
+
+func TestConsoleLocalRuntimeAuthTokenUsesServerTokenWhenConfigured(t *testing.T) {
+	oldToken := viper.GetString("server.auth_token")
+	t.Cleanup(func() {
+		viper.Set("server.auth_token", oldToken)
+	})
+	viper.Set("server.auth_token", "dev-token")
+
+	token, err := consoleLocalRuntimeAuthToken()
+	if err != nil {
+		t.Fatalf("consoleLocalRuntimeAuthToken() error = %v", err)
+	}
+	if token != "dev-token" {
+		t.Fatalf("token = %q, want %q", token, "dev-token")
+	}
+}
+
+func TestConsoleLocalRuntimeAuthTokenGeneratesInternalTokenWhenServerTokenMissing(t *testing.T) {
+	oldToken := viper.GetString("server.auth_token")
+	t.Cleanup(func() {
+		viper.Set("server.auth_token", oldToken)
+	})
+	viper.Set("server.auth_token", "")
+
+	token, err := consoleLocalRuntimeAuthToken()
+	if err != nil {
+		t.Fatalf("consoleLocalRuntimeAuthToken() error = %v", err)
+	}
+	if strings.TrimSpace(token) == "" {
+		t.Fatal("token is empty")
+	}
+	if token == "dev-token" {
+		t.Fatalf("token = %q, want generated token", token)
+	}
+}
 
 func TestConsoleLLMCredentialsWarning_OpenAIWithoutAPIKey(t *testing.T) {
 	route := llmutil.ResolvedRoute{

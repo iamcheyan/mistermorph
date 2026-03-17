@@ -2,6 +2,8 @@ package consolecmd
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -172,11 +174,11 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memRuntime.ProjectionWorker.Start(workersCtx)
 	}
 
-	authToken := strings.TrimSpace(viper.GetString("server.auth_token"))
-	if authToken == "" {
+	authToken, err := consoleLocalRuntimeAuthToken()
+	if err != nil {
 		cancelWorkers()
 		memRuntime.Cleanup()
-		return nil, fmt.Errorf("missing server.auth_token (set via MISTER_MORPH_SERVER_AUTH_TOKEN) for console local runtime")
+		return nil, err
 	}
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
 		RootDir:          statepaths.TaskTargetDir("console"),
@@ -234,6 +236,17 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	out.startHeartbeatLoop(workersCtx)
 	out.handler = daemonruntime.NewHandler(out.routesOptions(strings.TrimSpace(authToken)))
 	return out, nil
+}
+
+func consoleLocalRuntimeAuthToken() (string, error) {
+	if token := strings.TrimSpace(viper.GetString("server.auth_token")); token != "" {
+		return token, nil
+	}
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate console local auth token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func (r *consoleLocalRuntime) currentBundle() *consoleLocalRuntimeBundle {
