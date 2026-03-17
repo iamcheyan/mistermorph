@@ -25,9 +25,9 @@ const AppLayout = {
         <RouterView />
       </section>
       <section v-else class="app-shell">
-        <div :class="mobileMode || inOverview ? 'workspace is-mobile' : 'workspace'">
+        <div :class="mobileMode || inStandalone ? 'workspace is-mobile' : 'workspace'">
           <AppSidebar
-            v-if="!mobileMode && !inOverview"
+            v-if="!mobileMode && !inStandalone"
             :t="t"
             :endpointItems="endpointItems"
             :selectedEndpointItem="selectedEndpointItem"
@@ -42,7 +42,7 @@ const AppLayout = {
             :class="[
               'content',
               {
-                'content-overview': inOverview,
+                'content-overview': inStandalone,
                 'content-page': inWorkspacePage,
               },
             ]"
@@ -51,7 +51,7 @@ const AppLayout = {
           </main>
         </div>
         <AppMobileNavDrawer
-          v-if="mobileMode && !inOverview"
+          v-if="mobileMode && !inStandalone"
           v-model="mobileNavOpen"
           :t="t"
           :title="t('drawer_nav')"

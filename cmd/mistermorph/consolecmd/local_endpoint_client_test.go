@@ -19,7 +19,7 @@ func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 		},
 		HealthEnabled: true,
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token")
+	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
 
 	health, err := client.Health(context.Background())
 	if err != nil {
@@ -45,7 +45,7 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 		AuthToken:     "dev-token",
 		HealthEnabled: true,
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token")
+	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
 
 	status, raw, err := client.Proxy(context.Background(), http.MethodGet, "/overview", nil)
 	if err != nil {
@@ -60,5 +60,25 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 	}
 	if payload["mode"] != "console" {
 		t.Fatalf("payload.mode = %#v, want %q", payload["mode"], "console")
+	}
+}
+
+func TestInProcessRuntimeEndpointClientHealthOverridesSubmitCapability(t *testing.T) {
+	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
+		Mode:          "console",
+		AuthToken:     "dev-token",
+		HealthEnabled: true,
+		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+			return daemonruntime.SubmitTaskResponse{}, nil
+		},
+	})
+	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return false })
+
+	health, err := client.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health() error = %v", err)
+	}
+	if health.CanSubmit {
+		t.Fatal("Health().CanSubmit = true, want false")
 	}
 }

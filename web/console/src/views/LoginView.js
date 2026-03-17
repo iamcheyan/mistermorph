@@ -10,8 +10,10 @@ import {
   loadEndpoints,
   localeState,
   saveAuth,
+  setSelectedEndpointRef,
   translate,
 } from "../core/context";
+import { buildConsoleSetupState } from "../core/setup";
 
 const LoginView = {
   setup() {
@@ -45,13 +47,20 @@ const LoginView = {
         saveAuth();
         await loadEndpoints();
 
-        const connected = endpointState.items.filter((item) => item && item.connected === true);
+        const setup = buildConsoleSetupState(endpointState.items);
         const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/overview";
+        if (setup.requiresSetup) {
+          router.replace("/setup");
+          return;
+        }
+        if (setup.primaryChatReadyEndpoint?.endpoint_ref) {
+          setSelectedEndpointRef(setup.primaryChatReadyEndpoint.endpoint_ref);
+        }
         if (redirect && redirect !== "/overview" && redirect !== "/") {
           router.replace(redirect);
           return;
         }
-        if (connected.length >= 1) {
+        if (setup.primaryChatReadyEndpoint) {
           router.replace("/chat");
           return;
         }

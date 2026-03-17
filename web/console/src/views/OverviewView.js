@@ -17,10 +17,10 @@ const OverviewView = {
         ...endpointDisplayItem(item, t),
         url: item.url || "",
         connected: toBool(item.connected, false),
+        can_submit: toBool(item.can_submit, false),
         agent_name: String(item.agent_name || "").trim(),
       }))
     );
-    const hasAnyEndpoint = computed(() => endpointRows.value.length > 0);
 
     function tuiKicker(left, right) {
       const lhs = String(left || "").trim();
@@ -73,7 +73,6 @@ const OverviewView = {
       err,
       loading,
       endpointRows,
-      hasAnyEndpoint,
       tuiKicker,
       openEndpoint,
     };
@@ -82,10 +81,6 @@ const OverviewView = {
     <section>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <section v-if="!hasAnyEndpoint" class="setup-guide ui-track-panel">
-        <h3 class="ui-kicker">{{ tuiKicker(t("endpoint_channel_console"), t("setup_title")) }}</h3>
-        <p class="muted setup-guide-text">{{ t("setup_hint_no_endpoints") }}</p>
-      </section>
       <div class="stat-groups">
         <section class="stat-group">
           <h3 class="ui-kicker">{{ tuiKicker(t("runtime_title"), t("group_endpoints")) }}</h3>

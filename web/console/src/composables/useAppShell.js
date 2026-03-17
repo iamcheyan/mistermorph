@@ -18,7 +18,9 @@ function useAppShell() {
   const route = useRoute();
   const inLogin = computed(() => route.path === "/login");
   const inOverview = computed(() => route.path === "/overview");
-  const inWorkspacePage = computed(() => !inLogin.value && !inOverview.value);
+  const inSetup = computed(() => route.path === "/setup");
+  const inStandalone = computed(() => inOverview.value || inSetup.value);
+  const inWorkspacePage = computed(() => !inLogin.value && !inStandalone.value);
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>
     NAV_ITEMS_META.map((item) =>
@@ -132,6 +134,8 @@ function useAppShell() {
     t,
     inLogin,
     inOverview,
+    inSetup,
+    inStandalone,
     inWorkspacePage,
     currentPath,
     navItems,

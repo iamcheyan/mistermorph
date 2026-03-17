@@ -20,9 +20,9 @@ Stack:
   - It runs tasks in its own runtime loop via shared runtime core.
   - Memory subject/session id for this endpoint uses topic-aware `console:<topic_id>` keys.
   - Its runtime API is wired in-process through the shared `daemonruntime` handlers; no extra TCP listener is started.
-  - The local runtime still reuses the auth-gated runtime API contract and therefore requires `server.auth_token`.
+  - If `server.auth_token` is unset, the local runtime generates an internal in-process token for its own runtime API calls.
   - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore` with `topic.json` plus daily topic logs under `<file_state_dir>/tasks/console/log/<YYYY-MM-DD>_<topic_key>.jsonl`.
-  - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and a local heartbeat loop that writes to the reserved `_heartbeat` topic.
+  - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and a local heartbeat loop that writes to the reserved `_heartbeat` topic only when Console Local can submit chat tasks.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
 
@@ -82,9 +82,13 @@ Stack:
 ## Features
 
 - Overview:
-  - endpoint list + setup guide states (no endpoint/offline/single-ready/multi-ready)
+  - endpoint list only
   - endpoint card click selects endpoint and opens `Chat`
   - auto-refresh every 60 seconds
+- Setup:
+  - dedicated `/setup` route for the minimal Console Local configuration path
+  - shown when Console Local is online but local chat is not yet submittable
+  - guides the user to finish provider/model/API key config, then refresh status
 - Chat:
   - send task directly to current agent
   - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden heartbeat topic toggle, and current-topic delete

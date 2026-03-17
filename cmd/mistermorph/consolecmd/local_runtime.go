@@ -45,6 +45,7 @@ const (
 	consoleTaskOutputMaxChars = 4000
 	consoleTopicTitleMaxChars = 72
 	consoleTopicTitleTimeout  = 20 * time.Second
+	consoleHeartbeatSkipNoLLM = "console_submit_unavailable"
 )
 
 type consoleLocalTaskJob struct {
@@ -354,8 +355,19 @@ func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
 		Ref:    consoleLocalEndpointRef,
 		Name:   consoleLocalEndpointName,
 		URL:    consoleLocalEndpointURL,
-		Client: newInProcessRuntimeEndpointClient(r.handler, r.authToken),
+		Client: newInProcessRuntimeEndpointClient(r.handler, r.authToken, r.canSubmit),
 	}
+}
+
+func (r *consoleLocalRuntime) canSubmit() bool {
+	if r == nil {
+		return false
+	}
+	bundle := r.currentBundle()
+	if bundle == nil || bundle.taskRuntime == nil {
+		return false
+	}
+	return consoleLLMCredentialsWarning(bundle.taskRuntime.MainRoute) == ""
 }
 
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
@@ -778,6 +790,12 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 	heartbeatTopicID := r.store.HeartbeatTopicID()
 
 	runHeartbeatTick := func() heartbeatutil.TickResult {
+		if !r.canSubmit() {
+			return heartbeatutil.TickResult{
+				Outcome:    heartbeatutil.TickSkipped,
+				SkipReason: consoleHeartbeatSkipNoLLM,
+			}
+		}
 		result := heartbeatutil.Tick(
 			hbState,
 			func() (string, bool, error) {
@@ -813,6 +831,9 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 				r.logger.Warn("heartbeat_task_error", "source", "console", "error", result.BuildError.Error())
 			}
 		case heartbeatutil.TickSkipped:
+			if result.SkipReason == consoleHeartbeatSkipNoLLM {
+				break
+			}
 			r.logger.Debug("heartbeat_skip", "source", "console", "reason", result.SkipReason)
 		}
 		return result

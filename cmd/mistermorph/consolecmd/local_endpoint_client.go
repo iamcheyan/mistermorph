@@ -12,12 +12,14 @@ import (
 type inProcessRuntimeEndpointClient struct {
 	handler   http.Handler
 	authToken string
+	canSubmit func() bool
 }
 
-func newInProcessRuntimeEndpointClient(handler http.Handler, authToken string) *inProcessRuntimeEndpointClient {
+func newInProcessRuntimeEndpointClient(handler http.Handler, authToken string, canSubmit func() bool) *inProcessRuntimeEndpointClient {
 	return &inProcessRuntimeEndpointClient{
 		handler:   handler,
 		authToken: strings.TrimSpace(authToken),
+		canSubmit: canSubmit,
 	}
 }
 
@@ -43,7 +45,14 @@ func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEnd
 	if err != nil {
 		return runtimeEndpointHealth{}, err
 	}
-	return parseHealthResponse(status, raw)
+	health, err := parseHealthResponse(status, raw)
+	if err != nil {
+		return runtimeEndpointHealth{}, err
+	}
+	if c != nil && c.canSubmit != nil {
+		health.CanSubmit = c.canSubmit()
+	}
+	return health, nil
 }
 
 func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {

@@ -8,6 +8,7 @@ import {
   applyLanguageChange,
   clearAuth,
   endpointState,
+  loadEndpoints,
   localeState,
   runtimeEndpointByRef,
   translate,
@@ -303,6 +304,7 @@ const SettingsView = {
         });
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
         applyPayload(payload);
+        await loadEndpoints();
         agentOk.value = t("msg_save_success");
       } catch (e) {
         agentErr.value = e.message || t("msg_save_failed");

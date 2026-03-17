@@ -1,6 +1,17 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import { BASE_PATH, apiFetch, authState, authValid, clearAuth, saveAuth } from "../core/context";
+import {
+  BASE_PATH,
+  apiFetch,
+  authState,
+  authValid,
+  clearAuth,
+  endpointState,
+  loadEndpoints,
+  saveAuth,
+  setSelectedEndpointRef,
+} from "../core/context";
+import { buildConsoleSetupState } from "../core/setup";
 import {
   AuditView,
   ChatView,
@@ -9,6 +20,7 @@ import {
   LoginView,
   MemoryView,
   OverviewView,
+  SetupView,
   SettingsView,
   StatsView,
   StateFilesView,
@@ -16,8 +28,21 @@ import {
   TaskDetailView,
 } from "../views";
 
+const SETUP_FREE_PATHS = new Set(["/setup", "/settings"]);
+
+function selectedEndpointCanChat() {
+  const selectedRef = typeof endpointState.selectedRef === "string" ? endpointState.selectedRef.trim() : "";
+  if (!selectedRef) {
+    return false;
+  }
+  return endpointState.items.some(
+    (item) => item && item.endpoint_ref === selectedRef && item.connected === true && item.can_submit === true
+  );
+}
+
 const routes = [
   { path: "/login", component: LoginView },
+  { path: "/setup", component: SetupView },
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
   { path: "/dashboard", component: DashboardView },
@@ -66,6 +91,31 @@ router.beforeEach(async (to) => {
   } catch {
     clearAuth();
     return { path: "/login", query: { redirect: to.fullPath } };
+  }
+  try {
+    await loadEndpoints();
+  } catch {
+    endpointState.items = [];
+  }
+  const setup = buildConsoleSetupState(endpointState.items);
+  if (setup.requiresSetup) {
+    if (SETUP_FREE_PATHS.has(to.path)) {
+      return true;
+    }
+    return { path: "/setup", query: { redirect: to.fullPath } };
+  }
+  if (to.path === "/setup") {
+    if (setup.primaryChatReadyEndpoint?.endpoint_ref && !selectedEndpointCanChat()) {
+      setSelectedEndpointRef(setup.primaryChatReadyEndpoint.endpoint_ref);
+    }
+    const redirect = typeof to.query.redirect === "string" ? to.query.redirect.trim() : "";
+    if (redirect && redirect !== "/setup" && redirect !== "/login") {
+      return redirect;
+    }
+    return setup.primaryChatReadyEndpoint ? { path: "/chat" } : { path: "/overview" };
+  }
+  if (to.path === "/chat" && setup.primaryChatReadyEndpoint?.endpoint_ref && !selectedEndpointCanChat()) {
+    setSelectedEndpointRef(setup.primaryChatReadyEndpoint.endpoint_ref);
   }
   return true;
 });
