@@ -2,12 +2,16 @@ package consolecmd
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/contacts"
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
@@ -177,6 +181,13 @@ func TestEnqueueTaskCreatesTopicWhenMissingTopicID(t *testing.T) {
 	if resp.TopicID == daemonruntime.ConsoleDefaultTopicID {
 		t.Fatalf("resp.TopicID = %q, want generated topic id", resp.TopicID)
 	}
+	topicUUID, err := uuid.Parse(resp.TopicID)
+	if err != nil {
+		t.Fatalf("uuid.Parse(resp.TopicID) error = %v", err)
+	}
+	if topicUUID.Version() != uuid.Version(7) {
+		t.Fatalf("topic UUID version = %d, want 7", topicUUID.Version())
+	}
 
 	task, ok := store.Get(resp.ID)
 	if !ok || task == nil {
@@ -202,6 +213,100 @@ func TestEnqueueTaskCreatesTopicWhenMissingTopicID(t *testing.T) {
 	}
 	if !foundGenerated {
 		t.Fatalf("generated topic %q not found in topic list", resp.TopicID)
+	}
+}
+
+func TestSubmitTaskUsesConsoleBus(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
+		MaxInFlight: 8,
+		Logger:      logger,
+		Component:   "console_test",
+	})
+	if err != nil {
+		t.Fatalf("StartInproc() error = %v", err)
+	}
+	defer func() { _ = inprocBus.Close() }()
+
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	gotJob := make(chan consoleLocalTaskJob, 1)
+	rt := &consoleLocalRuntime{
+		logger:         logger,
+		store:          store,
+		bus:            inprocBus,
+		contactsSvc:    contacts.NewService(contacts.NewFileStore(t.TempDir())),
+		defaultTimeout: time.Minute,
+		runner: runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
+			workerCtx,
+			make(chan struct{}, 1),
+			1,
+			func(_ context.Context, _ string, job consoleLocalTaskJob) {
+				gotJob <- job
+			},
+		),
+	}
+	if err := inprocBus.Subscribe(busruntime.TopicChatMessage, rt.handleConsoleBusMessage); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task: "hello from console bus",
+	})
+	if err != nil {
+		t.Fatalf("submitTask() error = %v", err)
+	}
+	if resp.ID == "" {
+		t.Fatal("resp.ID is empty")
+	}
+	if resp.TopicID == "" {
+		t.Fatal("resp.TopicID is empty")
+	}
+
+	select {
+	case job := <-gotJob:
+		if job.TaskID != resp.ID {
+			t.Fatalf("job.TaskID = %q, want %q", job.TaskID, resp.ID)
+		}
+		if job.TopicID != resp.TopicID {
+			t.Fatalf("job.TopicID = %q, want %q", job.TopicID, resp.TopicID)
+		}
+		if job.ConversationKey != buildConsoleConversationKey(resp.TopicID) {
+			t.Fatalf("job.ConversationKey = %q, want %q", job.ConversationKey, buildConsoleConversationKey(resp.TopicID))
+		}
+		if job.Trigger.Source != "ui" || job.Trigger.Event != "chat_submit" {
+			t.Fatalf("job.Trigger = %+v, want ui/chat_submit", job.Trigger)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for console bus job")
+	}
+
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing task", resp.ID)
+	}
+	if task.Status != daemonruntime.TaskQueued {
+		t.Fatalf("task.Status = %q, want %q", task.Status, daemonruntime.TaskQueued)
+	}
+
+	contact, ok, err := rt.contactsSvc.GetContact(context.Background(), "console:user")
+	if err != nil {
+		t.Fatalf("GetContact(console:user) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(console:user) expected ok=true")
+	}
+	if contact.Channel != contacts.ChannelConsole {
+		t.Fatalf("contact.Channel = %q, want %q", contact.Channel, contacts.ChannelConsole)
 	}
 }
 

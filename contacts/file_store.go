@@ -1095,7 +1095,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 func normalizeContactChannel(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
+	case ChannelConsole, ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
 		return value
 	default:
 		return ""

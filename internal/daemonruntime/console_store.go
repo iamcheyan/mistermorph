@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 )
 
@@ -192,6 +192,41 @@ func (s *ConsoleFileStore) Get(id string) (*TaskInfo, bool) {
 	}
 	cp := item
 	return &cp, true
+}
+
+func (s *ConsoleFileStore) GetTopic(id string) (*TopicInfo, bool) {
+	if s == nil {
+		return nil, false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, false
+	}
+	s.mu.RLock()
+	topic, ok := s.topics[id]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	cp := topic
+	return &cp, true
+}
+
+func (s *ConsoleFileStore) GetTrigger(taskID string) (TaskTrigger, bool) {
+	if s == nil {
+		return TaskTrigger{}, false
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return TaskTrigger{}, false
+	}
+	s.mu.RLock()
+	trigger, ok := s.triggers[taskID]
+	s.mu.RUnlock()
+	if !ok {
+		return TaskTrigger{}, false
+	}
+	return trigger, true
 }
 
 func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
@@ -562,8 +597,12 @@ func (s *ConsoleFileStore) triggerForTaskLocked(taskID string, trigger TaskTrigg
 }
 
 func buildConsoleTopicID(now time.Time) string {
-	now = nonZeroTime(now)
-	return fmt.Sprintf("topic_%d_%x", now.UnixNano(), rand.Uint64())
+	_ = nonZeroTime(now)
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.NewString()
+	}
+	return id.String()
 }
 
 func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {

@@ -6,6 +6,10 @@ status: draft
 
 # Console Managed Runtimes（Console 进程内托管多个 Runtime）
 
+> Update 2026-03-17:
+> 当前实现已经明确了持久化边界：managed runtime 不再把 task/topic 写入 Console 自己的 `ConsoleFileStore`。
+> `tasks.persistence_targets` 仍按 target 生效；相关讨论以 `feat_20260315_task_persistence.md` 和 `feat_20260317_console_chat_bus.md` 为准。
+
 ## 1) 背景
 
 当前 `mistermorph console serve` 只会内建一个 `Console Local` runtime：

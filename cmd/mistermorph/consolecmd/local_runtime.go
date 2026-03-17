@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,7 +11,9 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
@@ -67,7 +68,9 @@ type consoleLocalRuntimeBundle struct {
 type consoleLocalRuntime struct {
 	logger                  *slog.Logger
 	store                   *daemonruntime.ConsoleFileStore
+	bus                     *busruntime.Inproc
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
+	contactsSvc             *contacts.Service
 	bundleMu                sync.RWMutex
 	bundle                  *consoleLocalRuntimeBundle
 	managedRuntimeMu        sync.RWMutex
@@ -185,7 +188,18 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memRuntime.Cleanup()
 		return nil, err
 	}
+	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
+		MaxInFlight: viper.GetInt("bus.max_inflight"),
+		Logger:      logger,
+		Component:   "console",
+	})
+	if err != nil {
+		cancelWorkers()
+		memRuntime.Cleanup()
+		return nil, err
+	}
 	out.store = store
+	out.bus = inprocBus
 	out.bundle = &consoleLocalRuntimeBundle{
 		taskRuntime:     execRuntime,
 		mcpHost:         mcpHost,
@@ -199,6 +213,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	out.memoryInjectionEnabled = viper.GetBool("memory.injection.enabled")
 	out.memoryInjectionMaxItems = viper.GetInt("memory.injection.max_items")
 	out.memRuntime = memRuntime
+	out.contactsSvc = contacts.NewService(contacts.NewFileStore(statepaths.ContactsDir()))
 	out.authToken = authToken
 	out.agentName = personautil.LoadAgentName(statepaths.FileStateDir())
 	out.cancelWorkers = cancelWorkers
@@ -210,6 +225,12 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			out.handleTaskJob(workerCtx, conversationKey, job)
 		},
 	)
+	if err := inprocBus.Subscribe(busruntime.TopicChatMessage, out.handleConsoleBusMessage); err != nil {
+		inprocBus.Close()
+		cancelWorkers()
+		memRuntime.Cleanup()
+		return nil, err
+	}
 	out.startHeartbeatLoop(workersCtx)
 	out.handler = daemonruntime.NewHandler(out.routesOptions(strings.TrimSpace(authToken)))
 	return out, nil
@@ -277,6 +298,9 @@ func (r *consoleLocalRuntime) ReloadAgentConfig() error {
 func (r *consoleLocalRuntime) Close() {
 	if r == nil {
 		return
+	}
+	if r.bus != nil {
+		_ = r.bus.Close()
 	}
 	if r.cancelWorkers != nil {
 		r.cancelWorkers()
@@ -399,7 +423,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Event:  "chat_submit",
 		Ref:    "web/console",
 	})
-	return r.enqueueTask(
+	return r.submitTaskViaBus(
 		ctx,
 		strings.TrimSpace(req.Task),
 		model,
@@ -411,63 +435,19 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 }
 
 func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	if r == nil {
-		return daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime is not initialized")
-	}
-	now := time.Now().UTC()
-	seq := r.seq.Add(1)
-	taskID := daemonruntime.BuildTaskID("console", now.UnixNano(), seq, rand.Uint64())
-	topicID = strings.TrimSpace(topicID)
-	explicitTopicTitle := strings.TrimSpace(topicTitle)
-	autoRenameTopic := topicID == "" && explicitTopicTitle == ""
-	topicTitle = seedConsoleTopicTitle(task, topicTitle)
-	if topicID == "" {
-		topic, err := r.store.CreateTopic(topicTitle)
-		if err != nil {
-			return daemonruntime.SubmitTaskResponse{}, err
-		}
-		topicID = topic.ID
-		if strings.TrimSpace(topicTitle) == "" {
-			topicTitle = strings.TrimSpace(topic.Title)
-		}
-	}
-	conversationKey := buildConsoleConversationKey(topicID)
-
-	if err := r.store.UpsertWithTrigger(daemonruntime.TaskInfo{
-		ID:        taskID,
-		Status:    daemonruntime.TaskQueued,
-		Task:      strings.TrimSpace(task),
-		Model:     model,
-		Timeout:   timeout.String(),
-		CreatedAt: now,
-		TopicID:   topicID,
-	}, trigger, topicTitle); err != nil {
+	job, resp, err := r.acceptTask(task, model, timeout, topicID, topicTitle, trigger)
+	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-
-	err := r.runner.Enqueue(ctx, conversationKey, func(version uint64) consoleLocalTaskJob {
-		return consoleLocalTaskJob{
-			TaskID:          taskID,
-			ConversationKey: conversationKey,
-			TopicID:         topicID,
-			Task:            strings.TrimSpace(task),
-			Model:           model,
-			Timeout:         timeout,
-			CreatedAt:       now,
-			Trigger:         trigger,
-			AutoRenameTopic: autoRenameTopic,
-			Version:         version,
-		}
+	err = r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
+		job.Version = version
+		return job
 	})
 	if err != nil {
-		runtimecore.MarkTaskFailed(r.store, taskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-	return daemonruntime.SubmitTaskResponse{
-		ID:      taskID,
-		Status:  daemonruntime.TaskQueued,
-		TopicID: topicID,
-	}, nil
+	return resp, nil
 }
 
 func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversationKey string, job consoleLocalTaskJob) {
