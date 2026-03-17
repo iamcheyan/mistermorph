@@ -444,6 +444,120 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			"has_more": hasMore,
 		})
 	})
+	mux.HandleFunc("/contacts/item", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		store := contacts.NewFileStore(paths.contactsDir)
+		svc := contacts.NewService(store)
+
+		switch r.Method {
+		case http.MethodGet:
+			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
+			if contactID == "" {
+				http.Error(w, "contact_id is required", http.StatusBadRequest)
+				return
+			}
+			block, ok, err := store.GetContactYAML(r.Context(), contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			item, ok, err := getConsoleContactByID(r.Context(), svc, contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"item": item,
+				"yaml": block.YAML,
+			})
+			return
+		case http.MethodPut:
+		case http.MethodDelete:
+			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
+			if contactID == "" {
+				http.Error(w, "contact_id is required", http.StatusBadRequest)
+				return
+			}
+			block, deleted, err := store.DeleteContactYAML(r.Context(), contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !deleted {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"deleted":    true,
+				"contact_id": block.ContactID,
+				"status":     string(block.Status),
+			})
+			return
+		default:
+			w.Header().Set("Allow", "GET, PUT, DELETE")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload struct {
+			ContactID string `json:"contact_id"`
+			YAML      string `json:"yaml"`
+		}
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		payload.ContactID = strings.TrimSpace(payload.ContactID)
+		if payload.ContactID == "" {
+			http.Error(w, "contact_id is required", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(payload.YAML) == "" {
+			http.Error(w, "yaml is required", http.StatusBadRequest)
+			return
+		}
+		if _, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if !ok {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		block, err := store.PutContactYAML(r.Context(), payload.ContactID, payload.YAML)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		updated, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"item": updated,
+			"yaml": block.YAML,
+		})
+	})
 
 	mux.HandleFunc("/persona/files", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -1030,6 +1144,23 @@ func attachContactStatus(items []contacts.Contact, status contacts.Status) []con
 		})
 	}
 	return out
+}
+
+func getConsoleContactByID(ctx context.Context, svc *contacts.Service, contactID string) (consoleContact, bool, error) {
+	contactID = strings.TrimSpace(contactID)
+	if contactID == "" {
+		return consoleContact{}, false, nil
+	}
+	items, err := listContactsForConsole(ctx, svc)
+	if err != nil {
+		return consoleContact{}, false, err
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ContactID) == contactID {
+			return item, true, nil
+		}
+	}
+	return consoleContact{}, false, nil
 }
 
 func consoleContactInteractionTimestamp(item consoleContact) time.Time {

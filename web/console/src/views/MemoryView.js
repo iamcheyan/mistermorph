@@ -2,6 +2,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import "./MemoryView.css";
 
 import AppPage from "../components/AppPage";
+import MarkdownEditor from "../components/MarkdownEditor";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
@@ -87,6 +88,7 @@ function normalizePickerDayKey(value) {
 const MemoryView = {
   components: {
     AppPage,
+    MarkdownEditor,
   },
   setup() {
     const t = translate;
@@ -365,9 +367,9 @@ const MemoryView = {
       <p v-if="!selectedMemory && modeValue === 'short_term'" class="muted">{{ t("memory_no_sessions_for_date") }}</p>
       <p v-else-if="!selectedMemory" class="muted">{{ t("memory_no_files") }}</p>
       <div v-if="selectedMemory" class="memory-editor">
-        <QTextarea
+        <MarkdownEditor
           v-model="content"
-          :rows="22"
+          :aria-label="selectedMemory ? selectedMemory.title : t('memory_title')"
           :disabled="!selectedMemory"
           :hint="memoryHint"
         />

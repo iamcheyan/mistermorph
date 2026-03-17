@@ -41,6 +41,34 @@
   gap: 8px;
 }
 
+.contact-topline {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.contact-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.contact-action-button .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.contact-action-delete {
+  color: var(--q-c-red);
+}
+
+.contact-action-delete:hover,
+.contact-action-delete:focus-visible {
+  color: var(--q-c-red);
+}
+
 .contact-badges {
   display: flex;
   flex-wrap: wrap;
@@ -230,6 +258,30 @@
   border-radius: 999px;
   background: rgba(217, 106, 43, 0.6);
   transform: translateY(-50%);
+}
+
+.contact-editor {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(77, 85, 99, 0.12);
+}
+
+.contact-editor-textarea {
+  width: 100%;
+}
+
+.contact-editor-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.contact-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 860px) {

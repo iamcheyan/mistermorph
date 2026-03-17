@@ -58,25 +58,13 @@ function fallbackHandleFromContactID(item, channel) {
   const prefix = parts[0].toLowerCase();
   switch (channel) {
     case "Telegram":
-      if (prefix === "tg" || prefix === "telegram") {
-        return parts[parts.length - 1];
-      }
-      return "";
+      return prefix === "tg" || prefix === "telegram" ? parts[parts.length - 1] : "";
     case "Slack":
-      if (prefix === "slack") {
-        return parts[parts.length - 1];
-      }
-      return "";
+      return prefix === "slack" ? parts[parts.length - 1] : "";
     case "Line":
-      if (prefix === "line") {
-        return parts[parts.length - 1];
-      }
-      return "";
+      return prefix === "line" ? parts[parts.length - 1] : "";
     case "Lark":
-      if (prefix === "lark") {
-        return parts[parts.length - 1];
-      }
-      return "";
+      return prefix === "lark" ? parts[parts.length - 1] : "";
     default:
       return "";
   }
@@ -121,8 +109,19 @@ const ContactsView = {
     const t = translate;
     const loading = ref(false);
     const err = ref("");
+    const ok = ref("");
     const items = ref([]);
     const filterText = ref("");
+
+    const editingContactID = ref("");
+    const editorYAML = ref("");
+    const editorLoading = ref(false);
+    const editorSaving = ref(false);
+    const editorErr = ref("");
+    const editorOk = ref("");
+    const deleteDialogOpen = ref(false);
+    const deleteTarget = ref(null);
+    const deleting = ref(false);
 
     async function load() {
       loading.value = true;
@@ -194,7 +193,135 @@ const ContactsView = {
       return haystack.includes(query);
     }
 
+    function isEditing(item) {
+      return String(item?.contact_id || "").trim() === editingContactID.value;
+    }
+
+    function toggleEdit(item) {
+      if (isEditing(item)) {
+        stopEdit();
+        return;
+      }
+      void startEdit(item);
+    }
+
+    async function startEdit(item) {
+      const contactID = String(item?.contact_id || "").trim();
+      if (!contactID) {
+        return;
+      }
+      editingContactID.value = contactID;
+      editorLoading.value = true;
+      editorErr.value = "";
+      editorOk.value = "";
+      editorYAML.value = "";
+      try {
+        const data = await runtimeApiFetch(`/contacts/item?contact_id=${encodeURIComponent(contactID)}`);
+        editorYAML.value = String(data?.yaml || "").trim();
+      } catch (e) {
+        editorErr.value = e.message || t("msg_load_failed");
+      } finally {
+        editorLoading.value = false;
+      }
+    }
+
+    function stopEdit() {
+      editingContactID.value = "";
+      editorYAML.value = "";
+      editorLoading.value = false;
+      editorSaving.value = false;
+      editorErr.value = "";
+      editorOk.value = "";
+    }
+
+    async function saveEdit() {
+      if (!editingContactID.value) {
+        return;
+      }
+      editorSaving.value = true;
+      err.value = "";
+      ok.value = "";
+      editorErr.value = "";
+      editorOk.value = "";
+      try {
+        const data = await runtimeApiFetch("/contacts/item", {
+          method: "PUT",
+          body: {
+            contact_id: editingContactID.value,
+            yaml: editorYAML.value,
+          },
+        });
+        editorYAML.value = String(data?.yaml || editorYAML.value || "").trim();
+        editorOk.value = t("msg_save_success");
+        await load();
+      } catch (e) {
+        editorErr.value = e.message || t("msg_save_failed");
+      } finally {
+        editorSaving.value = false;
+      }
+    }
+
+    function confirmDelete(item) {
+      deleteTarget.value = item || null;
+      deleteDialogOpen.value = true;
+    }
+
+    function closeDeleteDialog() {
+      deleteDialogOpen.value = false;
+      deleteTarget.value = null;
+    }
+
+    async function deleteContact() {
+      if (deleting.value) {
+        return;
+      }
+      const contactID = String(deleteTarget.value?.contact_id || "").trim();
+      if (!contactID) {
+        closeDeleteDialog();
+        return;
+      }
+      deleting.value = true;
+      deleteDialogOpen.value = false;
+      err.value = "";
+      ok.value = "";
+      try {
+        await runtimeApiFetch(`/contacts/item?contact_id=${encodeURIComponent(contactID)}`, {
+          method: "DELETE",
+        });
+        if (editingContactID.value === contactID) {
+          stopEdit();
+        }
+        ok.value = t("msg_delete_success");
+        await load();
+      } catch (e) {
+        err.value = e.message || t("msg_delete_failed");
+      } finally {
+        deleting.value = false;
+        deleteTarget.value = null;
+      }
+    }
+
     const filteredItems = computed(() => items.value.filter((item) => matchesFilter(item)));
+    const saveDisabled = computed(
+      () => editorLoading.value || editorSaving.value || !editingContactID.value || !String(editorYAML.value || "").trim()
+    );
+    const deleteDialogText = computed(() =>
+      t("contacts_delete_confirm", { name: displayName(deleteTarget.value || null) })
+    );
+    const deleteDialogActions = computed(() => [
+      {
+        name: "cancel",
+        label: t("action_cancel"),
+        class: "outlined",
+        action: closeDeleteDialog,
+      },
+      {
+        name: "delete",
+        label: t("action_delete"),
+        class: "danger",
+        action: deleteContact,
+      },
+    ]);
 
     onMounted(() => {
       void load();
@@ -202,6 +329,8 @@ const ContactsView = {
     watch(
       () => endpointState.selectedRef,
       () => {
+        stopEdit();
+        closeDeleteDialog();
         void load();
       }
     );
@@ -210,6 +339,7 @@ const ContactsView = {
       t,
       loading,
       err,
+      ok,
       items,
       filterText,
       filteredItems,
@@ -222,6 +352,21 @@ const ContactsView = {
       topicList,
       hasValue,
       timeOrDash,
+      isEditing,
+      toggleEdit,
+      startEdit,
+      stopEdit,
+      saveEdit,
+      confirmDelete,
+      deleteDialogOpen,
+      deleteDialogText,
+      deleteDialogActions,
+      editorYAML,
+      editorLoading,
+      editorSaving,
+      editorErr,
+      editorOk,
+      saveDisabled,
     };
   },
   template: `
@@ -237,6 +382,7 @@ const ContactsView = {
       </template>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
       <div class="contacts-list">
         <article
           v-for="item in filteredItems"
@@ -246,9 +392,29 @@ const ContactsView = {
         >
           <header class="contact-head">
             <div class="contact-identity">
-              <div class="contact-badges">
-                <code class="contact-badge">{{ kindText(item) }}</code>
-                <code :class="statusClass(item)">{{ statusText(item) }}</code>
+              <div class="contact-topline">
+                <div class="contact-badges">
+                  <code class="contact-badge">{{ kindText(item) }}</code>
+                  <code :class="statusClass(item)">{{ statusText(item) }}</code>
+                </div>
+                <div class="contact-actions">
+                  <QButton
+                    class="plain xs icon contact-action-button"
+                    :title="isEditing(item) ? t('action_close') : t('action_edit')"
+                    :aria-label="isEditing(item) ? t('action_close') : t('action_edit')"
+                    @click="toggleEdit(item)"
+                  >
+                    <QIconCode class="icon" />
+                  </QButton>
+                  <QButton
+                    class="plain xs icon contact-action-button contact-action-delete"
+                    :title="t('action_delete')"
+                    :aria-label="t('action_delete')"
+                    @click="confirmDelete(item)"
+                  >
+                    <QIconTrash class="icon" />
+                  </QButton>
+                </div>
               </div>
               <h3 class="contact-name">{{ displayName(item) }}</h3>
               <div v-if="item.persona_brief || topicList(item).length > 0" class="contact-body">
@@ -282,11 +448,30 @@ const ContactsView = {
               </div>
             </div>
           </header>
+          <section v-if="isEditing(item)" class="contact-editor">
+            <QProgress v-if="editorLoading" :infinite="true" />
+            <QFence v-if="editorErr" type="danger" icon="QIconCloseCircle" :text="editorErr" />
+            <QFence v-if="editorOk" type="success" icon="QIconCheckCircle" :text="editorOk" />
+            <QTextarea v-model="editorYAML" class="contact-editor-textarea" :rows="14" />
+            <p class="contact-editor-note">{{ t("contacts_editor_hint") }}</p>
+            <div class="contact-editor-actions">
+              <QButton class="primary" :loading="editorSaving" :disabled="saveDisabled" @click="saveEdit">{{ t("action_save") }}</QButton>
+              <QButton class="plain" @click="stopEdit">{{ t("action_close") }}</QButton>
+            </div>
+          </section>
         </article>
         <p v-if="filteredItems.length === 0 && !loading" class="muted contacts-empty">
           {{ items.length === 0 ? t("contacts_empty") : t("contacts_empty_filtered") }}
         </p>
       </div>
+      <QMessageDialog
+        v-model="deleteDialogOpen"
+        icon="QIconTrash"
+        iconColor="red"
+        :title="t('action_delete')"
+        :text="deleteDialogText"
+        :actions="deleteDialogActions"
+      />
     </AppPage>
   `,
 };
