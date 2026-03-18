@@ -18,7 +18,7 @@ function useAppShell() {
   const route = useRoute();
   const inLogin = computed(() => route.path === "/login");
   const inOverview = computed(() => route.path === "/overview");
-  const inSetup = computed(() => route.path === "/setup");
+  const inSetup = computed(() => route.path === "/setup" || route.path.startsWith("/setup/"));
   const inStandalone = computed(() => inOverview.value || inSetup.value);
   const inWorkspacePage = computed(() => !inLogin.value && !inStandalone.value);
   const currentPath = computed(() => route.path);

@@ -11,7 +11,11 @@ import {
   saveAuth,
   setSelectedEndpointRef,
 } from "../core/context";
-import { buildConsoleSetupState } from "../core/setup";
+import {
+  consoleSetupTargetEndpointRef,
+  resolveConsoleSetupStage,
+  setupStagePath,
+} from "../core/setup";
 import {
   AuditView,
   ChatView,
@@ -28,7 +32,12 @@ import {
   TaskDetailView,
 } from "../views";
 
-const SETUP_FREE_PATHS = new Set(["/setup", "/settings"]);
+function isSetupPath(path) {
+  const value = String(path || "").trim();
+  return value === "/setup" || value.startsWith("/setup/");
+}
+
+const SETUP_FREE_PATHS = new Set(["/setup", "/setup/llm", "/setup/persona", "/setup/soul", "/setup/done", "/settings"]);
 
 function selectedEndpointCanChat() {
   const selectedRef = typeof endpointState.selectedRef === "string" ? endpointState.selectedRef.trim() : "";
@@ -43,6 +52,10 @@ function selectedEndpointCanChat() {
 const routes = [
   { path: "/login", component: LoginView },
   { path: "/setup", component: SetupView },
+  { path: "/setup/llm", component: SetupView, meta: { setupStage: "llm" } },
+  { path: "/setup/persona", component: SetupView, meta: { setupStage: "persona" } },
+  { path: "/setup/soul", component: SetupView, meta: { setupStage: "soul" } },
+  { path: "/setup/done", component: SetupView, meta: { setupStage: "done" } },
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
   { path: "/dashboard", component: DashboardView },
@@ -97,25 +110,30 @@ router.beforeEach(async (to) => {
   } catch {
     endpointState.items = [];
   }
-  const setup = buildConsoleSetupState(endpointState.items);
-  if (setup.requiresSetup) {
+  const setupState = await resolveConsoleSetupStage(endpointState.items);
+  if (setupState.stage !== "ready") {
+    const setupPath = setupStagePath(setupState.stage);
     if (SETUP_FREE_PATHS.has(to.path)) {
+      if (isSetupPath(to.path) && to.path !== setupPath) {
+        return { path: setupPath, query: to.query };
+      }
       return true;
     }
-    return { path: "/setup", query: { redirect: to.fullPath } };
+    return { path: setupPath, query: { redirect: to.fullPath } };
   }
   if (to.path === "/setup") {
-    if (setup.primaryChatReadyEndpoint?.endpoint_ref && !selectedEndpointCanChat()) {
-      setSelectedEndpointRef(setup.primaryChatReadyEndpoint.endpoint_ref);
-    }
-    const redirect = typeof to.query.redirect === "string" ? to.query.redirect.trim() : "";
-    if (redirect && redirect !== "/setup" && redirect !== "/login") {
-      return redirect;
-    }
-    return setup.primaryChatReadyEndpoint ? { path: "/chat" } : { path: "/overview" };
+    return { path: "/setup/done", query: to.query };
   }
-  if (to.path === "/chat" && setup.primaryChatReadyEndpoint?.endpoint_ref && !selectedEndpointCanChat()) {
-    setSelectedEndpointRef(setup.primaryChatReadyEndpoint.endpoint_ref);
+  if (isSetupPath(to.path)) {
+    const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
+    if (targetRef && !selectedEndpointCanChat()) {
+      setSelectedEndpointRef(targetRef);
+    }
+    return true;
+  }
+  const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
+  if (to.path === "/chat" && targetRef && !selectedEndpointCanChat()) {
+    setSelectedEndpointRef(targetRef);
   }
   return true;
 });
