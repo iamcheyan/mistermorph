@@ -19,6 +19,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
 
@@ -48,6 +49,7 @@ func runSlackTask(
 		return nil, nil, nil, nil, fmt.Errorf("slack task runtime is nil")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForSlack(job))
 	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
@@ -205,6 +207,20 @@ func todoResolveContextForSlack(job slackJob) todo.AddResolveContext {
 		MentionUsernames: mentions,
 		UserInputRaw:     job.Text,
 	}
+}
+
+func contactsSendRuntimeContextForSlack(job slackJob) builtin.ContactsSendRuntimeContext {
+	ids := make([]string, 0, 2)
+	teamID := strings.TrimSpace(job.TeamID)
+	if teamID != "" {
+		if userID := strings.TrimSpace(job.UserID); userID != "" {
+			ids = append(ids, "slack:"+teamID+":"+userID)
+		}
+		if channelID := strings.TrimSpace(job.ChannelID); channelID != "" && !isSlackGroupChat(job.ChatType) {
+			ids = append(ids, "slack:"+teamID+":"+channelID)
+		}
+	}
+	return builtin.ContactsSendRuntimeContext{ForbiddenTargetIDs: ids}
 }
 
 func normalizeMentionUsersForTodo(items []string) []string {

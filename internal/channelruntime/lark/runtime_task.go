@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
 
 type runtimeTaskOptions struct {
@@ -59,6 +60,7 @@ func runLarkTask(
 		return nil, nil, nil, fmt.Errorf("lark task runtime is nil")
 	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLark(job))
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
@@ -170,6 +172,17 @@ func todoResolveContextForLark(job larkJob) todo.AddResolveContext {
 		MentionUsernames: mentions,
 		UserInputRaw:     job.Text,
 	}
+}
+
+func contactsSendRuntimeContextForLark(job larkJob) builtin.ContactsSendRuntimeContext {
+	ids := make([]string, 0, 2)
+	if openID := strings.TrimSpace(job.FromUserID); openID != "" {
+		ids = append(ids, "lark_user:"+openID)
+	}
+	if chatID := strings.TrimSpace(job.ChatID); chatID != "" && !isLarkGroupChat(job.ChatType) {
+		ids = append(ids, "lark:"+chatID)
+	}
+	return builtin.ContactsSendRuntimeContext{ForbiddenTargetIDs: ids}
 }
 
 func normalizeLarkMentionUsersForTodo(items []string) []string {

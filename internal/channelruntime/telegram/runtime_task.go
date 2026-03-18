@@ -27,6 +27,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
 
@@ -51,6 +52,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForTelegram(job))
 	if sendTelegramText == nil {
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
 	}
@@ -212,6 +214,20 @@ func shouldWriteMemory(publishText bool, memoryEnabled bool, orchestrator *memor
 		return false
 	}
 	return strings.TrimSpace(subjectID) != ""
+}
+
+func contactsSendRuntimeContextForTelegram(job telegramJob) builtin.ContactsSendRuntimeContext {
+	ids := make([]string, 0, 3)
+	if username := strings.TrimPrefix(strings.TrimSpace(job.FromUsername), "@"); username != "" {
+		ids = append(ids, "tg:@"+username)
+	}
+	if job.FromUserID > 0 {
+		ids = append(ids, fmt.Sprintf("tg:%d", job.FromUserID))
+	}
+	if job.ChatID != 0 && strings.EqualFold(strings.TrimSpace(job.ChatType), "private") {
+		ids = append(ids, fmt.Sprintf("tg:%d", job.ChatID))
+	}
+	return builtin.ContactsSendRuntimeContext{ForbiddenTargetIDs: ids}
 }
 
 func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {

@@ -27,6 +27,24 @@ func TestGenerateSlackPlanProgressMessage(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForSlackDirectMessage(t *testing.T) {
+	ctx := contactsSendRuntimeContextForSlack(slackJob{
+		TeamID:    "T1",
+		ChannelID: "D1",
+		ChatType:  "im",
+		UserID:    "U1",
+	})
+	if len(ctx.ForbiddenTargetIDs) != 2 {
+		t.Fatalf("forbidden_target_ids len = %d, want 2", len(ctx.ForbiddenTargetIDs))
+	}
+	if ctx.ForbiddenTargetIDs[0] != "slack:T1:U1" {
+		t.Fatalf("forbidden_target_ids[0] = %q, want %q", ctx.ForbiddenTargetIDs[0], "slack:T1:U1")
+	}
+	if ctx.ForbiddenTargetIDs[1] != "slack:T1:D1" {
+		t.Fatalf("forbidden_target_ids[1] = %q, want %q", ctx.ForbiddenTargetIDs[1], "slack:T1:D1")
+	}
+}
+
 func TestNewSlackOutboundReactionHistoryItem(t *testing.T) {
 	job := slackJob{
 		TeamID:      "T1",

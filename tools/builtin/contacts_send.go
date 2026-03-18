@@ -91,10 +91,6 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	if t == nil || !t.opts.Enabled {
 		return "", fmt.Errorf("contacts_send tool is disabled")
 	}
-	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.opts.ContactsDir))
-	if contactsDir == "" {
-		return "", fmt.Errorf("contacts dir is not configured")
-	}
 	contactID, _ := params["contact_id"].(string)
 	contactID = strings.TrimSpace(contactID)
 	if contactID == "" {
@@ -103,6 +99,15 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	chatID, err := parseContactsSendChatID(params)
 	if err != nil {
 		return "", err
+	}
+	if runtimeCtx, ok := ContactsSendRuntimeContextFromContext(ctx); ok {
+		if field, target, blocked := contactsSendBlockedTarget(contactID, chatID, runtimeCtx); blocked {
+			return "", fmt.Errorf("contacts_send blocked: %s %q matches current conversation counterpart", field, target)
+		}
+	}
+	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.opts.ContactsDir))
+	if contactsDir == "" {
+		return "", fmt.Errorf("contacts dir is not configured")
 	}
 
 	contentType, payload, err := resolveSendPayload(params, time.Now().UTC())

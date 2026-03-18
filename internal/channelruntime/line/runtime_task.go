@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
 
 type runtimeTaskOptions struct {
@@ -46,6 +47,7 @@ func runLineTask(
 		return nil, nil, nil, fmt.Errorf("line task runtime is nil")
 	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLine(job))
 	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
@@ -168,6 +170,17 @@ func todoResolveContextForLine(job lineJob) todo.AddResolveContext {
 		MentionUsernames: mentions,
 		UserInputRaw:     job.Text,
 	}
+}
+
+func contactsSendRuntimeContextForLine(job lineJob) builtin.ContactsSendRuntimeContext {
+	ids := make([]string, 0, 2)
+	if userID := strings.TrimSpace(job.FromUserID); userID != "" {
+		ids = append(ids, "line_user:"+userID)
+	}
+	if chatID := strings.TrimSpace(job.ChatID); chatID != "" && !isLineGroupChat(job.ChatType) {
+		ids = append(ids, "line:"+chatID)
+	}
+	return builtin.ContactsSendRuntimeContext{ForbiddenTargetIDs: ids}
 }
 
 func normalizeLineMentionUsersForTodo(items []string) []string {

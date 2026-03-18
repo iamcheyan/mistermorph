@@ -77,6 +77,27 @@ func TestShouldWriteMemory(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForTelegramPrivateChat(t *testing.T) {
+	ctx := contactsSendRuntimeContextForTelegram(telegramJob{
+		ChatID:       28036192,
+		ChatType:     "private",
+		FromUserID:   42,
+		FromUsername: "@Alice",
+	})
+	if len(ctx.ForbiddenTargetIDs) != 3 {
+		t.Fatalf("forbidden_target_ids len = %d, want 3", len(ctx.ForbiddenTargetIDs))
+	}
+	if ctx.ForbiddenTargetIDs[0] != "tg:@Alice" {
+		t.Fatalf("forbidden_target_ids[0] = %q, want %q", ctx.ForbiddenTargetIDs[0], "tg:@Alice")
+	}
+	if ctx.ForbiddenTargetIDs[1] != "tg:42" {
+		t.Fatalf("forbidden_target_ids[1] = %q, want %q", ctx.ForbiddenTargetIDs[1], "tg:42")
+	}
+	if ctx.ForbiddenTargetIDs[2] != "tg:28036192" {
+		t.Fatalf("forbidden_target_ids[2] = %q, want %q", ctx.ForbiddenTargetIDs[2], "tg:28036192")
+	}
+}
+
 func TestGenerateTelegramPlanProgressMessageProgrammaticFormat(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{
