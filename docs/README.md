@@ -26,6 +26,7 @@ Integration:
 Others:
 
 - [Console](./console.md)
+- [Desktop App Wrapper](./app.md)
 - [Security](./security.md)
 - [Troubleshoots](./troubleshoots.md)
 

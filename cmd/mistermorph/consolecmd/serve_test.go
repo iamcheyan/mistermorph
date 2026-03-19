@@ -2,6 +2,8 @@ package consolecmd
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -87,6 +89,25 @@ func TestHandleSPARootBasePathDoesNotServeAPI(t *testing.T) {
 	}
 }
 
+func TestHandleSPAInjectsConfiguredBasePathIntoIndex(t *testing.T) {
+	staticDir := t.TempDir()
+	indexPath := filepath.Join(staticDir, "index.html")
+	if err := os.WriteFile(indexPath, []byte(`<meta name="mistermorph-base-path" content="__MISTERMORPH_BASE_PATH__">`), 0o600); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	srv := &server{cfg: serveConfig{basePath: "/console", staticDir: staticDir}}
+	req := httptest.NewRequest(http.MethodGet, "/console/login", nil)
+	rec := httptest.NewRecorder()
+	srv.handleSPA(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("handleSPA(/console/login) status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `content="/console"`) {
+		t.Fatalf("index.html missing injected base path: %s", body)
+	}
+}
+
 func TestResolveStaticDir(t *testing.T) {
 	staticDir := t.TempDir()
 	indexPath := filepath.Join(staticDir, "index.html")
@@ -146,6 +167,39 @@ func TestLoadServeConfigAllowsEmptyStaticDir(t *testing.T) {
 	}
 }
 
+func TestLoadServeConfigSkipsIncompleteEndpoints(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("console.endpoints", []map[string]string{
+		{
+			"name":       "Main",
+			"url":        "http://127.0.0.1:8787",
+			"auth_token": "dev-token",
+		},
+		{
+			"name": "PI",
+			"url":  "http://127.0.0.1:8788",
+		},
+	})
+
+	cfg, err := loadServeConfig(newServeCmd())
+	if err != nil {
+		t.Fatalf("loadServeConfig() error = %v", err)
+	}
+	if len(cfg.endpoints) != 1 {
+		t.Fatalf("len(cfg.endpoints) = %d, want 1", len(cfg.endpoints))
+	}
+	if cfg.endpoints[0].Name != "Main" {
+		t.Fatalf("cfg.endpoints[0].Name = %q, want %q", cfg.endpoints[0].Name, "Main")
+	}
+	if len(cfg.endpointWarnings) != 1 {
+		t.Fatalf("len(cfg.endpointWarnings) = %d, want 1", len(cfg.endpointWarnings))
+	}
+	if !strings.Contains(cfg.endpointWarnings[0], "console.endpoints[1] skipped") {
+		t.Fatalf("cfg.endpointWarnings[0] = %q, want skipped warning", cfg.endpointWarnings[0])
+	}
+}
+
 func TestLoadServeConfigManagedRuntimes(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -171,5 +225,20 @@ func TestLoadServeConfigRejectsUnsupportedManagedRuntime(t *testing.T) {
 	_, err := loadServeConfig(newServeCmd())
 	if err == nil || !strings.Contains(err.Error(), "unsupported console.managed_runtimes entry") {
 		t.Fatalf("loadServeConfig() error = %v, want unsupported managed runtime", err)
+	}
+}
+
+func TestIsBenignServeCloseError(t *testing.T) {
+	if !isBenignServeCloseError(nil) {
+		t.Fatalf("nil error should be benign")
+	}
+	if !isBenignServeCloseError(http.ErrServerClosed) {
+		t.Fatalf("http.ErrServerClosed should be benign")
+	}
+	if !isBenignServeCloseError(net.ErrClosed) {
+		t.Fatalf("net.ErrClosed should be benign")
+	}
+	if isBenignServeCloseError(errors.New("boom")) {
+		t.Fatalf("unexpected error should not be benign")
 	}
 }

@@ -28,15 +28,17 @@ import (
 )
 
 type serveConfig struct {
-	listen       string
-	basePath     string
-	staticDir    string
-	sessionTTL   time.Duration
-	password     string
-	passwordHash string
-	endpoints    []runtimeEndpointConfig
-	managedKinds []string
-	stateDir     string
+	listen           string
+	basePath         string
+	staticDir        string
+	sessionTTL       time.Duration
+	passwordOptional bool
+	password         string
+	passwordHash     string
+	endpoints        []runtimeEndpointConfig
+	endpointWarnings []string
+	managedKinds     []string
+	stateDir         string
 }
 
 type runtimeEndpointConfig struct {
@@ -98,6 +100,12 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			for _, warning := range cfg.endpointWarnings {
+				_, _ = fmt.Fprintf(os.Stderr, "warn: %s\n", warning)
+			}
+			if cfg.authDisabled() {
+				_, _ = fmt.Fprintln(os.Stderr, "warn: console password is not configured; authentication is disabled by --allow-empty-password")
+			}
 			srv, err := newServer(cfg)
 			if err != nil {
 				return err
@@ -110,6 +118,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("console-base-path", "/", "Console base path.")
 	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
+	cmd.Flags().Bool("allow-empty-password", false, "Allow console to run without console.password/console.password_hash. If a password is configured, login is still required.")
 
 	return cmd
 }
@@ -134,32 +143,38 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if sessionTTL <= 0 {
 		sessionTTL = 12 * time.Hour
 	}
+	passwordOptional, err := cmd.Flags().GetBool("allow-empty-password")
+	if err != nil {
+		return serveConfig{}, err
+	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
 	var rawEndpoints []runtimeEndpointConfigRaw
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
 	}
-	endpoints, err := resolveRuntimeEndpoints(rawEndpoints)
-	if err != nil {
-		return serveConfig{}, err
-	}
+	endpoints, endpointWarnings := resolveRuntimeEndpointsForServe(rawEndpoints)
 	managedKinds, err := normalizeManagedRuntimeKinds(viper.GetStringSlice("console.managed_runtimes"))
 	if err != nil {
 		return serveConfig{}, err
 	}
-
 	return serveConfig{
-		listen:       listen,
-		basePath:     basePath,
-		staticDir:    staticDir,
-		sessionTTL:   sessionTTL,
-		password:     viper.GetString("console.password"),
-		passwordHash: viper.GetString("console.password_hash"),
-		endpoints:    endpoints,
-		managedKinds: managedKinds,
-		stateDir:     stateDir,
+		listen:           listen,
+		basePath:         basePath,
+		staticDir:        staticDir,
+		sessionTTL:       sessionTTL,
+		passwordOptional: passwordOptional,
+		password:         viper.GetString("console.password"),
+		passwordHash:     viper.GetString("console.password_hash"),
+		endpoints:        endpoints,
+		endpointWarnings: endpointWarnings,
+		managedKinds:     managedKinds,
+		stateDir:         stateDir,
 	}, nil
+}
+
+func (c serveConfig) authDisabled() bool {
+	return c.passwordOptional && !consolePasswordConfigured(c.password, c.passwordHash)
 }
 
 func normalizeBasePath(raw string) (string, error) {
@@ -226,15 +241,53 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 	return endpoints, nil
 }
 
+func resolveRuntimeEndpointsForServe(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, []string) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
+	warnings := make([]string, 0, len(raw))
+	refSet := make(map[string]struct{}, len(raw))
+	for i, item := range raw {
+		name := strings.TrimSpace(item.Name)
+		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
+		token := strings.TrimSpace(item.AuthToken)
+		if name == "" || url == "" || token == "" {
+			warnings = append(warnings, fmt.Sprintf("console.endpoints[%d] skipped: name, url, auth_token are required", i))
+			continue
+		}
+
+		ref := buildRuntimeEndpointRef(name, url)
+		if _, exists := refSet[ref]; exists {
+			warnings = append(warnings, fmt.Sprintf("console.endpoints[%d] skipped: duplicate endpoint %q (%s)", i, name, url))
+			continue
+		}
+		refSet[ref] = struct{}{}
+
+		endpoints = append(endpoints, runtimeEndpointConfig{
+			Ref:       ref,
+			Name:      name,
+			URL:       url,
+			AuthToken: token,
+		})
+	}
+	return endpoints, warnings
+}
+
 func buildRuntimeEndpointRef(name, url string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(name) + "\n" + strings.TrimSpace(url)))
 	return "ep_" + hex.EncodeToString(sum[:8])
 }
 
 func newServer(cfg serveConfig) (*server, error) {
-	password, err := newPasswordVerifier(cfg.password, cfg.passwordHash)
-	if err != nil {
-		return nil, err
+	password, passwordErr := newPasswordVerifier(cfg.password, cfg.passwordHash)
+	if cfg.authDisabled() {
+		password = nil
+		passwordErr = nil
+	}
+	if passwordErr != nil {
+		return nil, passwordErr
 	}
 	sessionStorePath := ""
 	if strings.TrimSpace(cfg.stateDir) != "" {
@@ -263,7 +316,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpointByRef[ep.Ref] = ep
 	}
 
-	return &server{
+	srv := &server{
 		cfg:           cfg,
 		startedAt:     time.Now().UTC(),
 		password:      password,
@@ -273,7 +326,8 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpointByRef: endpointByRef,
 		localRuntime:  localRuntime,
 		managed:       managed,
-	}, nil
+	}
+	return srv, nil
 }
 
 func (s *server) run() error {
@@ -287,6 +341,9 @@ func (s *server) run() error {
 	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 
+	mux.HandleFunc("/health", s.handleHealth)
+
+	mux.HandleFunc(apiPrefix+"/auth/config", s.handleAuthConfig)
 	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
@@ -335,7 +392,7 @@ func (s *server) run() error {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
 	err = httpSrv.Serve(ln)
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err != nil && !isBenignServeCloseError(err) {
 		return err
 	}
 	select {
@@ -346,8 +403,16 @@ func (s *server) run() error {
 	}
 }
 
+func isBenignServeCloseError(err error) bool {
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed)
+}
+
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s != nil && s.cfg.authDisabled() {
+			next(w, r)
+			return
+		}
 		token, ok := bearerToken(r)
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -363,9 +428,35 @@ func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"mode":           "ready",
+		"setup_required": false,
+	})
+}
+
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s != nil && s.cfg.authDisabled() {
+		token, expiresAt, err := s.sessions.Create(s.cfg.sessionTTL)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create session")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"access_token": token,
+			"token_type":   "Bearer",
+			"expires_at":   expiresAt.Format(time.RFC3339),
+		})
 		return
 	}
 
@@ -413,6 +504,16 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_at":   expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (s *server) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"password_required": !s.cfg.authDisabled(),
 	})
 }
 
@@ -593,7 +694,7 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, strings.TrimRight(s.cfg.basePath, "/"))
 	rel = strings.TrimPrefix(rel, "/")
 	if rel == "" {
-		http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+		s.serveSPAIndex(w, r)
 		return
 	}
 
@@ -603,7 +704,22 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, target)
 		return
 	}
-	http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+	s.serveSPAIndex(w, r)
+}
+
+func (s *server) serveSPAIndex(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		http.NotFound(w, r)
+		return
+	}
+	indexPath := filepath.Join(s.cfg.staticDir, "index.html")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		http.ServeFile(w, r, indexPath)
+		return
+	}
+	body := bytes.ReplaceAll(raw, []byte("__MISTERMORPH_BASE_PATH__"), []byte(displayBasePath(s.cfg.basePath)))
+	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(body))
 }
 
 func joinBasePath(basePath, suffix string) string {

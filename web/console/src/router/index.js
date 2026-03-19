@@ -6,6 +6,7 @@ import {
   authState,
   authValid,
   clearAuth,
+  ensureConsoleSession,
   endpointState,
   loadEndpoints,
   saveAuth,
@@ -14,7 +15,6 @@ import {
 import {
   consoleSetupTargetEndpointRef,
   resolveConsoleSetupStage,
-  setupStagePath,
 } from "../core/setup";
 import {
   AuditView,
@@ -94,7 +94,14 @@ router.beforeEach(async (to) => {
     return true;
   }
   if (!authValid.value) {
-    return { path: "/login", query: { redirect: to.fullPath } };
+    try {
+      const ok = await ensureConsoleSession();
+      if (!ok) {
+        return { path: "/login", query: { redirect: to.fullPath } };
+      }
+    } catch {
+      return { path: "/login", query: { redirect: to.fullPath } };
+    }
   }
   try {
     const me = await apiFetch("/auth/me");
@@ -103,7 +110,19 @@ router.beforeEach(async (to) => {
     saveAuth();
   } catch {
     clearAuth();
-    return { path: "/login", query: { redirect: to.fullPath } };
+    try {
+      const ok = await ensureConsoleSession();
+      if (ok) {
+        const me = await apiFetch("/auth/me");
+        authState.account = me.account || "console";
+        authState.expiresAt = me.expires_at || authState.expiresAt;
+        saveAuth();
+      } else {
+        return { path: "/login", query: { redirect: to.fullPath } };
+      }
+    } catch {
+      return { path: "/login", query: { redirect: to.fullPath } };
+    }
   }
   try {
     await loadEndpoints();
@@ -112,17 +131,13 @@ router.beforeEach(async (to) => {
   }
   const setupState = await resolveConsoleSetupStage(endpointState.items);
   if (setupState.stage !== "ready") {
-    const setupPath = setupStagePath(setupState.stage);
     if (SETUP_FREE_PATHS.has(to.path)) {
-      if (isSetupPath(to.path) && to.path !== setupPath) {
-        return { path: setupPath, query: to.query };
-      }
       return true;
     }
-    return { path: setupPath, query: { redirect: to.fullPath } };
+    return { path: "/setup/llm", query: { redirect: to.fullPath } };
   }
   if (to.path === "/setup") {
-    return { path: "/setup/done", query: to.query };
+    return { path: "/setup/llm", query: to.query };
   }
   if (isSetupPath(to.path)) {
     const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
