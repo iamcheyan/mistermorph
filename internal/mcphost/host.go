@@ -41,6 +41,10 @@ func Connect(ctx context.Context, configs []ServerConfig, logger *slog.Logger) (
 
 	for i := range configs {
 		cfg := &configs[i]
+		if !cfg.Enable {
+			logger.Info("mcp_server_disabled", "server", cfg.Name)
+			continue
+		}
 		if err := cfg.Validate(); err != nil {
 			logger.Warn("mcp_server_config_invalid", "server", cfg.Name, "err", err)
 			continue

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
 type ServerConfig struct {
 	Name         string
+	Enable       bool              // set false to disable; default true
 	Type         string            // "stdio" (default) | "http"
 	Command      string            // stdio only
 	Args         []string          // stdio only
@@ -91,48 +93,18 @@ func parseMCPServers(raw any) []ServerConfig {
 			continue
 		}
 		cfg := ServerConfig{
-			Name:    asString(m["name"]),
-			Type:    asString(m["type"]),
-			Command: asString(m["command"]),
-			URL:     asString(m["url"]),
-		}
-		if args, ok := m["args"].([]any); ok {
-			for _, a := range args {
-				if s, ok := a.(string); ok {
-					cfg.Args = append(cfg.Args, s)
-				}
-			}
-		}
-		if env, ok := m["env"].(map[string]any); ok {
-			cfg.Env = make(map[string]string, len(env))
-			for k, v := range env {
-				cfg.Env[k] = fmt.Sprintf("%v", v)
-			}
-		}
-		if headers, ok := m["headers"].(map[string]any); ok {
-			cfg.Headers = make(map[string]string, len(headers))
-			for k, v := range headers {
-				cfg.Headers[k] = fmt.Sprintf("%v", v)
-			}
-		}
-		if allowed, ok := m["allowed_tools"].([]any); ok {
-			for _, a := range allowed {
-				if s, ok := a.(string); ok {
-					cfg.AllowedTools = append(cfg.AllowedTools, s)
-				}
-			}
+			Name:         cast.ToString(m["name"]),
+			Enable:       m["enable"] == nil || cast.ToBool(m["enable"]),
+			Type:         cast.ToString(m["type"]),
+			Command:      cast.ToString(m["command"]),
+			URL:          cast.ToString(m["url"]),
+			Args:         cast.ToStringSlice(m["args"]),
+			Env:          cast.ToStringMapString(m["env"]),
+			Headers:      cast.ToStringMapString(m["headers"]),
+			AllowedTools: cast.ToStringSlice(m["allowed_tools"]),
 		}
 		configs = append(configs, cfg)
 	}
 	return configs
 }
 
-func asString(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
