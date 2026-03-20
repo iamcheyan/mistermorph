@@ -402,15 +402,25 @@
 }
 
 .chat-history-item {
+  position: relative;
   display: grid;
   width: 100%;
 }
 
+.chat-history-copy,
 .chat-history-bubble {
   position: relative;
   width: min(100%, 82ch);
   display: grid;
   gap: 8px;
+}
+
+.chat-history-copy {
+  padding: 3px 0 5px;
+}
+
+.chat-history-bubble {
+  position: relative;
   padding: 11px 12px 12px;
   border: 1px solid var(--line-soft);
   background:
@@ -444,30 +454,25 @@
   pointer-events: none;
 }
 
-.chat-history-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chat-history-role {
-  font-family: var(--font-mono);
-  line-height: 1;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
 .chat-history-status {
-  margin-left: auto;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
   font-family: var(--font-mono);
   line-height: 1;
   font-size: 11px;
   color: var(--text-2);
   user-select: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.chat-history-item:hover .chat-history-status,
+.chat-history-item:focus-within .chat-history-status {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chat-history-body {
@@ -478,6 +483,10 @@
   font-size: 13px;
   line-height: 1.68;
   color: var(--text-0);
+}
+
+.chat-markdown-content {
+  min-width: 0;
 }
 
 .chat-raw-overlay {
@@ -565,18 +574,11 @@
 
 .chat-history-agent {
   justify-items: start;
-  padding-right: clamp(32px, 8vw, 112px);
+  padding-right: 0;
 }
 
-.chat-history-agent .chat-history-bubble {
-  border-color: rgba(65, 77, 91, 0.18);
-  background:
-    linear-gradient(180deg, rgba(251, 251, 249, 0.98), rgba(244, 244, 241, 0.95)),
-    rgba(247, 247, 247, 0.92);
-}
-
-.chat-history-agent .chat-history-bubble::before {
-  background: linear-gradient(90deg, rgba(42, 52, 64, 0.32) 0 28px, rgba(42, 52, 64, 0.1) 28px 64px, transparent 64px);
+.chat-history-agent .chat-history-copy {
+  width: min(100%, 86ch);
 }
 
 .chat-history-system {
@@ -594,14 +596,6 @@
 
 .chat-history-system .chat-history-bubble::before {
   background: linear-gradient(90deg, rgba(33, 37, 41, 0.18) 0 22px, rgba(33, 37, 41, 0.08) 22px 54px, transparent 54px);
-}
-
-.chat-history-system .chat-history-head {
-  justify-content: center;
-}
-
-.chat-history-system .chat-history-status {
-  margin-left: 0;
 }
 
 .chat-readonly {
@@ -668,8 +662,8 @@
     padding-right: 0;
   }
 
-  .chat-history-bubble,
-  .chat-history-system .chat-history-bubble {
+  .chat-history-copy,
+  .chat-history-bubble {
     width: 100%;
   }
 }

@@ -2,6 +2,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./ChatView.css";
 
 import AppPage from "../components/AppPage";
+import MarkdownContent from "../components/MarkdownContent";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
   currentLocale,
@@ -137,10 +138,6 @@ function taskRawJSON(task) {
 }
 
 function taskOutputText(task) {
-  const summary = String(task?.result?.output || "").trim();
-  if (summary) {
-    return summary;
-  }
   const finalOutput = task?.result?.final?.output;
   if (typeof finalOutput === "string") {
     return finalOutput.trim();
@@ -258,6 +255,7 @@ function tuiKicker(left, right) {
 const ChatView = {
   components: {
     AppPage,
+    MarkdownContent,
   },
   setup() {
     const t = translate;
@@ -600,16 +598,6 @@ const ChatView = {
       return staticHistoryItem("chat-intro", t("chat_intro"));
     }
 
-    function roleText(role) {
-      if (role === "user") {
-        return t("chat_role_user");
-      }
-      if (role === "agent") {
-        return displayAgentName.value;
-      }
-      return t("chat_role_system");
-    }
-
     function historyClass(item) {
       const role = String(item?.role || "").trim().toLowerCase();
       if (role === "user") {
@@ -619,6 +607,14 @@ const ChatView = {
         return "chat-history-item chat-history-agent";
       }
       return "chat-history-item chat-history-system";
+    }
+
+    function historySurfaceClass(item) {
+      const role = String(item?.role || "").trim().toLowerCase();
+      if (role === "agent") {
+        return "chat-history-copy";
+      }
+      return "chat-history-bubble";
     }
 
     function isSystemTopic(topic) {
@@ -1128,8 +1124,8 @@ const ChatView = {
       topicIsActive,
       clickPageBarTitle,
       handleHistoryScroll,
-      roleText,
       historyClass,
+      historySurfaceClass,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -1209,18 +1205,22 @@ const ChatView = {
             >
               <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
               <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-                <div class="chat-history-bubble">
-                  <header class="chat-history-head">
-                    <code class="chat-history-role">{{ roleText(item.role) }}</code>
-                    <code
-                      v-if="item.timeText"
-                      class="chat-history-status"
-                      @click="clickHistoryTime(item)"
-                    >
-                      {{ item.timeText }}
-                    </code>
-                  </header>
-                  <div class="chat-history-body">{{ item.text }}</div>
+                <code
+                  v-if="item.timeText"
+                  class="chat-history-status"
+                  @click="clickHistoryTime(item)"
+                >
+                  {{ item.timeText }}
+                </code>
+                <div :class="historySurfaceClass(item)">
+                  <MarkdownContent
+                    v-if="item.role === 'agent'"
+                    class="chat-history-markdown"
+                    :source="item.text"
+                    format="auto"
+                    theme="console"
+                  />
+                  <div v-else class="chat-history-body">{{ item.text }}</div>
                 </div>
               </article>
               <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>

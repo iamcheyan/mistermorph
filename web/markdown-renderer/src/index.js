@@ -1,0 +1,446 @@
+import createDOMPurify from "dompurify";
+import mermaid from "mermaid";
+import { Infographic } from "@antv/infographic";
+import { instance as createVizInstance } from "@viz-js/viz";
+import rehypeHighlight from "rehype-highlight";
+import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeStringify from "rehype-stringify";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import { applyThemeToElement, resolveTheme, themeCatalog, themeNames, themes } from "./themes.js";
+import { unified } from "unified";
+
+import "highlight.js/styles/github.css";
+import "katex/dist/katex.min.css";
+import "./styles.css";
+
+const DIAGRAM_LANGUAGES = new Set([
+  "mermaid",
+  "graphviz",
+  "infographic",
+]);
+const MATH_FENCE_LANGUAGES = new Set([
+  "math",
+  "latex",
+  "tex",
+  "katex",
+]);
+
+const markdownProcessor = unified()
+  .use(remarkParse)
+  .use(remarkGfm, { singleTilde: false })
+  .use(remarkMath)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(rehypeRaw)
+  .use(rehypeHighlight, { detect: false, ignoreMissing: true })
+  .use(rehypeKatex)
+  .use(rehypeStringify, { allowDangerousHtml: true });
+
+let mermaidInitialized = false;
+let mermaidThemeID = "";
+let mermaidSequence = 0;
+let vizPromise = null;
+
+function stringValue(value) {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function normalizeSourceText(raw) {
+  let text = stringValue(raw);
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") {
+        text = parsed;
+      }
+    } catch {
+      // Keep original text when it is not a valid JSON string literal.
+    }
+  }
+  return text;
+}
+
+function escapeHtml(raw) {
+  return stringValue(raw)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeDiagramLanguage(raw) {
+  const value = stringValue(raw).trim().toLowerCase();
+  if (value === "mmd") {
+    return "mermaid";
+  }
+  if (value === "dot" || value === "gv") {
+    return "graphviz";
+  }
+  return value;
+}
+
+function inferFormat(raw, explicit = "auto") {
+  const requested = normalizeDiagramLanguage(explicit);
+  if (requested && requested !== "auto") {
+    return requested;
+  }
+  const text = normalizeSourceText(raw).trim();
+  if (!text) {
+    return "markdown";
+  }
+  if (text.startsWith("```") || text.includes("\n```")) {
+    return "markdown";
+  }
+  if (/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|pie|mindmap|timeline|gantt|quadrantChart|gitGraph)\b/.test(text)) {
+    return "mermaid";
+  }
+  if (/^(graph|digraph)\b/.test(text)) {
+    return "graphviz";
+  }
+  if (/^infographic\b/.test(text)) {
+    return "infographic";
+  }
+  return "markdown";
+}
+
+function detectCodeLanguage(codeNode) {
+  if (!codeNode) {
+    return "";
+  }
+  for (const className of Array.from(codeNode.classList)) {
+    if (className.startsWith("language-")) {
+      return normalizeDiagramLanguage(className.slice("language-".length));
+    }
+  }
+  return normalizeDiagramLanguage(codeNode.dataset?.language || "");
+}
+
+function normalizedFenceSource(raw) {
+  return stringValue(raw).replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
+}
+
+function fenceMathSource(language, rawSource) {
+  const source = normalizedFenceSource(rawSource);
+  if (!source) {
+    return "";
+  }
+  if (MATH_FENCE_LANGUAGES.has(language)) {
+    if (source.startsWith("$$") && source.endsWith("$$")) {
+      return source;
+    }
+    return `$$\n${source}\n$$`;
+  }
+  if (!language && source.startsWith("$$") && source.endsWith("$$")) {
+    return source;
+  }
+  return "";
+}
+
+function documentView(doc) {
+  return doc?.defaultView || window;
+}
+
+function createPurifier(doc) {
+  return createDOMPurify(documentView(doc));
+}
+
+function sanitizeMarkup(markup, doc) {
+  const purifier = createPurifier(doc);
+  const clean = purifier.sanitize(stringValue(markup), {
+    USE_PROFILES: {
+      html: true,
+      svg: true,
+      svgFilters: true,
+      mathMl: true,
+    },
+    ADD_TAGS: ["foreignObject"],
+    ADD_ATTR: [
+      "target",
+      "rel",
+      "xmlns",
+      "xmlns:xlink",
+      "viewBox",
+      "preserveAspectRatio",
+      "transform-origin",
+    ],
+  });
+  const template = doc.createElement("template");
+  template.innerHTML = clean;
+  for (const anchor of template.content.querySelectorAll("a[href]")) {
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("rel", "noreferrer noopener");
+  }
+  return template.innerHTML;
+}
+
+function markdownToHtml(source, doc) {
+  const normalized = normalizeSourceText(source);
+  try {
+    const rendered = markdownProcessor.processSync(normalized);
+    return sanitizeMarkup(String(rendered), doc);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Markdown render failed.";
+    return `<pre>${escapeHtml(`${message}\n\n${normalized}`)}</pre>`;
+  }
+}
+
+function appendSvgMarkup(surface, markup) {
+  const doc = surface.ownerDocument;
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(stringValue(markup), "image/svg+xml");
+  const errorNode = parsed.querySelector("parsererror");
+  if (errorNode) {
+    throw new Error(errorNode.textContent || "Invalid SVG output.");
+  }
+  const svg = parsed.documentElement;
+  if (!svg || svg.nodeName.toLowerCase() !== "svg") {
+    throw new Error("Expected SVG output.");
+  }
+  const adopted = doc.importNode(svg, true);
+  for (const anchor of adopted.querySelectorAll("a[href]")) {
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("rel", "noreferrer noopener");
+  }
+  surface.replaceChildren(adopted);
+  return adopted;
+}
+
+function makeDiagramFrame(doc, language) {
+  const figure = doc.createElement("figure");
+  figure.className = `mmr-diagram mmr-diagram-${language}`;
+
+  const header = doc.createElement("figcaption");
+  header.className = "mmr-diagram-head";
+
+  const badge = doc.createElement("span");
+  badge.className = "mmr-diagram-badge";
+  badge.textContent = language;
+
+  const status = doc.createElement("span");
+  status.className = "mmr-diagram-status";
+  status.textContent = "rendered";
+
+  header.append(badge, status);
+
+  const surface = doc.createElement("div");
+  surface.className = "mmr-diagram-surface";
+
+  figure.append(header, surface);
+  return { figure, surface, status };
+}
+
+function renderError(surface, source, error) {
+  const doc = surface.ownerDocument;
+  const message = doc.createElement("p");
+  message.className = "mmr-diagram-error";
+  message.textContent = error instanceof Error ? error.message : "Render failed.";
+
+  const pre = doc.createElement("pre");
+  pre.className = "mmr-diagram-fallback";
+  pre.textContent = stringValue(source);
+
+  surface.replaceChildren(message, pre);
+}
+
+function renderMathFence(pre, source) {
+  const doc = pre.ownerDocument;
+  const block = doc.createElement("div");
+  block.className = "mmr-math-fence";
+  block.innerHTML = markdownToHtml(source, doc);
+  pre.replaceWith(block);
+}
+
+function initializeMermaid(theme) {
+  if (mermaidInitialized && mermaidThemeID === theme.id) {
+    return;
+  }
+  mermaid.initialize(theme.mermaid);
+  mermaidInitialized = true;
+  mermaidThemeID = theme.id;
+}
+
+async function renderMermaid(surface, source, theme) {
+  initializeMermaid(theme);
+  const id = `mmr-mermaid-${mermaidSequence += 1}`;
+  const rendered = await mermaid.render(id, stringValue(source));
+  appendSvgMarkup(surface, rendered.svg);
+  rendered.bindFunctions?.(surface);
+}
+
+async function renderGraphviz(surface, source, theme) {
+  vizPromise ||= createVizInstance();
+  const viz = await vizPromise;
+  const svgElement = viz.renderSVGElement(stringValue(source), theme.graphviz);
+  surface.replaceChildren(svgElement);
+}
+
+function renderInfographic(surface, source, theme) {
+  const infographic = new Infographic({
+    container: surface,
+    editable: false,
+    padding: 16,
+    theme: theme.infographic.theme,
+    themeConfig: theme.infographic.themeConfig,
+  });
+  infographic.render(stringValue(source));
+  return () => {
+    infographic.destroy();
+  };
+}
+async function renderDiagram(surface, language, source, theme) {
+  switch (language) {
+    case "mermaid":
+      await renderMermaid(surface, source, theme);
+      return null;
+    case "graphviz":
+      await renderGraphviz(surface, source, theme);
+      return null;
+    case "infographic":
+      return renderInfographic(surface, source, theme);
+    default:
+      throw new Error(`Unsupported diagram language: ${language}`);
+  }
+}
+
+export class MarkdownRenderer {
+  constructor(root, options = {}) {
+    if (!(root instanceof Element)) {
+      throw new Error("MarkdownRenderer requires a root Element.");
+    }
+    this.root = root;
+    this.options = {
+      format: "auto",
+      theme: "paper",
+      ...options,
+    };
+    this.cleanupFns = [];
+    this.renderToken = 0;
+    this.root.classList.add("mmr-root");
+  }
+
+  async update(source, nextOptions = {}) {
+    this.options = {
+      ...this.options,
+      ...nextOptions,
+    };
+    const token = ++this.renderToken;
+    const normalizedSource = normalizeSourceText(source);
+    const theme = applyThemeToElement(this.root, resolveTheme(this.options.theme));
+    const format = inferFormat(normalizedSource, this.options.format);
+    this.cleanup();
+    this.root.replaceChildren();
+
+    if (!normalizedSource.trim()) {
+      return;
+    }
+
+    if (format !== "markdown") {
+      await this.renderStandalone(format, normalizedSource, token, theme);
+      return;
+    }
+
+    const documentNode = this.root.ownerDocument.createElement("article");
+    documentNode.className = "mmr-document";
+    documentNode.innerHTML = markdownToHtml(normalizedSource, this.root.ownerDocument);
+    this.root.replaceChildren(documentNode);
+
+    await this.enhanceMarkdown(documentNode, token, theme);
+  }
+
+  cleanup() {
+    while (this.cleanupFns.length > 0) {
+      const cleanup = this.cleanupFns.pop();
+      try {
+        cleanup?.();
+      } catch {
+        // ignore renderer cleanup failures
+      }
+    }
+  }
+
+  destroy() {
+    this.cleanup();
+    this.root.replaceChildren();
+    this.root.classList.remove("mmr-root");
+  }
+
+  async renderStandalone(format, source, token, theme) {
+    const documentNode = this.root.ownerDocument.createElement("article");
+    documentNode.className = "mmr-document mmr-document-standalone";
+    this.root.replaceChildren(documentNode);
+    const frame = makeDiagramFrame(this.root.ownerDocument, format);
+    documentNode.append(frame.figure);
+    try {
+      const cleanup = await renderDiagram(frame.surface, format, source, theme);
+      if (token !== this.renderToken) {
+        cleanup?.();
+        return;
+      }
+      if (typeof cleanup === "function") {
+        this.cleanupFns.push(cleanup);
+      }
+    } catch (error) {
+      frame.status.textContent = "failed";
+      frame.figure.classList.add("is-error");
+      renderError(frame.surface, source, error);
+    }
+  }
+
+  async enhanceMarkdown(container, token, theme) {
+    const codeBlocks = Array.from(container.querySelectorAll("pre > code"));
+    for (const code of codeBlocks) {
+      if (token !== this.renderToken) {
+        return;
+      }
+      const language = detectCodeLanguage(code);
+      const pre = code.parentElement;
+      if (!pre?.parentElement) {
+        continue;
+      }
+      const source = code.textContent || "";
+      const mathSource = fenceMathSource(language, source);
+      if (mathSource) {
+        renderMathFence(pre, mathSource);
+        continue;
+      }
+      if (!DIAGRAM_LANGUAGES.has(language)) {
+        continue;
+      }
+      const frame = makeDiagramFrame(this.root.ownerDocument, language);
+      pre.replaceWith(frame.figure);
+
+      try {
+        const cleanup = await renderDiagram(frame.surface, language, source, theme);
+        if (token !== this.renderToken) {
+          cleanup?.();
+          return;
+        }
+        if (typeof cleanup === "function") {
+          this.cleanupFns.push(cleanup);
+        }
+      } catch (error) {
+        frame.status.textContent = "failed";
+        frame.figure.classList.add("is-error");
+        renderError(frame.surface, source, error);
+      }
+    }
+  }
+}
+
+export function mountMarkdownRenderer(root, source = "", options = {}) {
+  const renderer = new MarkdownRenderer(root, options);
+  void renderer.update(source, options);
+  return renderer;
+}
+
+export const supportedFenceLanguages = Array.from(DIAGRAM_LANGUAGES);
+export const supportedThemes = themeNames;
+export { themeCatalog, themes, resolveTheme };

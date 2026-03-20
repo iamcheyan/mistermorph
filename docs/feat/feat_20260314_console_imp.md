@@ -123,7 +123,7 @@ status: draft
 展示要求：
 - 用户消息、系统状态消息、助手回复消息分栏展示。
 - `pending/running` 有明显状态标识。
-- 当任务完成时，优先展示 `result.final.output`（兼容已有结果结构），并可展开查看 steps/metrics。
+- 当任务完成时，展示 `result.final.output`，并可展开查看 steps/metrics。
 
 验收：
 - 用户可从 Chat 视图直接发任务给当前 endpoint 对应 agent。

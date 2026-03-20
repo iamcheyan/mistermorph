@@ -42,7 +42,6 @@ const (
 	consoleLocalEndpointRef   = "ep_console_local"
 	consoleLocalEndpointName  = "Console Local"
 	consoleLocalEndpointURL   = "in-process://console-local"
-	consoleTaskOutputMaxChars = 4000
 	consoleTopicTitleMaxChars = 72
 	consoleTopicTitleTimeout  = 20 * time.Second
 	consoleHeartbeatSkipNoLLM = "console_submit_unavailable"
@@ -509,21 +508,14 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	}
 
 	finishedAt := time.Now().UTC()
+	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-		output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt
 		info.Result = buildConsoleTaskResult(final, agentCtx)
-		if strings.TrimSpace(output) != "" {
-			// Keep output summary for old readers that only consume result.output.
-			if resultMap, ok := info.Result.(map[string]any); ok {
-				resultMap["output"] = daemonruntime.TruncateUTF8(output, consoleTaskOutputMaxChars)
-				info.Result = resultMap
-			}
-		}
 	})
-	r.maybeRefreshTopicTitle(job, strings.TrimSpace(outputfmt.FormatFinalOutput(final)))
+	r.maybeRefreshTopicTitle(job, output)
 }
 
 func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob) (*agent.Final, *agent.Context, error) {
