@@ -96,6 +96,93 @@ func TestPromptSpecWithSkills_LoadAllWildcardIgnoresUnknownRequests(t *testing.T
 	}
 }
 
+func TestPromptSpecWithSkills_LoadsTaskReferencedSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+	writeSkill(t, root, "beta")
+
+	spec, loaded, err := PromptSpecWithSkills(
+		context.Background(),
+		nil,
+		agent.DefaultLogOptions(),
+		"use $beta for this task",
+		nil,
+		"gpt-5.2",
+		SkillsConfig{
+			Roots:   []string{root},
+			Enabled: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("PromptSpecWithSkills: %v", err)
+	}
+	if len(spec.Skills) != 1 {
+		t.Fatalf("expected 1 loaded skill, got %d", len(spec.Skills))
+	}
+	if len(loaded) != 1 || loaded[0] != "beta" {
+		t.Fatalf("unexpected loaded skills: %#v", loaded)
+	}
+}
+
+func TestPromptSpecWithSkills_MergesRequestedAndTaskReferencedSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+	writeSkill(t, root, "beta")
+
+	spec, loaded, err := PromptSpecWithSkills(
+		context.Background(),
+		nil,
+		agent.DefaultLogOptions(),
+		"also enable $beta",
+		nil,
+		"gpt-5.2",
+		SkillsConfig{
+			Roots:     []string{root},
+			Enabled:   true,
+			Requested: []string{"alpha"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("PromptSpecWithSkills: %v", err)
+	}
+	if len(spec.Skills) != 2 {
+		t.Fatalf("expected 2 loaded skills, got %d", len(spec.Skills))
+	}
+	sort.Strings(loaded)
+	if len(loaded) != 2 || loaded[0] != "alpha" || loaded[1] != "beta" {
+		t.Fatalf("unexpected loaded skills: %#v", loaded)
+	}
+}
+
+func TestPromptSpecWithSkills_UnknownTaskReferencesDoNotDisableLoadAll(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+	writeSkill(t, root, "beta")
+
+	spec, loaded, err := PromptSpecWithSkills(
+		context.Background(),
+		nil,
+		agent.DefaultLogOptions(),
+		"budget is $100 and env $OPENAI_API_KEY",
+		nil,
+		"gpt-5.2",
+		SkillsConfig{
+			Roots:   []string{root},
+			Enabled: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("PromptSpecWithSkills: %v", err)
+	}
+	if len(spec.Skills) != 2 {
+		t.Fatalf("expected 2 loaded skills, got %d", len(spec.Skills))
+	}
+	sort.Strings(loaded)
+	if len(loaded) != 2 || loaded[0] != "alpha" || loaded[1] != "beta" {
+		t.Fatalf("unexpected loaded skills: %#v", loaded)
+	}
+}
+
 func TestPromptSpecWithSkills_IgnoresUnknownRequests(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "alpha")

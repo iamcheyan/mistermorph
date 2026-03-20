@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -14,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+var dollarSkillRe = regexp.MustCompile(`\$(?P<name>[A-Za-z0-9_.-]+)`)
 
 type ConfigReader interface {
 	GetString(string) string
@@ -90,6 +93,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	loadedSkillIDs := make(map[string]bool)
 
 	requested := append([]string{}, cfg.Requested...)
+	requested = append(requested, resolveReferencedSkillIDs(task, discovered)...)
 
 	uniq := make(map[string]bool, len(requested))
 	var finalReq []string
@@ -190,4 +194,32 @@ func skillPromptFilePath(skillID string, dirName string) string {
 		return path.Join("file_state_dir", dirName, "SKILL.md")
 	}
 	return path.Join("file_state_dir", dirName, id, "SKILL.md")
+}
+
+func resolveReferencedSkillIDs(task string, discovered []skills.Skill) []string {
+	matches := dollarSkillRe.FindAllStringSubmatch(task, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		q := strings.TrimSpace(m[1])
+		if q == "" {
+			continue
+		}
+		s, err := skills.Resolve(discovered, q)
+		if err != nil {
+			continue
+		}
+		id := strings.TrimSpace(s.ID)
+		if id == "" {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
 }

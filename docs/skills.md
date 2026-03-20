@@ -69,4 +69,5 @@ Notes:
 ## Using a skill
 
 - Use `--skill <name-or-id>` for one run.
+- Mention `$skill-name` or `$skill-id` in the task text to trigger that skill for the run.
 - Or add it to `skills.load` for always-on behavior (`[]` means all).

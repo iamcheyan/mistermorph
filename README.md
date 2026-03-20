@@ -269,6 +269,7 @@ Please see [`docs/tools.md`](docs/tools.md) for detailed tool documentation.
 `mistermorph` discovers skills under `file_state_dir/skills` (recursively), and injects selected `SKILL.md` content into the system prompt.
 
 By default, `run` uses `skills.enabled=true`; `skills.load=[]` loads all discovered skills, and unknown skill names are ignored.
+You can also reference a skill directly in task text with `$skill-name` (or `$skill-id`) to trigger that skill for the run.
 
 Docs: [`docs/skills.md`](docs/skills.md).
 
