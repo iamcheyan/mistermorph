@@ -530,6 +530,22 @@ const ChatView = {
       });
     }
 
+    function handleComposerPointerDown(event) {
+      const target = event?.target;
+      if (!(target instanceof Element)) {
+        focusComposer();
+        return;
+      }
+      if (target.closest(".chat-composer-send")) {
+        return;
+      }
+      if (target.closest("textarea, input, button, a, [role='button']")) {
+        return;
+      }
+      event.preventDefault();
+      focusComposer();
+    }
+
     function historyViewportElement() {
       return historyViewport.value;
     }
@@ -1059,10 +1075,7 @@ const ChatView = {
             preferredTopicID: topicID,
             preserveSelection: true,
           });
-          const reloaded = await loadHistory({ preserveCurrent: true });
-          if (!reloaded) {
-            await pollTask(taskID, agentHistoryID, endpointRef);
-          }
+          await pollTask(taskID, agentHistoryID, endpointRef);
           return;
         }
 
@@ -1137,6 +1150,7 @@ const ChatView = {
       readonlyTitle,
       readonlyKicker,
       readonlyReason,
+      handleComposerPointerDown,
       chatMarkdownTheme,
       pageClass,
       showChatPlaceholder,
@@ -1242,7 +1256,7 @@ const ChatView = {
                 <div class="chat-placeholder-note">
                   {{ chatPlaceholderText }}
                 </div>
-                <div class="chat-composer is-placeholder">
+                <div class="chat-composer is-placeholder" @pointerdown="handleComposerPointerDown">
                   <QTextarea
                     ref="composerField"
                     v-model="taskInput"
@@ -1297,7 +1311,7 @@ const ChatView = {
                 </article>
                 <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
               </div>
-              <div class="chat-composer">
+              <div class="chat-composer" @pointerdown="handleComposerPointerDown">
                 <QTextarea
                   ref="composerField"
                   v-model="taskInput"
