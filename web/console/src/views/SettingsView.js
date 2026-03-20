@@ -6,12 +6,15 @@ import AppPage from "../components/AppPage";
 import {
   apiFetch,
   applyLanguageChange,
+  CHAT_MARKDOWN_THEME_IDS,
   clearAuth,
   endpointState,
   loadEndpoints,
   localeState,
   runtimeEndpointByRef,
+  setChatMarkdownTheme,
   translate,
+  uiPrefsState,
 } from "../core/context";
 
 function tuiKicker(left, right) {
@@ -58,6 +61,12 @@ const MANAGED_RUNTIME_ITEMS = [
 ];
 
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
+const CHAT_MARKDOWN_THEME_KEYS = Object.freeze({
+  console: "settings_chat_markdown_theme_console",
+  paper: "settings_chat_markdown_theme_paper",
+  folio: "settings_chat_markdown_theme_folio",
+  blueprint: "settings_chat_markdown_theme_blueprint",
+});
 
 function buildAgentSnapshot(state) {
   return JSON.stringify({
@@ -173,6 +182,18 @@ const SettingsView = {
       () =>
         toolsEmulationItems.value.find((item) => item.value === state.llm.tools_emulation_mode) ||
         toolsEmulationItems.value[0]
+    );
+    const chatMarkdownThemeItems = computed(() =>
+      CHAT_MARKDOWN_THEME_IDS.map((value) => ({
+        title: t(CHAT_MARKDOWN_THEME_KEYS[value] || value),
+        value,
+      }))
+    );
+    const chatMarkdownThemeItem = computed(
+      () =>
+        chatMarkdownThemeItems.value.find((item) => item.value === uiPrefsState.chatMarkdownTheme) ||
+        chatMarkdownThemeItems.value[0] ||
+        null
     );
 
     const multimodalItems = computed(() => MULTIMODAL_SOURCES);
@@ -370,6 +391,13 @@ const SettingsView = {
       state.llm.tools_emulation_mode = String(item.value || "").trim();
     }
 
+    function onChatMarkdownThemeChange(item) {
+      if (!item || typeof item !== "object") {
+        return;
+      }
+      setChatMarkdownTheme(item.value);
+    }
+
     function setMultimodalSource(id, value) {
       if (!Object.prototype.hasOwnProperty.call(state.multimodal, id)) {
         return;
@@ -422,12 +450,15 @@ const SettingsView = {
       consoleOk,
       consoleConfigPath,
       state,
+      uiPrefsState,
       providerItems,
       providerItem,
       reasoningEffortItems,
       reasoningEffortItem,
       toolsEmulationItems,
       toolsEmulationItem,
+      chatMarkdownThemeItems,
+      chatMarkdownThemeItem,
       multimodalItems,
       toolItems,
       managedRuntimeItems,
@@ -440,6 +471,7 @@ const SettingsView = {
       onProviderChange,
       onReasoningEffortChange,
       onToolsEmulationChange,
+      onChatMarkdownThemeChange,
       setMultimodalSource,
       setToolEnabled,
       setManagedRuntimeEnabled,
@@ -598,6 +630,20 @@ const SettingsView = {
           </article>
 
           <article class="ui-track-panel settings-card">
+            <div class="settings-console-row">
+              <div class="settings-card-copy">
+                <h3 class="settings-card-title">{{ t("settings_chat_markdown_theme_title") }}</h3>
+                <p class="settings-card-note">{{ t("settings_chat_markdown_theme_hint") }}</p>
+              </div>
+              <QDropdownMenu
+                :key="uiPrefsState.chatMarkdownTheme"
+                class="settings-console-control"
+                :items="chatMarkdownThemeItems"
+                :initialItem="chatMarkdownThemeItem"
+                :placeholder="t('settings_chat_markdown_theme_placeholder')"
+                @change="onChatMarkdownThemeChange"
+              />
+            </div>
             <div class="settings-console-row">
               <div class="settings-card-copy">
                 <h3 class="settings-card-title">{{ t("settings_language_title") }}</h3>

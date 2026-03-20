@@ -31,6 +31,10 @@
   border-bottom: 0;
 }
 
+.settings-console-control {
+  min-width: 180px;
+}
+
 .settings-card-copy {
   min-width: 0;
   display: grid;
@@ -128,7 +132,8 @@
   }
 
   .settings-card-actions .q-button,
-  .settings-console-row .q-button {
+  .settings-console-row .q-button,
+  .settings-console-row .settings-console-control {
     width: 100%;
   }
 }

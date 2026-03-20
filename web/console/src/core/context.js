@@ -1,9 +1,14 @@
 import { applyLanguageChange, currentLocale, hydrateLanguage, localeState, setLanguage, translate } from "../i18n";
 import { authState, authValid, clearAuth, hydrateAuth, saveAuth } from "../stores";
 import {
+  CHAT_MARKDOWN_THEME_IDS,
+  DEFAULT_CHAT_MARKDOWN_THEME,
   endpointState,
   ensureEndpointSelection,
+  hydrateUIPreferences,
   hydrateEndpointSelection,
+  setChatMarkdownTheme,
+  uiPrefsState,
   setSelectedEndpointRef,
 } from "../stores";
 
@@ -268,6 +273,11 @@ export {
   currentLocale,
   setLanguage,
   hydrateLanguage,
+  CHAT_MARKDOWN_THEME_IDS,
+  DEFAULT_CHAT_MARKDOWN_THEME,
+  uiPrefsState,
+  setChatMarkdownTheme,
+  hydrateUIPreferences,
   TASK_STATUS_META,
   authState,
   authValid,

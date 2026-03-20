@@ -43,6 +43,7 @@ let mermaidInitialized = false;
 let mermaidThemeID = "";
 let mermaidSequence = 0;
 let vizPromise = null;
+const COPY_FEEDBACK_DURATION_MS = 360;
 
 function stringValue(value) {
   return typeof value === "string" ? value : String(value ?? "");
@@ -192,6 +193,18 @@ function markdownToHtml(source, doc) {
   }
 }
 
+function markdownToHtmlStrict(source, doc) {
+  const normalized = normalizeSourceText(source);
+  const rendered = markdownProcessor.processSync(normalized);
+  const markup = sanitizeMarkup(String(rendered), doc);
+  const template = doc.createElement("template");
+  template.innerHTML = markup;
+  if (template.content.querySelector(".katex-error")) {
+    throw new Error("KaTeX render failed.");
+  }
+  return template.innerHTML;
+}
+
 function appendSvgMarkup(surface, markup) {
   const doc = surface.ownerDocument;
   const parser = new DOMParser();
@@ -254,8 +267,190 @@ function renderMathFence(pre, source) {
   const doc = pre.ownerDocument;
   const block = doc.createElement("div");
   block.className = "mmr-math-fence";
-  block.innerHTML = markdownToHtml(source, doc);
+  block.innerHTML = markdownToHtmlStrict(source, doc);
   pre.replaceWith(block);
+}
+
+async function copyTextToClipboard(text, doc) {
+  const value = stringValue(text);
+  if (!value) {
+    return;
+  }
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall back to execCommand below.
+  }
+
+  const textarea = doc.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  doc.body.append(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  try {
+    if (!doc.execCommand("copy")) {
+      throw new Error("Copy command failed.");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+function createCopyIcon(doc) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = doc.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  const back = doc.createElementNS(svgNS, "rect");
+  back.setAttribute("x", "5");
+  back.setAttribute("y", "3");
+  back.setAttribute("width", "8");
+  back.setAttribute("height", "10");
+  back.setAttribute("rx", "1.5");
+  back.setAttribute("fill", "none");
+  back.setAttribute("stroke", "currentColor");
+  back.setAttribute("stroke-width", "1.25");
+
+  const front = doc.createElementNS(svgNS, "path");
+  front.setAttribute("d", "M3.75 11.25V4.75c0-.83.67-1.5 1.5-1.5h5.5");
+  front.setAttribute("fill", "none");
+  front.setAttribute("stroke", "currentColor");
+  front.setAttribute("stroke-width", "1.25");
+  front.setAttribute("stroke-linecap", "round");
+  front.setAttribute("stroke-linejoin", "round");
+
+  svg.append(back, front);
+  return svg;
+}
+
+function renderCodeBlock(pre, source, language = "") {
+  const doc = pre.ownerDocument;
+  const wrapper = doc.createElement("div");
+  wrapper.className = "mmr-code-block";
+
+  const normalizedLanguage = stringValue(language).trim();
+  if (normalizedLanguage) {
+    const badge = doc.createElement("span");
+    badge.className = "mmr-code-language";
+    badge.textContent = normalizedLanguage;
+    wrapper.append(badge);
+  }
+
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "mmr-code-copy";
+  button.setAttribute("aria-label", "Copy code");
+  button.setAttribute("title", "Copy code");
+  button.append(createCopyIcon(doc));
+
+  let resetTimerID = 0;
+  button.addEventListener("click", async () => {
+    if (button.disabled) {
+      return;
+    }
+    button.disabled = true;
+    try {
+      await copyTextToClipboard(source, doc);
+      button.dataset.copyState = "copied";
+      button.setAttribute("title", "Copied");
+      button.setAttribute("aria-label", "Code copied");
+    } catch {
+      button.dataset.copyState = "failed";
+      button.setAttribute("title", "Copy failed");
+      button.setAttribute("aria-label", "Copy failed");
+    } finally {
+      const view = documentView(doc);
+      view.clearTimeout(resetTimerID);
+      resetTimerID = view.setTimeout(() => {
+        button.disabled = false;
+        button.dataset.copyState = "";
+        button.setAttribute("title", "Copy code");
+        button.setAttribute("aria-label", "Copy code");
+      }, COPY_FEEDBACK_DURATION_MS);
+    }
+  });
+
+  pre.replaceWith(wrapper);
+  wrapper.append(button, pre);
+}
+
+function isInlineCopyCode(code) {
+  if (!(code instanceof Element)) {
+    return false;
+  }
+  if (code.closest("pre")) {
+    return false;
+  }
+  if (
+    code.classList.contains("math-inline") ||
+    code.classList.contains("math-display") ||
+    code.classList.contains("language-math") ||
+    code.querySelector(".katex")
+  ) {
+    return false;
+  }
+  return Boolean(stringValue(code.textContent).trim());
+}
+
+function enhanceInlineCode(container) {
+  const doc = container.ownerDocument;
+  for (const code of Array.from(container.querySelectorAll("code"))) {
+    if (!isInlineCopyCode(code)) {
+      continue;
+    }
+    const source = stringValue(code.textContent);
+    code.classList.add("mmr-inline-copy");
+    code.setAttribute("role", "button");
+    code.setAttribute("tabindex", "0");
+    code.setAttribute("title", "Click to copy");
+    code.setAttribute("aria-label", "Copy code");
+
+    let resetTimerID = 0;
+    const resetState = () => {
+      code.dataset.copyBusy = "";
+      code.dataset.copyState = "";
+      code.setAttribute("title", "Click to copy");
+      code.setAttribute("aria-label", "Copy code");
+    };
+    const triggerCopy = async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (code.dataset.copyBusy === "1") {
+        return;
+      }
+      code.dataset.copyBusy = "1";
+      try {
+        await copyTextToClipboard(source, doc);
+        code.dataset.copyState = "copied";
+        code.setAttribute("title", "Copied");
+        code.setAttribute("aria-label", "Code copied");
+      } catch {
+        code.dataset.copyState = "failed";
+        code.setAttribute("title", "Copy failed");
+        code.setAttribute("aria-label", "Copy failed");
+      } finally {
+        const view = documentView(doc);
+        view.clearTimeout(resetTimerID);
+        resetTimerID = view.setTimeout(resetState, COPY_FEEDBACK_DURATION_MS);
+      }
+    };
+
+    code.addEventListener("click", triggerCopy);
+    code.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        void triggerCopy(event);
+      }
+    });
+  }
 }
 
 function initializeMermaid(theme) {
@@ -408,10 +603,15 @@ export class MarkdownRenderer {
       const source = code.textContent || "";
       const mathSource = fenceMathSource(language, source);
       if (mathSource) {
-        renderMathFence(pre, mathSource);
+        try {
+          renderMathFence(pre, mathSource);
+        } catch {
+          renderCodeBlock(pre, source, language);
+        }
         continue;
       }
       if (!DIAGRAM_LANGUAGES.has(language)) {
+        renderCodeBlock(pre, source, language);
         continue;
       }
       const frame = makeDiagramFrame(this.root.ownerDocument, language);
@@ -432,6 +632,10 @@ export class MarkdownRenderer {
         renderError(frame.surface, source, error);
       }
     }
+    if (token !== this.renderToken) {
+      return;
+    }
+    enhanceInlineCode(container);
   }
 }
 

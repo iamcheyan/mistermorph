@@ -10,6 +10,7 @@ import {
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   translate,
+  uiPrefsState,
 } from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
@@ -259,6 +260,7 @@ const ChatView = {
   },
   setup() {
     const t = translate;
+    const chatMarkdownTheme = computed(() => uiPrefsState.chatMarkdownTheme);
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
@@ -408,6 +410,11 @@ const ChatView = {
         updated_at: "",
       };
     });
+    const hasSelectedTopic = computed(() => normalizeTopicID(selectedTopicID.value) !== "");
+    const showChatPlaceholder = computed(
+      () => consoleTopicsEnabled.value && !hasSelectedTopic.value && chatHistoryItems.value.length === 0
+    );
+    const chatPlaceholderText = computed(() => t("chat_intro"));
     const pageClass = computed(() => {
       const classes = ["chat-page"];
       if (consoleTopicsEnabled.value) {
@@ -495,6 +502,7 @@ const ChatView = {
       syncMobileTopicView({
         preferChat: Boolean(creatingTopic.value || normalizeTopicID(selectedTopicID.value)),
       });
+      focusComposer();
     }
 
     function composerTextarea() {
@@ -503,6 +511,23 @@ const ChatView = {
         return null;
       }
       return root.querySelector("textarea");
+    }
+
+    function focusComposer() {
+      if (chatReadonly.value || (mobileTopicSplitEnabled.value && !showChatPane.value)) {
+        return;
+      }
+      void nextTick(() => {
+        window.requestAnimationFrame(() => {
+          const textarea = composerTextarea();
+          if (!textarea || textarea.disabled) {
+            return;
+          }
+          textarea.focus({ preventScroll: true });
+          const length = textarea.value.length;
+          textarea.setSelectionRange(length, length);
+        });
+      });
     }
 
     function historyViewportElement() {
@@ -732,10 +757,6 @@ const ChatView = {
       }
     }
 
-    function pickInitialTopic(items) {
-      return items.find((topic) => !isSystemTopic(topic)) || items[0] || null;
-    }
-
     function resetTopicState() {
       topics.value = [];
       topicsLoading.value = false;
@@ -782,14 +803,9 @@ const ChatView = {
           syncMobileTopicView({ preferChat: true });
           return true;
         }
-        const fallback = pickInitialTopic(items);
-        if (fallback) {
-          selectedTopicID.value = normalizeTopicID(fallback.id);
-          creatingTopic.value = false;
-          syncMobileTopicView();
-        } else if (!preserveSelection) {
+        if (!preserveSelection) {
           selectedTopicID.value = "";
-          creatingTopic.value = true;
+          creatingTopic.value = false;
           syncMobileTopicView({ preferTopics: true });
         }
         return true;
@@ -797,7 +813,7 @@ const ChatView = {
         err.value = e?.message || t("msg_load_failed");
         if (!preserveSelection) {
           selectedTopicID.value = "";
-          creatingTopic.value = true;
+          creatingTopic.value = false;
           syncMobileTopicView({ preferTopics: true });
         }
         return false;
@@ -820,14 +836,14 @@ const ChatView = {
         let path = `/tasks?limit=${CHAT_HISTORY_LIMIT}`;
         if (consoleTopicsEnabled.value) {
           if (creatingTopic.value) {
-            chatHistoryItems.value = [emptyHistoryItem()];
-            scrollHistoryToBottom({ force: true });
+            chatHistoryItems.value = [];
+            historyAutoStick.value = true;
             return true;
           }
           const topicID = normalizeTopicID(selectedTopicID.value);
           if (!topicID) {
-            chatHistoryItems.value = [emptyHistoryItem()];
-            scrollHistoryToBottom({ force: true });
+            chatHistoryItems.value = [];
+            historyAutoStick.value = true;
             return true;
           }
           path = `/tasks?limit=${CHAT_HISTORY_LIMIT}&topic_id=${encodeURIComponent(topicID)}`;
@@ -957,8 +973,10 @@ const ChatView = {
       }
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
-       syncMobileTopicView({ preferChat: true });
-      void loadHistory();
+      syncMobileTopicView({ preferChat: true });
+      void loadHistory().finally(() => {
+        focusComposer();
+      });
     }
 
     function startNewTopic() {
@@ -969,6 +987,7 @@ const ChatView = {
       syncMobileTopicView({ preferChat: true });
       void loadHistory();
       syncComposerHeight();
+      focusComposer();
     }
 
     async function submitTask() {
@@ -992,6 +1011,9 @@ const ChatView = {
       sending.value = true;
       err.value = "";
       taskInput.value = "";
+      if (consoleTopicsEnabled.value && !normalizeTopicID(selectedTopicID.value)) {
+        creatingTopic.value = true;
+      }
 
       pushHistoryItem({
         role: "user",
@@ -1056,13 +1078,17 @@ const ChatView = {
       } finally {
         sending.value = false;
         syncComposerHeight();
+        focusComposer();
       }
     }
 
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
-      void refreshChatData();
+      focusComposer();
+      void refreshChatData().finally(() => {
+        focusComposer();
+      });
       syncComposerHeight();
     });
     onUnmounted(() => {
@@ -1075,8 +1101,18 @@ const ChatView = {
       () => [endpointState.selectedRef, submitEndpointRef.value],
       () => {
         resetTopicState();
-        void refreshChatData();
+        void refreshChatData().finally(() => {
+          focusComposer();
+        });
         syncComposerHeight();
+      }
+    );
+    watch(
+      () => showChatPane.value,
+      (visible) => {
+        if (visible) {
+          focusComposer();
+        }
       }
     );
     watch(taskInput, () => {
@@ -1101,7 +1137,10 @@ const ChatView = {
       readonlyTitle,
       readonlyKicker,
       readonlyReason,
+      chatMarkdownTheme,
       pageClass,
+      showChatPlaceholder,
+      chatPlaceholderText,
       composerDisabled,
       sendDisabled,
       composerPlaceholder,
@@ -1198,58 +1237,92 @@ const ChatView = {
             </div>
           </aside>
           <section v-if="showChatPane" class="chat-main">
-            <div
-              ref="historyViewport"
-              class="chat-history"
-              @scroll.passive="handleHistoryScroll"
-            >
-              <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
-              <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-                <code
-                  v-if="item.timeText"
-                  class="chat-history-status"
-                  @click="clickHistoryTime(item)"
-                >
-                  {{ item.timeText }}
-                </code>
-                <div :class="historySurfaceClass(item)">
-                  <MarkdownContent
-                    v-if="item.role === 'agent'"
-                    class="chat-history-markdown"
-                    :source="item.text"
-                    format="auto"
-                    theme="console"
-                  />
-                  <div v-else class="chat-history-body">{{ item.text }}</div>
+            <section v-if="showChatPlaceholder" class="chat-placeholder">
+              <div class="chat-placeholder-shell">
+                <div class="chat-placeholder-note">
+                  {{ chatPlaceholderText }}
                 </div>
-              </article>
-              <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
-            </div>
-            <div class="chat-composer">
-              <QTextarea
-                ref="composerField"
-                v-model="taskInput"
-                :rows="1"
-                :disabled="composerDisabled"
-                :placeholder="composerPlaceholder"
-                @keydown.enter.exact.prevent="submitTask"
+                <div class="chat-composer is-placeholder">
+                  <QTextarea
+                    ref="composerField"
+                    v-model="taskInput"
+                    :rows="1"
+                    :disabled="composerDisabled"
+                    :placeholder="composerPlaceholder"
+                    @keydown.enter.exact.prevent="submitTask"
+                  >
+                    <template #append>
+                      <div class="chat-composer-append">
+                        <QButton
+                          class="outlined sm icon chat-composer-send"
+                          :loading="sending"
+                          :disabled="sendDisabled"
+                          :title="t('chat_action_send')"
+                          :aria-label="t('chat_action_send')"
+                          @click="submitTask"
+                        >
+                          <QIconSend class="icon" />
+                        </QButton>
+                      </div>
+                    </template>
+                  </QTextarea>
+                </div>
+              </div>
+            </section>
+            <template v-else>
+              <div
+                ref="historyViewport"
+                class="chat-history"
+                @scroll.passive="handleHistoryScroll"
               >
-                <template #append>
-                  <div class="chat-composer-append">
-                    <QButton
-                      class="outlined sm icon chat-composer-send"
-                      :loading="sending"
-                      :disabled="sendDisabled"
-                      :title="t('chat_action_send')"
-                      :aria-label="t('chat_action_send')"
-                      @click="submitTask"
-                    >
-                      <QIconSend class="icon" />
-                    </QButton>
+                <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
+                <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
+                  <code
+                    v-if="item.timeText"
+                    class="chat-history-status"
+                    @click="clickHistoryTime(item)"
+                  >
+                    {{ item.timeText }}
+                  </code>
+                  <div :class="historySurfaceClass(item)">
+                    <MarkdownContent
+                      v-if="item.role === 'agent'"
+                      class="chat-history-markdown"
+                      :source="item.text"
+                      format="auto"
+                      :theme="chatMarkdownTheme"
+                    />
+                    <div v-else class="chat-history-body">{{ item.text }}</div>
                   </div>
-                </template>
-              </QTextarea>
-            </div>
+                </article>
+                <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
+              </div>
+              <div class="chat-composer">
+                <QTextarea
+                  ref="composerField"
+                  v-model="taskInput"
+                  :rows="1"
+                  :disabled="composerDisabled"
+                  :placeholder="composerPlaceholder"
+                  @keydown.enter.exact.prevent="submitTask"
+                >
+                  <template #append>
+                    <div class="chat-composer-append">
+                      <QButton
+                        class="outlined sm icon chat-composer-send"
+                        :loading="sending"
+                        :disabled="sendDisabled"
+                        :title="t('chat_action_send')"
+                        :aria-label="t('chat_action_send')"
+                        @click="submitTask"
+                      >
+                        <QIconSend class="icon" />
+                      </QButton>
+                    </div>
+                  </template>
+                </QTextarea>
+              </div>
+            </template>
           </section>
         </section>
         <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
