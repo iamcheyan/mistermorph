@@ -9,6 +9,7 @@ import (
 
 type ServerConfig struct {
 	Name         string
+	Enable       bool              // must be true to connect; default false
 	Type         string            // "stdio" (default) | "http"
 	Command      string            // stdio only
 	Args         []string          // stdio only
@@ -92,6 +93,7 @@ func parseMCPServers(raw any) []ServerConfig {
 		}
 		cfg := ServerConfig{
 			Name:    asString(m["name"]),
+			Enable:  asBool(m["enable"]),
 			Type:    asString(m["type"]),
 			Command: asString(m["command"]),
 			URL:     asString(m["url"]),
@@ -125,6 +127,16 @@ func parseMCPServers(raw any) []ServerConfig {
 		configs = append(configs, cfg)
 	}
 	return configs
+}
+
+func asBool(v any) bool {
+	if v == nil {
+		return false
+	}
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return false
 }
 
 func asString(v any) string {

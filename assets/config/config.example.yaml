@@ -230,6 +230,7 @@ tools:
 mcp:
   servers: []
   # - name: "filesystem"
+  #   enable: true               # must be true to activate; default false
   #   type: "stdio"              # stdio (default) | http
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
@@ -237,6 +238,7 @@ mcp:
   #     NODE_OPTIONS: "--max-old-space-size=4096"
   #   allowed_tools: []          # empty = all tools from this server
   # - name: "remote"
+  #   enable: true
   #   type: "http"
   #   url: "https://mcp.example.com/mcp"
   #   headers:                   # custom HTTP headers (e.g. auth); values support ${ENV_VAR}
