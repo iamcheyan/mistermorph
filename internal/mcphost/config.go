@@ -10,7 +10,7 @@ import (
 
 type ServerConfig struct {
 	Name         string
-	Enable       bool              // must be true to connect; default false
+	Enable       bool              // set false to disable; default true
 	Type         string            // "stdio" (default) | "http"
 	Command      string            // stdio only
 	Args         []string          // stdio only
@@ -94,7 +94,7 @@ func parseMCPServers(raw any) []ServerConfig {
 		}
 		cfg := ServerConfig{
 			Name:         cast.ToString(m["name"]),
-			Enable:       cast.ToBool(m["enable"]),
+			Enable:       m["enable"] == nil || cast.ToBool(m["enable"]),
 			Type:         cast.ToString(m["type"]),
 			Command:      cast.ToString(m["command"]),
 			URL:          cast.ToString(m["url"]),

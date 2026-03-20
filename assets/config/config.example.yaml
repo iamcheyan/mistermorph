@@ -230,7 +230,7 @@ tools:
 mcp:
   servers: []
   # - name: "filesystem"
-  #   enable: true               # must be true to activate; default false
+  #   enable: true               # set false to disable; default true
   #   type: "stdio"              # stdio (default) | http
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
