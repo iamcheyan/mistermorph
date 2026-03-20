@@ -1,4 +1,5 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import "./ChatView.css";
 
 import AppPage from "../components/AppPage";
@@ -260,6 +261,8 @@ const ChatView = {
   },
   setup() {
     const t = translate;
+    const route = useRoute();
+    const router = useRouter();
     const chatMarkdownTheme = computed(() => uiPrefsState.chatMarkdownTheme);
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
@@ -287,6 +290,7 @@ const ChatView = {
     let heartbeatRevealTimerID = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
+    const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
     const submitEndpointRef = computed(() => {
       const selected = selectedEndpoint.value;
       if (!selected) {
@@ -530,6 +534,23 @@ const ChatView = {
       });
     }
 
+    function chatRoutePath(topicID = "") {
+      const normalized = normalizeTopicID(topicID);
+      return normalized ? `/chat/${encodeURIComponent(normalized)}` : "/chat";
+    }
+
+    function syncChatRoute(topicID, options = {}) {
+      const nextPath = chatRoutePath(topicID);
+      if (route.path === nextPath) {
+        return Promise.resolve();
+      }
+      const method = options.replace ? "replace" : "push";
+      return router[method]({
+        path: nextPath,
+        query: route.query,
+      });
+    }
+
     function handleComposerPointerDown(event) {
       const target = event?.target;
       if (!(target instanceof Element)) {
@@ -585,6 +606,13 @@ const ChatView = {
           historyAutoStick.value = true;
         });
       });
+    }
+
+    function handleMarkdownRendered() {
+      if (!historyAutoStick.value) {
+        return;
+      }
+      scrollHistoryToBottom({ force: true });
     }
 
     function syncComposerHeight() {
@@ -903,6 +931,48 @@ const ChatView = {
       await loadHistory();
     }
 
+    async function syncTopicFromRoute(options = {}) {
+      if (!consoleTopicsEnabled.value) {
+        return;
+      }
+      const topicID = routeTopicID.value;
+      if (!topicID) {
+        if (!options.force && !normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
+          return;
+        }
+        creatingTopic.value = false;
+        selectedTopicID.value = "";
+        syncMobileTopicView({ preferTopics: true });
+        await loadHistory();
+        return;
+      }
+      if (topicID === HEARTBEAT_TOPIC_ID) {
+        showSystemTopics.value = true;
+        creatingTopic.value = false;
+        selectedTopicID.value = topicID;
+        syncMobileTopicView({ preferChat: true });
+        await loadHistory();
+        return;
+      }
+      if (!options.force && normalizeTopicID(selectedTopicID.value) === topicID && !creatingTopic.value) {
+        return;
+      }
+      creatingTopic.value = false;
+      selectedTopicID.value = "";
+      await loadTopics({
+        preferredTopicID: topicID,
+        preserveSelection: true,
+      });
+      const resolvedTopicID = normalizeTopicID(selectedTopicID.value);
+      if (!resolvedTopicID) {
+        syncMobileTopicView({ preferTopics: true });
+        await loadHistory();
+        return;
+      }
+      syncMobileTopicView({ preferChat: true });
+      await loadHistory();
+    }
+
     function openRawDialog(item) {
       resetRawReveal();
       rawDialogTaskID.value = String(item?.taskId || "").trim();
@@ -993,6 +1063,7 @@ const ChatView = {
       void loadHistory().finally(() => {
         focusComposer();
       });
+      void syncChatRoute(normalized);
     }
 
     function startNewTopic() {
@@ -1004,6 +1075,7 @@ const ChatView = {
       void loadHistory();
       syncComposerHeight();
       focusComposer();
+      void syncChatRoute("", { replace: true });
     }
 
     async function submitTask() {
@@ -1075,6 +1147,7 @@ const ChatView = {
             preferredTopicID: topicID,
             preserveSelection: true,
           });
+          await syncChatRoute(topicID, { replace: true });
           await pollTask(taskID, agentHistoryID, endpointRef);
           return;
         }
@@ -1099,7 +1172,10 @@ const ChatView = {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       focusComposer();
-      void refreshChatData().finally(() => {
+      void refreshChatData({
+        preferredTopicID: routeTopicID.value,
+        preserveSelection: Boolean(routeTopicID.value),
+      }).finally(() => {
         focusComposer();
       });
       syncComposerHeight();
@@ -1114,10 +1190,21 @@ const ChatView = {
       () => [endpointState.selectedRef, submitEndpointRef.value],
       () => {
         resetTopicState();
-        void refreshChatData().finally(() => {
+        void refreshChatData({
+          preferredTopicID: routeTopicID.value,
+          preserveSelection: Boolean(routeTopicID.value),
+        }).finally(() => {
           focusComposer();
         });
         syncComposerHeight();
+      }
+    );
+    watch(
+      () => routeTopicID.value,
+      () => {
+        void syncTopicFromRoute().finally(() => {
+          focusComposer();
+        });
       }
     );
     watch(
@@ -1177,6 +1264,7 @@ const ChatView = {
       topicIsActive,
       clickPageBarTitle,
       handleHistoryScroll,
+      handleMarkdownRendered,
       historyClass,
       historySurfaceClass,
       clickHistoryTime,
@@ -1305,6 +1393,7 @@ const ChatView = {
                       :source="item.text"
                       format="auto"
                       :theme="chatMarkdownTheme"
+                      @rendered="handleMarkdownRendered"
                     />
                     <div v-else class="chat-history-body">{{ item.text }}</div>
                   </div>

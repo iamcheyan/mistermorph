@@ -37,6 +37,11 @@ function isSetupPath(path) {
   return value === "/setup" || value.startsWith("/setup/");
 }
 
+function isChatPath(path) {
+  const value = String(path || "").trim();
+  return value === "/chat" || value.startsWith("/chat/");
+}
+
 const SETUP_FREE_PATHS = new Set(["/setup", "/setup/llm", "/setup/persona", "/setup/soul", "/setup/done", "/settings"]);
 
 function selectedEndpointCanChat() {
@@ -58,6 +63,7 @@ const routes = [
   { path: "/setup/done", component: SetupView, meta: { setupStage: "done" } },
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
+  { path: "/chat/:topic_id", component: ChatView },
   { path: "/dashboard", component: DashboardView },
   { path: "/tasks", component: TasksView },
   { path: "/tasks/:id", component: TaskDetailView },
@@ -147,7 +153,7 @@ router.beforeEach(async (to) => {
     return true;
   }
   const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
-  if (to.path === "/chat" && targetRef && !selectedEndpointCanChat()) {
+  if (isChatPath(to.path) && targetRef && !selectedEndpointCanChat()) {
     setSelectedEndpointRef(targetRef);
   }
   return true;

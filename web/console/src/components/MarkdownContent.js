@@ -11,6 +11,7 @@ async function loadRendererModule() {
 }
 
 const MarkdownContent = {
+  emits: ["rendered"],
   props: {
     source: {
       type: String,
@@ -25,7 +26,7 @@ const MarkdownContent = {
       default: "paper",
     },
   },
-  setup(props) {
+  setup(props, { emit }) {
     const host = ref(null);
     const renderer = ref(null);
 
@@ -48,6 +49,9 @@ const MarkdownContent = {
         format: props.format,
         theme: props.theme,
       });
+      if (host.value === element) {
+        emit("rendered");
+      }
     }
 
     onMounted(() => {

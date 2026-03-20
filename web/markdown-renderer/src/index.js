@@ -1,7 +1,4 @@
 import createDOMPurify from "dompurify";
-import mermaid from "mermaid";
-import { Infographic } from "@antv/infographic";
-import { instance as createVizInstance } from "@viz-js/viz";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -43,6 +40,8 @@ let mermaidInitialized = false;
 let mermaidThemeID = "";
 let mermaidSequence = 0;
 let vizPromise = null;
+let mermaidModulePromise = null;
+let infographicClassPromise = null;
 const COPY_FEEDBACK_DURATION_MS = 360;
 
 function stringValue(value) {
@@ -151,6 +150,21 @@ function documentView(doc) {
 
 function createPurifier(doc) {
   return createDOMPurify(documentView(doc));
+}
+
+async function loadMermaid() {
+  mermaidModulePromise ||= import("mermaid").then((module) => module.default || module);
+  return mermaidModulePromise;
+}
+
+async function loadViz() {
+  vizPromise ||= import("@viz-js/viz").then(({ instance }) => instance());
+  return vizPromise;
+}
+
+async function loadInfographicClass() {
+  infographicClassPromise ||= import("@antv/infographic").then(({ Infographic }) => Infographic);
+  return infographicClassPromise;
 }
 
 function sanitizeMarkup(markup, doc) {
@@ -453,17 +467,19 @@ function enhanceInlineCode(container) {
   }
 }
 
-function initializeMermaid(theme) {
+async function initializeMermaid(theme) {
+  const mermaid = await loadMermaid();
   if (mermaidInitialized && mermaidThemeID === theme.id) {
-    return;
+    return mermaid;
   }
   mermaid.initialize(theme.mermaid);
   mermaidInitialized = true;
   mermaidThemeID = theme.id;
+  return mermaid;
 }
 
 async function renderMermaid(surface, source, theme) {
-  initializeMermaid(theme);
+  const mermaid = await initializeMermaid(theme);
   const id = `mmr-mermaid-${mermaidSequence += 1}`;
   const rendered = await mermaid.render(id, stringValue(source));
   appendSvgMarkup(surface, rendered.svg);
@@ -471,13 +487,13 @@ async function renderMermaid(surface, source, theme) {
 }
 
 async function renderGraphviz(surface, source, theme) {
-  vizPromise ||= createVizInstance();
-  const viz = await vizPromise;
+  const viz = await loadViz();
   const svgElement = viz.renderSVGElement(stringValue(source), theme.graphviz);
   surface.replaceChildren(svgElement);
 }
 
-function renderInfographic(surface, source, theme) {
+async function renderInfographic(surface, source, theme) {
+  const Infographic = await loadInfographicClass();
   const infographic = new Infographic({
     container: surface,
     editable: false,
@@ -490,6 +506,7 @@ function renderInfographic(surface, source, theme) {
     infographic.destroy();
   };
 }
+
 async function renderDiagram(surface, language, source, theme) {
   switch (language) {
     case "mermaid":
@@ -518,6 +535,7 @@ export class MarkdownRenderer {
     };
     this.cleanupFns = [];
     this.renderToken = 0;
+    this.lastUpdateSignature = "";
     this.root.classList.add("mmr-root");
   }
 
@@ -528,6 +546,13 @@ export class MarkdownRenderer {
     };
     const token = ++this.renderToken;
     const normalizedSource = normalizeSourceText(source);
+    const requestedFormat = normalizeDiagramLanguage(this.options.format);
+    const requestedTheme = stringValue(this.options.theme).trim().toLowerCase();
+    const updateSignature = `${requestedTheme}\u0000${requestedFormat}\u0000${normalizedSource}`;
+    if (updateSignature === this.lastUpdateSignature) {
+      return;
+    }
+    this.lastUpdateSignature = updateSignature;
     const theme = applyThemeToElement(this.root, resolveTheme(this.options.theme));
     const format = inferFormat(normalizedSource, this.options.format);
     this.cleanup();
@@ -565,6 +590,7 @@ export class MarkdownRenderer {
     this.cleanup();
     this.root.replaceChildren();
     this.root.classList.remove("mmr-root");
+    this.lastUpdateSignature = "";
   }
 
   async renderStandalone(format, source, token, theme) {

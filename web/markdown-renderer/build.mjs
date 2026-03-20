@@ -5,7 +5,7 @@ await esbuild.build({
   outdir: "dist",
   format: "esm",
   bundle: true,
-  splitting: false,
+  splitting: true,
   sourcemap: false,
   minify: false,
   target: ["es2020"],
