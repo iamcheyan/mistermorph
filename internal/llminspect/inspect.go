@@ -21,6 +21,7 @@ type Options struct {
 	Task            string
 	TimestampFormat string
 	DumpDir         string
+	Prefix          string
 }
 
 type PromptInspector struct {
@@ -79,7 +80,7 @@ func NewPromptInspector(opts Options) (*PromptInspector, error) {
 	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create dump dir: %w", err)
 	}
-	path := filepath.Join(dumpDir, buildFilename("prompt", opts.Mode, startedAt, opts.TimestampFormat))
+	path := filepath.Join(dumpDir, buildFilename(opts.Prefix, "prompt", opts.Mode, startedAt, opts.TimestampFormat))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open prompt dump file: %w", err)
@@ -195,7 +196,7 @@ func NewRequestInspector(opts Options) (*RequestInspector, error) {
 	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create dump dir: %w", err)
 	}
-	path := filepath.Join(dumpDir, buildFilename("request", opts.Mode, startedAt, opts.TimestampFormat))
+	path := filepath.Join(dumpDir, buildFilename(opts.Prefix, "request", opts.Mode, startedAt, opts.TimestampFormat))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open request dump file: %w", err)
@@ -354,16 +355,22 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func buildFilename(kind string, mode string, t time.Time, tsFormat string) string {
+func buildFilename(prefix, kind string, mode string, t time.Time, tsFormat string) string {
+	prefix = strings.TrimSpace(prefix)
 	mode = strings.TrimSpace(mode)
 	if tsFormat == "" {
 		tsFormat = "20060102_1504"
 	}
 	ts := t.Format(tsFormat)
-	if mode == "" {
-		return fmt.Sprintf("%s_%s.md", kind, ts)
+
+	name := kind
+	if prefix != "" {
+		name = prefix + "-" + kind
 	}
-	return fmt.Sprintf("%s_%s_%s.md", kind, mode, ts)
+	if mode == "" {
+		return fmt.Sprintf("%s_%s.md", name, ts)
+	}
+	return fmt.Sprintf("%s_%s_%s.md", name, mode, ts)
 }
 
 func chainDebugFns(fns ...func(label, payload string)) func(label, payload string) {

@@ -77,11 +77,27 @@ func WithFallbackFinal(fn func() *Final) Option {
 	}
 }
 
+// SubClientFactory creates an LLM client for a sub-agent with the given prefix
+// (used for inspection dump filenames). The returned cleanup function must be
+// called after the sub-agent completes to close any resources (e.g. dump files).
+type SubClientFactory func(prefix string) (client llm.Client, cleanup func())
+
+func WithSubClientFactory(fn SubClientFactory) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.subClientFactory = fn
+		}
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
 	ParseRetries    int
 	ToolRepeatLimit int
+	DefaultModel    string
+	ToolCallTimeout time.Duration
+	SpawnEnabled    bool
 }
 
 type Engine struct {
@@ -98,6 +114,8 @@ type Engine struct {
 	onToolSuccess    func(ctx *Context, toolName string)
 	onPlanStepUpdate func(ctx *Context, update PlanStepUpdate)
 	fallbackFinal    func() *Final
+
+	subClientFactory SubClientFactory
 
 	guard *guard.Guard
 }
@@ -128,6 +146,9 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 			opt(e)
 		}
 	}
+	if cfg.SpawnEnabled {
+		e.registry.Register(&spawnTool{engine: e})
+	}
 	return e
 }
 
@@ -135,6 +156,12 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	agentCtx := NewContext(task, e.config.MaxSteps)
 
 	model := strings.TrimSpace(opts.Model)
+	if model == "" {
+		model = strings.TrimSpace(e.config.DefaultModel)
+	}
+	if model == "" {
+		model = "gpt-5.2"
+	}
 
 	runID := llmstats.RunIDFromContext(ctx)
 	if runID == "" {

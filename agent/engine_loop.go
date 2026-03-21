@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"golang.org/x/sync/errgroup"
 )
 
 type engineLoopState struct {
@@ -266,11 +267,29 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				})
 				assistantTextAdded = true
 			}
+
+			// --- Phase 1: serial pre-check (dedup, repeat limit, guard) ---
+			type toolExecItem struct {
+				tc          ToolCall
+				sig         string
+				toolNameKey string
+				skip        bool
+				observation string
+				err         error
+				executed    bool
+				stepStart   time.Time
+				duration    time.Duration
+			}
+
+			items := make([]toolExecItem, len(toolCalls))
+			var pausedFinal *Final
+			paused := false
+
 			for i := range toolCalls {
 				tc := toolCalls[i]
-				stepStart := time.Now()
 				sig := toolCallSignature(tc)
 				toolNameKey := normalizedToolName(tc.Name)
+				items[i] = toolExecItem{tc: tc, sig: sig, toolNameKey: toolNameKey, stepStart: time.Now()}
 
 				debugMode := log.Enabled(ctx, slog.LevelDebug)
 				fields := []any{"step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts, debugMode)}
@@ -298,36 +317,89 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
 				}
 
-				remaining := toolCalls[i+1:]
-				var (
-					observation string
-					toolErr     error
-					pausedFinal *Final
-					paused      bool
-					executed    bool
-				)
-
 				switch {
 				case sig != "" && st.seenToolCallSignatures[sig]:
-					observation = duplicateToolCallObservation(tc.Name)
-					toolErr = fmt.Errorf("duplicate tool call blocked")
+					items[i].observation = duplicateToolCallObservation(tc.Name)
+					items[i].err = fmt.Errorf("duplicate tool call blocked")
+					items[i].skip = true
 				case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
-					observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
-					toolErr = fmt.Errorf("tool repeat limit reached")
+					items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
+					items[i].err = fmt.Errorf("tool repeat limit reached")
+					items[i].skip = true
 				default:
-					observation, toolErr, pausedFinal, paused = e.executeToolWithGuard(ctx, st, step, result.Text, &tc, stepStart, remaining, assistantTextAdded)
-					if paused {
-						return pausedFinal, st.agentCtx, nil
+					remaining := toolCalls[i+1:]
+					obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
+					if pPaused {
+						pausedFinal = pFinal
+						paused = true
 					}
-					executed = true
+					if denied {
+						items[i].observation = obs
+						items[i].err = fmt.Errorf("blocked by guard")
+						items[i].skip = true
+					}
+				}
+				if paused {
+					break
+				}
+			}
+
+			if paused {
+				return pausedFinal, st.agentCtx, nil
+			}
+
+			// --- Phase 2: concurrent execution ---
+			execCtx := ctx
+			var execCancel context.CancelFunc
+			if e.config.ToolCallTimeout > 0 {
+				execCtx, execCancel = context.WithTimeout(ctx, e.config.ToolCallTimeout)
+			} else {
+				execCtx, execCancel = context.WithCancel(ctx)
+			}
+
+			g, gCtx := errgroup.WithContext(execCtx)
+			for i := range items {
+				if items[i].skip {
+					items[i].duration = time.Since(items[i].stepStart)
+					continue
+				}
+				item := &items[i]
+				g.Go(func() error {
+					obs, toolErr := e.executeTool(gCtx, st, &item.tc)
+					item.observation = obs
+					item.err = toolErr
+					item.executed = true
+					item.duration = time.Since(item.stepStart)
+
+					if toolErr == nil {
+						if t, ok := e.registry.Get(item.tc.Name); ok {
+							if stopper, ok := t.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
+								execCancel()
+							}
+						}
+					}
+					return nil
+				})
+			}
+			_ = g.Wait()
+			execCancel()
+
+			// --- Phase 3: serial post-processing (in original order) ---
+			var earlyStop bool
+			for i := range items {
+				item := &items[i]
+				tc := item.tc
+
+				if item.executed {
+					item.observation, item.err = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
 				}
 
-				if executed && toolErr == nil {
-					if toolNameKey != "" {
-						st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
+				if item.executed && item.err == nil {
+					if item.toolNameKey != "" {
+						st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] + 1
 					}
-					if sig != "" {
-						st.seenToolCallSignatures[sig] = true
+					if item.sig != "" {
+						st.seenToolCallSignatures[item.sig] = true
 					}
 				}
 
@@ -336,13 +408,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					Thought:     tc.Thought,
 					Action:      tc.Name,
 					ActionInput: tc.Params,
-					Observation: observation,
-					Error:       toolErr,
-					Duration:    time.Since(stepStart),
+					Observation: item.observation,
+					Error:       item.err,
+					Duration:    item.duration,
 				})
 
-				if toolErr == nil && tc.Name == "plan_create" && st.agentCtx.Plan == nil {
-					if plan := parsePlanCreateObservation(observation); plan != nil {
+				if item.err == nil && tc.Name == "plan_create" && st.agentCtx.Plan == nil {
+					if plan := parsePlanCreateObservation(item.observation); plan != nil {
 						NormalizePlanSteps(plan)
 						st.agentCtx.Plan = plan
 						log.Info("plan", "step", step, "steps", len(plan.Steps))
@@ -361,11 +433,11 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					}
 				}
 
-				if toolErr == nil && e.onToolSuccess != nil {
+				if item.err == nil && e.onToolSuccess != nil {
 					e.onToolSuccess(st.agentCtx, tc.Name)
 				}
 
-				if toolErr == nil && st.agentCtx.Plan != nil && tc.Name != "plan_create" {
+				if item.err == nil && st.agentCtx.Plan != nil && tc.Name != "plan_create" {
 					completedIdx, completedStep, startedIdx, startedStep, ok := AdvancePlanOnSuccess(st.agentCtx.Plan)
 					if ok {
 						planFields := []any{
@@ -393,34 +465,34 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					}
 				}
 
-				if toolErr != nil {
+				if item.err != nil {
 					log.Warn("tool_done",
 						"step", step,
 						"tool", tc.Name,
-						"duration_ms", time.Since(stepStart).Milliseconds(),
-						"observation_len", len(observation),
-						"error", toolErr.Error(),
+						"duration_ms", item.duration.Milliseconds(),
+						"observation_len", len(item.observation),
+						"error", item.err.Error(),
 					)
 				} else {
 					log.Info("tool_done",
 						"step", step,
 						"tool", tc.Name,
-						"duration_ms", time.Since(stepStart).Milliseconds(),
-						"observation_len", len(observation),
+						"duration_ms", item.duration.Milliseconds(),
+						"observation_len", len(item.observation),
 					)
 				}
 
-				if toolErr == nil {
+				if item.err == nil {
 					if t, ok := e.registry.Get(tc.Name); ok {
 						if stopper, ok := t.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
-							return &Final{Output: "", Plan: st.agentCtx.Plan}, st.agentCtx, nil
+							earlyStop = true
 						}
 					}
 				}
 
-				observationForModel := observation
-				if toolErr == nil && isUntrustedTool(tc.Name) {
-					observationForModel = wrapUntrustedToolObservation(tc.Name, observation)
+				observationForModel := item.observation
+				if item.err == nil && isUntrustedTool(tc.Name) {
+					observationForModel = wrapUntrustedToolObservation(tc.Name, item.observation)
 				}
 
 				if strings.TrimSpace(tc.ID) != "" {
@@ -436,9 +508,12 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				}
 			}
 
-			// If this step came from a stored pending tool call, clear it and move on.
 			st.pendingTool = nil
 			st.approvedPendingTool = false
+
+			if earlyStop {
+				return &Final{Output: "", Plan: st.agentCtx.Plan}, st.agentCtx, nil
+			}
 		default:
 			log.Error("unexpected_response_type", "step", step, "type", resp.Type)
 			return nil, st.agentCtx, ErrParseFailure
@@ -448,79 +523,84 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 	return e.forceConclusion(ctx, st.messages, st.model, st.scene, st.agentCtx, st.extraParams, st.onStream, log)
 }
 
-func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, stepStart time.Time, remaining []ToolCall, assistantTextAdded bool) (string, error, *Final, bool) {
-	var observation string
-	var toolErr error
-
-	tool, found := e.registry.Get(tc.Name)
-	if !found {
-		observation = fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames())
-		return observation, fmt.Errorf("tool not found"), nil, false
+// guardPreCheck runs the guard pre-tool decision serially. It returns:
+//   - observation: non-empty if denied
+//   - denied: true if the tool call was blocked
+//   - pausedFinal: non-nil if approval is required (run should pause)
+//   - paused: true if the run should pause for approval
+func (e *Engine) guardPreCheck(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, remaining []ToolCall, assistantTextAdded bool) (observation string, denied bool, pausedFinal *Final, paused bool) {
+	if _, found := e.registry.Get(tc.Name); !found {
+		return fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames()), true, nil, false
 	}
 
-	// Guard pre-tool decision.
-	if e.guard != nil && e.guard.Enabled() {
-		gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+	if e.guard == nil || !e.guard.Enabled() {
+		return "", false, nil, false
+	}
+
+	gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+		Type:       guard.ActionToolCallPre,
+		ToolName:   tc.Name,
+		ToolParams: tc.Params,
+	})
+	switch gr.Decision {
+	case guard.DecisionDeny:
+		return fmt.Sprintf("Error: blocked by guard (%s)", strings.Join(gr.Reasons, "; ")), true, nil, false
+	case guard.DecisionRequireApproval:
+		if st.approvedPendingTool {
+			return "", false, nil, false
+		}
+		rs := resumeStateV1{
+			RunID:         st.runID,
+			Model:         st.model,
+			Scene:         st.scene,
+			Step:          step,
+			PlanRequired:  st.planRequired,
+			ParseFailures: st.parseFailures,
+			Messages:      st.messages,
+			ExtraParams:   st.extraParams,
+			AgentCtx:      snapshotFromContext(st.agentCtx),
+			PendingTool: pendingToolSnapshot{
+				AssistantText:      assistantText,
+				AssistantTextAdded: assistantTextAdded,
+				ToolCall:           *tc,
+				RemainingToolCalls: append([]ToolCall{}, remaining...),
+			},
+		}
+		b, err := marshalResumeState(rs)
+		if err != nil {
+			return fmt.Sprintf("Error: marshal resume state failed: %s", err.Error()), true, nil, false
+		}
+		sum := fmt.Sprintf("ToolCallPre tool=%s", tc.Name)
+		id, err := e.guard.RequestApproval(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
 			Type:       guard.ActionToolCallPre,
 			ToolName:   tc.Name,
 			ToolParams: tc.Params,
-		})
-		switch gr.Decision {
-		case guard.DecisionDeny:
-			observation = fmt.Sprintf("Error: blocked by guard (%s)", strings.Join(gr.Reasons, "; "))
-			return observation, fmt.Errorf("blocked by guard"), nil, false
-		case guard.DecisionRequireApproval:
-			if st.approvedPendingTool {
-				// Already approved; proceed.
-				break
-			}
-			// Pause run and return a pending final.
-			rs := resumeStateV1{
-				RunID:         st.runID,
-				Model:         st.model,
-				Scene:         st.scene,
-				Step:          step,
-				PlanRequired:  st.planRequired,
-				ParseFailures: st.parseFailures,
-				Messages:      st.messages,
-				ExtraParams:   st.extraParams,
-				AgentCtx:      snapshotFromContext(st.agentCtx),
-				PendingTool: pendingToolSnapshot{
-					AssistantText:      assistantText,
-					AssistantTextAdded: assistantTextAdded,
-					ToolCall:           *tc,
-					RemainingToolCalls: append([]ToolCall{}, remaining...),
-				},
-			}
-			b, err := marshalResumeState(rs)
-			if err != nil {
-				return "", err, nil, false
-			}
-			sum := fmt.Sprintf("ToolCallPre tool=%s", tc.Name)
-			id, err := e.guard.RequestApproval(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
-				Type:       guard.ActionToolCallPre,
-				ToolName:   tc.Name,
-				ToolParams: tc.Params,
-			}, gr, sum, b)
-			if err != nil {
-				observation = fmt.Sprintf("Error: approval request failed: %s", err.Error())
-				return observation, err, nil, false
-			}
-			final := &Final{
-				Output: PendingOutput{
-					Status:            "pending",
-					ApprovalRequestID: id,
-					Message:           fmt.Sprintf("Approval required to execute tool %q at step %d.", tc.Name, step),
-				},
-				Plan: st.agentCtx.Plan,
-			}
-			return "", nil, final, true
+		}, gr, sum, b)
+		if err != nil {
+			return fmt.Sprintf("Error: approval request failed: %s", err.Error()), true, nil, false
 		}
+		final := &Final{
+			Output: PendingOutput{
+				Status:            "pending",
+				ApprovalRequestID: id,
+				Message:           fmt.Sprintf("Approval required to execute tool %q at step %d.", tc.Name, step),
+			},
+			Plan: st.agentCtx.Plan,
+		}
+		return "", false, final, true
+	}
+	return "", false, nil, false
+}
+
+// executeTool runs the tool. Safe for concurrent use.
+func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolCall) (string, error) {
+	tool, found := e.registry.Get(tc.Name)
+	if !found {
+		return fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames()), fmt.Errorf("tool not found")
 	}
 
 	toolCtx := ctx
 	if e.guard != nil && e.guard.Enabled() && strings.EqualFold(tc.Name, "url_fetch") {
-		// Only enforce guard-level URL allowlists for unauthenticated url_fetch calls.
 		authProfile, _ := tc.Params["auth_profile"].(string)
 		if strings.TrimSpace(authProfile) == "" {
 			if p, ok := e.guard.NetworkPolicyForURLFetch(); ok && len(p.AllowedURLPrefixes) > 0 {
@@ -529,7 +609,7 @@ func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, 
 		}
 	}
 
-	observation, toolErr = tool.Execute(toolCtx, tc.Params)
+	observation, toolErr := tool.Execute(toolCtx, tc.Params)
 	if toolErr != nil {
 		if strings.TrimSpace(observation) == "" {
 			observation = fmt.Sprintf("error: %s", toolErr.Error())
@@ -537,30 +617,32 @@ func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, 
 			observation = fmt.Sprintf("%s\n\nerror: %s", observation, toolErr.Error())
 		}
 	}
+	return observation, toolErr
+}
 
-	// Guard post-tool redaction (runs even when toolErr != nil).
-	if e.guard != nil && e.guard.Enabled() {
-		gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
-			Type:       guard.ActionToolCallPost,
-			ToolName:   tc.Name,
-			ToolParams: tc.Params,
-			Content:    observation,
-		})
-		switch gr.Decision {
-		case guard.DecisionAllowWithRedact:
-			if strings.TrimSpace(gr.RedactedContent) != "" {
-				observation = gr.RedactedContent
-			}
-		case guard.DecisionDeny:
-			observation = "Error: blocked by guard (tool output)"
-			if toolErr == nil {
-				toolErr = fmt.Errorf("blocked by guard")
-			}
+// guardPostRedact applies guard post-tool redaction. Runs serially after concurrent execution.
+func (e *Engine) guardPostRedact(ctx context.Context, st *engineLoopState, step int, tc *ToolCall, observation string, toolErr error) (string, error) {
+	if e.guard == nil || !e.guard.Enabled() {
+		return observation, toolErr
+	}
+	gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+		Type:       guard.ActionToolCallPost,
+		ToolName:   tc.Name,
+		ToolParams: tc.Params,
+		Content:    observation,
+	})
+	switch gr.Decision {
+	case guard.DecisionAllowWithRedact:
+		if strings.TrimSpace(gr.RedactedContent) != "" {
+			observation = gr.RedactedContent
+		}
+	case guard.DecisionDeny:
+		observation = "Error: blocked by guard (tool output)"
+		if toolErr == nil {
+			toolErr = fmt.Errorf("blocked by guard")
 		}
 	}
-
-	_ = stepStart
-	return observation, toolErr, nil, false
+	return observation, toolErr
 }
 
 func toolCallSignature(tc ToolCall) string {

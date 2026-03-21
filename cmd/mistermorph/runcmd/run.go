@@ -210,6 +210,48 @@ func New(deps Dependencies) *cobra.Command {
 				}
 			}
 
+			if promptInspector != nil || requestInspector != nil {
+				opts = append(opts, agent.WithSubClientFactory(func(prefix string) (llm.Client, func()) {
+					var pi *llminspect.PromptInspector
+					var ri *llminspect.RequestInspector
+					if promptInspector != nil {
+						var err error
+						pi, err = llminspect.NewPromptInspector(llminspect.Options{
+							Task:   task,
+							Prefix: prefix,
+						})
+						if err != nil {
+							logger.Warn("spawn_prompt_inspector_error", "error", err.Error())
+						}
+					}
+					if requestInspector != nil {
+						var err error
+						ri, err = llminspect.NewRequestInspector(llminspect.Options{
+							Task:   task,
+							Prefix: prefix,
+						})
+						if err != nil {
+							logger.Warn("spawn_request_inspector_error", "error", err.Error())
+						}
+					}
+					subClient := llminspect.WrapClient(client, llminspect.ClientOptions{
+						PromptInspector:  pi,
+						RequestInspector: ri,
+						APIBase:          mainCfg.Endpoint,
+						Model:            mainCfg.Model,
+					})
+					cleanup := func() {
+						if pi != nil {
+							_ = pi.Close()
+						}
+						if ri != nil {
+							_ = ri.Close()
+						}
+					}
+					return subClient, cleanup
+				}))
+			}
+
 			engine := agent.New(
 				client,
 				reg,
