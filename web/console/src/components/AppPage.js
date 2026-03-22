@@ -8,6 +8,10 @@ const AppPage = {
       type: String,
       default: "",
     },
+    hideDesktopBar: {
+      type: Boolean,
+      default: false,
+    },
     showMobileNavTrigger: {
       type: Boolean,
       default: true,
@@ -18,7 +22,7 @@ const AppPage = {
     return { chrome };
   },
   template: `
-    <section class="page-view">
+    <section :class="hideDesktopBar ? 'page-view page-view-hide-desktop-bar' : 'page-view'">
       <header class="page-bar">
         <div class="page-bar-leading">
           <QButton
@@ -31,7 +35,7 @@ const AppPage = {
             <QIconMenu class="icon" />
           </QButton>
           <slot name="leading">
-            <h2 class="title page-bar-title">{{ title }}</h2>
+            <h2 class="page-title page-bar-title workspace-section-title">{{ title }}</h2>
           </slot>
         </div>
         <div v-if="$slots.actions" class="page-bar-actions">

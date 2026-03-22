@@ -20,16 +20,15 @@ import {
   AuditView,
   ChatView,
   ContactsView,
-  DashboardView,
   LoginView,
   MemoryView,
   OverviewView,
+  RuntimeView,
   SetupView,
   SettingsView,
   StatsView,
   StateFilesView,
   TasksView,
-  TaskDetailView,
 } from "../views";
 
 function isSetupPath(path) {
@@ -64,9 +63,9 @@ const routes = [
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
   { path: "/chat/:topic_id", component: ChatView },
-  { path: "/dashboard", component: DashboardView },
+  { path: "/runtime", component: RuntimeView },
+  { path: "/dashboard", redirect: "/runtime" },
   { path: "/tasks", component: TasksView },
-  { path: "/tasks/:id", component: TaskDetailView },
   { path: "/stats", component: StatsView },
   { path: "/audit", component: AuditView },
   { path: "/memory", component: MemoryView },
@@ -91,7 +90,7 @@ const NAV_ITEMS_META = [
   { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "__sep_secondary", separator: true },
-  { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
+  { id: "/runtime", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
   { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
 ];
 

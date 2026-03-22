@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
@@ -29,8 +31,10 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
+	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/streaming"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -57,6 +61,7 @@ type consoleLocalTaskJob struct {
 	CreatedAt       time.Time
 	Trigger         daemonruntime.TaskTrigger
 	AutoRenameTopic bool
+	WakeSignal      daemonruntime.PokeInput
 	Version         uint64
 }
 
@@ -83,6 +88,8 @@ type consoleLocalRuntime struct {
 	memoryInjectionEnabled  bool
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
+	streamHub               *consoleStreamHub
+	heartbeatPokeRequests   chan heartbeatloop.PokeRequest
 	handler                 http.Handler
 	authToken               string
 	cancelWorkers           context.CancelFunc
@@ -205,6 +212,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 	out.store = store
 	out.bus = inprocBus
+	out.streamHub = newConsoleStreamHub()
 	out.bundle = &consoleLocalRuntimeBundle{
 		taskRuntime:     execRuntime,
 		mcpHost:         mcpHost,
@@ -371,7 +379,22 @@ func (r *consoleLocalRuntime) canSubmit() bool {
 	return consoleLLMCredentialsWarning(bundle.taskRuntime.MainRoute) == ""
 }
 
+func (r *consoleLocalRuntime) canPokeHeartbeat() bool {
+	return r != nil && r.heartbeatPokeRequests != nil
+}
+
+func (r *consoleLocalRuntime) pokeHeartbeat(ctx context.Context, input daemonruntime.PokeInput) error {
+	if r == nil || r.heartbeatPokeRequests == nil {
+		return fmt.Errorf("heartbeat poke is unavailable")
+	}
+	return heartbeatloop.Trigger(ctx, r.heartbeatPokeRequests, input)
+}
+
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
+	var poke daemonruntime.PokeFunc
+	if r.canPokeHeartbeat() {
+		poke = r.pokeHeartbeat
+	}
 	return daemonruntime.RoutesOptions{
 		Mode:          "console",
 		AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
@@ -397,8 +420,10 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"telegram_running": r.isManagedRuntimeRunning("telegram"),
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
+				"poke_enabled": r.canPokeHeartbeat(),
 			}, nil
 		},
+		Poke:          poke,
 	}
 }
 
@@ -481,9 +506,29 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		return
 	}
 	runtimecore.MarkTaskRunning(r.store, job.TaskID)
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
+	}
+	if r.logger != nil {
+		r.logger.Info("console_stream_enabled",
+			"task_id", job.TaskID,
+			"conversation_key", conversationKey,
+			"topic_id", strings.TrimSpace(job.TopicID),
+			"model", strings.TrimSpace(job.Model),
+		)
+	}
+
+	replySink := newConsoleReplySink(r.streamHub, job.TaskID, r.logger)
+	streamer := streaming.NewFinalOutputStreamer(streaming.FinalOutputStreamerOptions{
+		Sink: replySink,
+	})
+	streamTracker := newConsoleStreamTracker(r.logger, job.TaskID)
+	onStream := func(event llm.StreamEvent) error {
+		return streamTracker.Handle(event, streamer.Handle)
+	}
 
 	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
-	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job)
+	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream)
 	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
 	cancel()
 
@@ -492,11 +537,16 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if displayErr == "" {
 			displayErr = strings.TrimSpace(runErr.Error())
 		}
+		_ = replySink.Abort(context.Background(), errors.New(displayErr))
+		streamTracker.LogSummary("failed")
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
 
 	if pendingID, ok := pendingApprovalID(final); ok {
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
+		}
 		pendingAt := time.Now().UTC()
 		r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskPending
@@ -504,11 +554,14 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.ApprovalRequestID = pendingID
 			info.Result = buildConsoleTaskResult(final, agentCtx)
 		})
+		streamTracker.LogSummary("pending")
 		return
 	}
 
 	finishedAt := time.Now().UTC()
 	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
+	_ = replySink.Finalize(context.Background(), output)
+	streamTracker.LogSummary("done")
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
@@ -518,7 +571,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	r.maybeRefreshTopicTitle(job, output)
 }
 
-func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob) (*agent.Final, *agent.Context, error) {
+func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler) (*agent.Final, *agent.Context, error) {
 	if r == nil {
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
@@ -556,20 +609,33 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			}
 		}
 	}
+	meta := map[string]any{
+		"trigger":          consoleTriggerSource(job.Trigger),
+		"console_task_id":  job.TaskID,
+		"console_topic_id": strings.TrimSpace(job.TopicID),
+	}
+	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
+		meta["poke"] = pokeMeta
+	}
+	var promptAugment taskruntime.PromptAugmentFunc
+	if !job.WakeSignal.IsZero() {
+		wakeSignal := job.WakeSignal.Normalize()
+		promptAugment = func(spec *agent.PromptSpec, _ *tools.Registry) {
+			promptprofile.AppendWakeSignalBlock(spec, wakeSignal)
+		}
+	}
 	bundle := r.currentBundle()
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:  task,
-		Model: model,
-		Scene: "console.loop",
-		Meta: map[string]any{
-			"trigger":          consoleTriggerSource(job.Trigger),
-			"console_task_id":  job.TaskID,
-			"console_topic_id": strings.TrimSpace(job.TopicID),
-		},
-		Memory: memoryHooks,
+		Task:          task,
+		Model:         model,
+		Scene:         "console.loop",
+		OnStream:      onStream,
+		Meta:          meta,
+		PromptAugment: promptAugment,
+		Memory:        memoryHooks,
 	})
 	if err != nil {
 		return result.Final, result.Context, err
@@ -770,6 +836,45 @@ func consoleTriggerSource(trigger daemonruntime.TaskTrigger) string {
 	return "console"
 }
 
+func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task string, _ bool, wakeSignal daemonruntime.PokeInput) string {
+	if r == nil {
+		return "runtime_unavailable"
+	}
+	model := func() string {
+		_, model := r.defaultLLMConfig()
+		return model
+	}()
+	trigger := daemonruntime.TaskTrigger{
+		Source: "heartbeat",
+		Event:  "heartbeat_tick",
+		Ref:    "console",
+	}
+	if !wakeSignal.IsZero() {
+		trigger.Event = "heartbeat_poke"
+		trigger.Ref = "console/poke"
+	}
+	job, _, err := r.acceptTask(
+		task,
+		model,
+		r.defaultTimeout,
+		r.store.HeartbeatTopicID(),
+		daemonruntime.ConsoleHeartbeatTopicTitle,
+		trigger,
+	)
+	if err != nil {
+		return err.Error()
+	}
+	job.WakeSignal = wakeSignal.Normalize()
+	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
+		job.Version = version
+		return job
+	}); err != nil {
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
+		return err.Error()
+	}
+	return ""
+}
+
 func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 	if r == nil {
 		return
@@ -781,9 +886,9 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 	}
 	hbState := &heartbeatutil.State{}
 	hbChecklist := statepaths.HeartbeatChecklistPath()
-	heartbeatTopicID := r.store.HeartbeatTopicID()
+	r.heartbeatPokeRequests = make(chan heartbeatloop.PokeRequest)
 
-	runHeartbeatTick := func() heartbeatutil.TickResult {
+	runHeartbeatTick := func(wakeSignal daemonruntime.PokeInput) heartbeatutil.TickResult {
 		if !r.canSubmit() {
 			return heartbeatutil.TickResult{
 				Outcome:    heartbeatutil.TickSkipped,
@@ -796,25 +901,7 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 				return heartbeatutil.BuildHeartbeatTask(hbChecklist)
 			},
 			func(task string, checklistEmpty bool) string {
-				if _, err := r.enqueueTask(
-					context.Background(),
-					task,
-					func() string {
-						_, model := r.defaultLLMConfig()
-						return model
-					}(),
-					r.defaultTimeout,
-					heartbeatTopicID,
-					daemonruntime.ConsoleHeartbeatTopicTitle,
-					daemonruntime.TaskTrigger{
-						Source: "heartbeat",
-						Event:  "heartbeat_tick",
-						Ref:    "console",
-					},
-				); err != nil {
-					return err.Error()
-				}
-				return ""
+				return r.enqueueHeartbeatTask(context.Background(), task, checklistEmpty, wakeSignal)
 			},
 		)
 		switch result.Outcome {
@@ -834,25 +921,11 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 	}
 
 	go func() {
-		initialTimer := time.NewTimer(15 * time.Second)
-		defer initialTimer.Stop()
-		select {
-		case <-ctx.Done():
-			return
-		case <-initialTimer.C:
-		}
-		_ = runHeartbeatTick()
-
-		ticker := time.NewTicker(hbInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_ = runHeartbeatTick()
-			}
-		}
+		heartbeatloop.RunScheduler(ctx, heartbeatloop.SchedulerOptions{
+			InitialDelay: 15 * time.Second,
+			Interval:     hbInterval,
+			PokeRequests: r.heartbeatPokeRequests,
+		}, runHeartbeatTick)
 	}()
 }
 

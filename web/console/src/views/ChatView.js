@@ -4,14 +4,17 @@ import "./ChatView.css";
 
 import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
+import RawJsonDialog from "../components/RawJsonDialog";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
+  buildConsoleStreamURL,
+  createConsoleStreamTicket,
   currentLocale,
   endpointState,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
+  safeJSON,
   translate,
-  uiPrefsState,
 } from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
@@ -257,13 +260,13 @@ function tuiKicker(left, right) {
 const ChatView = {
   components: {
     AppPage,
+    RawJsonDialog,
     MarkdownContent,
   },
   setup() {
     const t = translate;
     const route = useRoute();
     const router = useRouter();
-    const chatMarkdownTheme = computed(() => uiPrefsState.chatMarkdownTheme);
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
@@ -278,10 +281,10 @@ const ChatView = {
     const sending = ref(false);
     const err = ref("");
     const pollTimers = new Set();
+    const streamSockets = new Map();
     const composerField = ref(null);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
-    const rawDialogTaskID = ref("");
     const rawRevealItemID = ref("");
     const rawRevealCount = ref(0);
     const heartbeatRevealCount = ref(0);
@@ -442,9 +445,6 @@ const ChatView = {
       return selectedTopic.value ? topicTitle(selectedTopic.value) : t("chat_title");
     });
     const mobileShowBack = computed(() => mobileTopicSplitEnabled.value && mobileTopicView.value === "chat");
-    const mobileShowNewTopic = computed(
-      () => !mobileTopicSplitEnabled.value || mobileTopicView.value === "topics"
-    );
     const showTopicSidebar = computed(() => {
       if (!consoleTopicsEnabled.value) {
         return false;
@@ -468,6 +468,46 @@ const ChatView = {
         return "chat-shell has-sidebar";
       }
       return mobileTopicView.value === "topics" ? "chat-shell is-mobile-topics" : "chat-shell is-mobile-chat";
+    });
+    const chatMainClass = computed(() => {
+      const classes = ["chat-main"];
+      if (showChatPlaceholder.value) {
+        classes.push("is-placeholder-mode");
+      }
+      return classes.join(" ");
+    });
+    const topicSidebarKicker = computed(() =>
+      endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t)
+    );
+    const deskTitle = computed(() => {
+      if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
+        return t("chat_topic_new");
+      }
+      return topicTitle(selectedTopic.value);
+    });
+    const deskMeta = computed(() => {
+      const parts = [];
+      if (!creatingTopic.value && hasSelectedTopic.value && selectedTopic.value) {
+        const time = topicTime(selectedTopic.value);
+        if (time) {
+          parts.push(time);
+        }
+      }
+      const channel = endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t);
+      if (channel) {
+        parts.push(channel);
+      }
+      const name = displayAgentName.value;
+      if (name) {
+        parts.push(name);
+      }
+      return parts.join(" · ");
+    });
+    const chatPlaceholderHint = computed(() => {
+      if (visibleTopics.value.length > 0) {
+        return t("chat_placeholder_choose_topic");
+      }
+      return chatPlaceholderText.value;
     });
 
     function syncMobileTopicView(options = {}) {
@@ -645,6 +685,104 @@ const ChatView = {
       pollTimers.clear();
     }
 
+    function closeTaskStream(taskID) {
+      const key = String(taskID || "").trim();
+      if (!key) {
+        return;
+      }
+      const active = streamSockets.get(key);
+      if (!active) {
+        return;
+      }
+      active.closing = true;
+      try {
+        active.socket.close();
+      } catch {
+        // Ignore local close errors.
+      }
+      streamSockets.delete(key);
+    }
+
+    function clearStreamSockets() {
+      for (const taskID of streamSockets.keys()) {
+        closeTaskStream(taskID);
+      }
+    }
+
+    function supportsConsoleLocalStream(endpointRef) {
+      const endpoint = runtimeEndpointByRef(endpointRef);
+      return String(endpoint?.url || "").trim() === "in-process://console-local";
+    }
+
+    async function startTaskStream(taskID, historyID, endpointRef) {
+      const key = String(taskID || "").trim();
+      if (!key || !supportsConsoleLocalStream(endpointRef)) {
+        return;
+      }
+      const existing = streamSockets.get(key);
+      if (existing && existing.historyID === historyID && existing.endpointRef === endpointRef) {
+        return;
+      }
+      closeTaskStream(key);
+
+      let ticketPayload;
+      try {
+        ticketPayload = await createConsoleStreamTicket();
+      } catch {
+        return;
+      }
+      const ticket = String(ticketPayload?.ticket || "").trim();
+      const url = buildConsoleStreamURL(ticket, key);
+      if (!url) {
+        return;
+      }
+
+      const socket = new WebSocket(url);
+      const entry = {
+        socket,
+        historyID,
+        endpointRef,
+        closing: false,
+      };
+      streamSockets.set(key, entry);
+
+      socket.onmessage = (event) => {
+        const active = streamSockets.get(key);
+        if (active !== entry) {
+          return;
+        }
+        const frame = safeJSON(event.data, null);
+        if (!frame || typeof frame !== "object") {
+          return;
+        }
+        const patch = {};
+        if (typeof frame.text === "string" && frame.text !== "") {
+          patch.text = frame.text;
+        } else if (typeof frame.error === "string" && frame.error !== "") {
+          patch.text = frame.error;
+        }
+        if (typeof frame.status === "string" && frame.status !== "") {
+          patch.status = normalizeTaskStatus(frame.status);
+        }
+        if (Object.keys(patch).length > 0) {
+          patchAgentHistoryItem(key, historyID, patch);
+          scrollHistoryToBottom();
+        }
+        if (frame.done) {
+          closeTaskStream(key);
+        }
+      };
+      socket.onclose = () => {
+        const active = streamSockets.get(key);
+        if (active === entry) {
+          streamSockets.delete(key);
+        }
+      };
+      socket.onerror = () => {
+        // Polling stays active as the fallback path.
+      };
+    }
+
     function staticHistoryItem(id, text) {
       return {
         id,
@@ -716,8 +854,12 @@ const ChatView = {
       return "";
     }
 
+    function topicBadgeType(topic) {
+      return topicIsActive(topic) ? "primary" : "default";
+    }
+
     function topicItemClass(topic) {
-      const classes = ["chat-topic-item"];
+      const classes = ["chat-topic-item", "workspace-sidebar-item"];
       if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
         classes.push("is-active");
       }
@@ -759,6 +901,30 @@ const ChatView = {
       chatHistoryItems.value = next;
     }
 
+    function resolveAgentHistoryID(taskID, preferredHistoryID = "") {
+      const preferred = String(preferredHistoryID || "").trim();
+      if (preferred && chatHistoryItems.value.some((item) => item.id === preferred)) {
+        return preferred;
+      }
+      const key = String(taskID || "").trim();
+      if (!key) {
+        return "";
+      }
+      const matched = chatHistoryItems.value.find((item) => {
+        return String(item?.role || "") === "agent" && String(item?.taskId || "").trim() === key;
+      });
+      return String(matched?.id || "").trim();
+    }
+
+    function patchAgentHistoryItem(taskID, historyID, patch) {
+      const resolvedID = resolveAgentHistoryID(taskID, historyID);
+      if (!resolvedID) {
+        return "";
+      }
+      patchHistoryItem(resolvedID, patch);
+      return resolvedID;
+    }
+
     function schedulePoll(fn) {
       const timerID = window.setTimeout(async () => {
         pollTimers.delete(timerID);
@@ -771,9 +937,10 @@ const ChatView = {
       try {
         const detail = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}`);
         const status = normalizeTaskStatus(detail?.status);
-        const existingItem = chatHistoryItems.value.find((item) => item.id === historyID) || null;
+        const resolvedHistoryID = resolveAgentHistoryID(taskID, historyID);
+        const existingItem = chatHistoryItems.value.find((item) => item.id === resolvedHistoryID) || null;
         const pendingSeed = historyPendingSeed(existingItem, taskID);
-        patchHistoryItem(historyID, {
+        patchAgentHistoryItem(taskID, historyID, {
           status,
           text: taskAgentText(detail, t, {
             agentName: activeAgentName.value,
@@ -785,6 +952,7 @@ const ChatView = {
           pendingSeed,
         });
         if (isTerminalStatus(status)) {
+          closeTaskStream(taskID);
           scrollHistoryToBottom();
         }
         if (!isTerminalStatus(status)) {
@@ -793,7 +961,7 @@ const ChatView = {
           });
         }
       } catch (e) {
-        patchHistoryItem(historyID, {
+        patchAgentHistoryItem(taskID, historyID, {
           status: "failed",
           text: e?.message || t("msg_load_failed"),
           rawJSON: "",
@@ -868,6 +1036,7 @@ const ChatView = {
 
     async function loadHistory(options = {}) {
       clearPollTimers();
+      clearStreamSockets();
       err.value = "";
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
@@ -905,6 +1074,7 @@ const ChatView = {
         scrollHistoryToBottom({ force: true });
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
+            void startTaskStream(item.taskId, item.id, endpointRef);
             schedulePoll(async () => {
               await pollTask(item.taskId, item.id, endpointRef);
             });
@@ -975,7 +1145,6 @@ const ChatView = {
 
     function openRawDialog(item) {
       resetRawReveal();
-      rawDialogTaskID.value = String(item?.taskId || "").trim();
       rawDialogJSON.value = String(item?.rawJSON || "").trim();
       rawDialogOpen.value = rawDialogJSON.value !== "";
     }
@@ -1135,6 +1304,7 @@ const ChatView = {
           pendingSeed: historyPendingSeed(existingAgentItem, pendingSeed),
           rawJSON: "",
         });
+        void startTaskStream(taskID, agentHistoryID, endpointRef);
 
         if (consoleTopicsEnabled.value) {
           const topicID = normalizeTopicID(submitted?.topic_id);
@@ -1183,6 +1353,7 @@ const ChatView = {
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
+      clearStreamSockets();
       resetRawReveal();
       resetHeartbeatReveal();
     });
@@ -1238,7 +1409,6 @@ const ChatView = {
       readonlyKicker,
       readonlyReason,
       handleComposerPointerDown,
-      chatMarkdownTheme,
       pageClass,
       showChatPlaceholder,
       chatPlaceholderText,
@@ -1249,8 +1419,12 @@ const ChatView = {
       mobileTopicSplitEnabled,
       mobileBarTitle,
       mobileShowBack,
-      mobileShowNewTopic,
       shellClass,
+      chatMainClass,
+      topicSidebarKicker,
+      deskTitle,
+      deskMeta,
+      chatPlaceholderHint,
       showTopicSidebar,
       showChatPane,
       submitTask,
@@ -1260,6 +1434,7 @@ const ChatView = {
       topicTitle,
       topicTime,
       topicBadgeText,
+      topicBadgeType,
       topicItemClass,
       topicIsActive,
       clickPageBarTitle,
@@ -1272,13 +1447,12 @@ const ChatView = {
       closeRawDialog,
       rawDialogOpen,
       rawDialogJSON,
-      rawDialogTaskID,
     };
   },
   template: `
-    <AppPage :title="t('chat_title')" :class="pageClass" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage :title="t('chat_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
       <template v-if="consoleTopicsEnabled" #leading>
-        <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-sidebar'">
+        <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-desktop'">
           <QButton
             v-if="mobileShowBack"
             class="outlined xs icon chat-page-bar-back"
@@ -1288,20 +1462,8 @@ const ChatView = {
           >
             <QIconArrowLeft class="icon" />
           </QButton>
-          <h2 class="title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
-          <QButton
-            v-if="mobileShowNewTopic"
-            class="outlined xs icon chat-page-bar-new"
-            :title="t('chat_topic_new')"
-            :aria-label="t('chat_topic_new')"
-            @click="startNewTopic"
-          >
-            <QIconPlus class="icon" />
-          </QButton>
+          <h2 class="page-title page-bar-title workspace-section-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
         </div>
-      </template>
-      <template v-if="consoleTopicsEnabled && !mobileTopicSplitEnabled" #actions>
-        <div class="chat-page-bar-main" aria-hidden="true"></div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <section v-if="chatReadonly" class="chat-main is-readonly">
@@ -1312,95 +1474,70 @@ const ChatView = {
       </section>
       <template v-else>
         <section :class="shellClass">
-          <aside v-if="showTopicSidebar" class="chat-topic-sidebar">
-            <div v-if="topicsLoading" class="chat-topic-sidebar-actions">
-              <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
-            </div>
-            <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
-              <div
+          <aside v-if="showTopicSidebar" class="chat-topic-sidebar workspace-sidebar-section">
+            <header class="chat-topic-sidebar-head workspace-sidebar-head">
+              <div class="chat-topic-sidebar-copy">
+                <p class="ui-kicker">{{ topicSidebarKicker }}</p>
+                <div class="chat-topic-sidebar-title-row">
+                  <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
+                </div>
+                <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
+              </div>
+              <QButton
+                class="plain sm icon chat-topic-sidebar-new"
+                :title="t('chat_topic_new')"
+                :aria-label="t('chat_topic_new')"
+                @click="startNewTopic"
+              >
+                <QIconPlus class="icon" />
+              </QButton>
+            </header>
+            <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
+            <div :class="topicsLoading ? 'chat-topic-list workspace-sidebar-list is-busy' : 'chat-topic-list workspace-sidebar-list'">
+              <button
                 v-for="topic in visibleTopics"
                 :key="topic.id"
+                type="button"
                 :class="topicItemClass(topic)"
-                role="button"
-                tabindex="0"
                 :aria-current="topicIsActive(topic) ? 'page' : undefined"
                 @click="selectTopic(topic.id)"
-                @keydown.enter.prevent="selectTopic(topic.id)"
-                @keydown.space.prevent="selectTopic(topic.id)"
               >
-                <span class="chat-topic-item-copy">
+                <span class="chat-topic-item-copy workspace-sidebar-item-copy">
                   <span class="chat-topic-item-main">
-                    <span class="chat-topic-item-title">{{ topicTitle(topic) }}</span>
-                    <span v-if="topicBadgeText(topic)" class="chat-topic-item-badge">{{ topicBadgeText(topic) }}</span>
+                    <span class="chat-topic-item-title workspace-sidebar-item-title">{{ topicTitle(topic) }}</span>
+                    <span v-if="topicTime(topic) || topicBadgeText(topic)" class="chat-topic-item-meta workspace-sidebar-item-meta">
+                      <time v-if="topicTime(topic)" class="chat-topic-item-time">{{ topicTime(topic) }}</time>
+                      <QBadge
+                        v-if="topicBadgeText(topic)"
+                        class="chat-topic-item-badge"
+                        :type="topicBadgeType(topic)"
+                        size="sm"
+                      >
+                        {{ topicBadgeText(topic) }}
+                      </QBadge>
+                    </span>
                   </span>
-                  <time class="chat-topic-item-time">{{ topicTime(topic) }}</time>
                 </span>
-              </div>
+                <span class="chat-topic-item-marker workspace-sidebar-item-marker" aria-hidden="true">
+                  <QBadge v-if="topicIsActive(topic)" dot type="primary" size="sm" />
+                </span>
+              </button>
             </div>
           </aside>
-          <section v-if="showChatPane" class="chat-main">
+          <section v-if="showChatPane" :class="chatMainClass">
+            <header v-if="consoleTopicsEnabled && !showChatPlaceholder" class="chat-desk-head">
+              <div class="chat-desk-copy">
+                <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
+                <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
+              </div>
+            </header>
             <section v-if="showChatPlaceholder" class="chat-placeholder">
-              <div class="chat-placeholder-shell">
-                <div class="chat-placeholder-note">
-                  {{ chatPlaceholderText }}
-                </div>
-                <div class="chat-composer is-placeholder" @pointerdown="handleComposerPointerDown">
-                  <QTextarea
-                    ref="composerField"
-                    v-model="taskInput"
-                    :rows="1"
-                    :disabled="composerDisabled"
-                    :placeholder="composerPlaceholder"
-                    @keydown.enter.exact.prevent="submitTask"
-                  >
-                    <template #append>
-                      <div class="chat-composer-append">
-                        <QButton
-                          class="outlined sm icon chat-composer-send"
-                          :loading="sending"
-                          :disabled="sendDisabled"
-                          :title="t('chat_action_send')"
-                          :aria-label="t('chat_action_send')"
-                          @click="submitTask"
-                        >
-                          <QIconSend class="icon" />
-                        </QButton>
-                      </div>
-                    </template>
-                  </QTextarea>
-                </div>
+              <div class="chat-placeholder-copy">
+                <p v-if="deskMeta" class="chat-placeholder-meta">{{ deskMeta }}</p>
+                <h3 class="chat-placeholder-title workspace-document-title">{{ deskTitle }}</h3>
+                <p class="chat-placeholder-note">{{ chatPlaceholderHint }}</p>
               </div>
-            </section>
-            <template v-else>
-              <div
-                ref="historyViewport"
-                class="chat-history"
-                @scroll.passive="handleHistoryScroll"
-              >
-                <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
-                <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-                  <code
-                    v-if="item.timeText"
-                    class="chat-history-status"
-                    @click="clickHistoryTime(item)"
-                  >
-                    {{ item.timeText }}
-                  </code>
-                  <div :class="historySurfaceClass(item)">
-                    <MarkdownContent
-                      v-if="item.role === 'agent'"
-                      class="chat-history-markdown"
-                      :source="item.text"
-                      format="auto"
-                      :theme="chatMarkdownTheme"
-                      @rendered="handleMarkdownRendered"
-                    />
-                    <div v-else class="chat-history-body">{{ item.text }}</div>
-                  </div>
-                </article>
-                <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
-              </div>
-              <div class="chat-composer" @pointerdown="handleComposerPointerDown">
+              <div class="chat-composer chat-composer-landing" @pointerdown="handleComposerPointerDown">
                 <QTextarea
                   ref="composerField"
                   v-model="taskInput"
@@ -1425,21 +1562,69 @@ const ChatView = {
                   </template>
                 </QTextarea>
               </div>
+            </section>
+            <template v-else>
+              <div
+                ref="historyViewport"
+                class="chat-history"
+                @scroll.passive="handleHistoryScroll"
+              >
+                <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
+                <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
+                  <code
+                    v-if="item.timeText"
+                    class="chat-history-status"
+                    @click="clickHistoryTime(item)"
+                  >
+                    {{ item.timeText }}
+                  </code>
+                  <div :class="historySurfaceClass(item)">
+                    <MarkdownContent
+                      v-if="item.role === 'agent'"
+                      class="chat-history-markdown"
+                      :source="item.text"
+                      format="auto"
+                      theme="blueprint"
+                      @rendered="handleMarkdownRendered"
+                    />
+                    <div v-else class="chat-history-body">{{ item.text }}</div>
+                  </div>
+                </article>
+                <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
+              </div>
             </template>
+            <div v-if="!showChatPlaceholder" class="chat-composer" @pointerdown="handleComposerPointerDown">
+              <QTextarea
+                ref="composerField"
+                v-model="taskInput"
+                :rows="1"
+                :disabled="composerDisabled"
+                :placeholder="composerPlaceholder"
+                @keydown.enter.exact.prevent="submitTask"
+              >
+                <template #append>
+                  <div class="chat-composer-append">
+                    <QButton
+                      class="outlined sm icon chat-composer-send"
+                      :loading="sending"
+                      :disabled="sendDisabled"
+                      :title="t('chat_action_send')"
+                      :aria-label="t('chat_action_send')"
+                      @click="submitTask"
+                    >
+                      <QIconSend class="icon" />
+                    </QButton>
+                  </div>
+                </template>
+              </QTextarea>
+            </div>
           </section>
         </section>
-        <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
-          <section class="chat-raw-dialog frame">
-            <header class="chat-raw-head">
-              <div class="chat-raw-copy">
-                <code class="chat-raw-kicker">{{ t("chat_task_prefix") }} {{ rawDialogTaskID || "-" }}</code>
-                <h3 class="chat-raw-title">{{ t("chat_raw_title") }}</h3>
-              </div>
-              <QButton class="plain sm" @click="closeRawDialog">{{ t("action_close") }}</QButton>
-            </header>
-            <pre class="chat-raw-body">{{ rawDialogJSON }}</pre>
-          </section>
-        </div>
+        <RawJsonDialog
+          :open="rawDialogOpen"
+          :json="rawDialogJSON"
+          @close="closeRawDialog"
+        />
       </template>
     </AppPage>
   `,
