@@ -25,6 +25,7 @@ Integration:
 
 Others:
 
+- [Modes](./modes.md)
 - [Console](./console.md)
 - [Desktop App Wrapper](./app.md)
 - [Security](./security.md)

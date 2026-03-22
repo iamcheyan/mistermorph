@@ -8,10 +8,8 @@ Other languages: [简体中文](docs/zh-CN/README.md) | [日本語](docs/ja-JP/R
 
 - [Why Mister Morph](#why-mistermorph)
 - [Quickstart](#quickstart)
+- [Start Modes](#start-modes)
 - [Supported Models](#supported-models)
-- [Console WebUI](#console-webui)
-- [Telegram bot mode](#telegram-bot-mode)
-- [Slack bot mode](#slack-bot-mode)
 - [Embedding](#embedding-to-other-projects)
 - [Built-in Tools](#built-in-tools)
 - [Skills](#skills)
@@ -51,7 +49,7 @@ Option B: install from source with Go:
 go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 ```
 
-### Step 2: Install the Agent requirements and built-in skills
+### Step 2: Bootstrap the agent workspace
 
 ```bash
 mistermorph install
@@ -59,7 +57,7 @@ mistermorph install
 mistermorph install <dir>
 ```
 
-The `install` command installs required files and built-in skills under `~/.morph/skills/` (or a specified directory via `<dir>`).
+The `install` command initializes `config.yaml` plus the core onboarding markdown files under `~/.morph/` (or a specified directory via `<dir>`).
 
 When `config.yaml` does not already exist in the install target, `install` first tries to find a readable config in this order:
 
@@ -69,11 +67,11 @@ When `config.yaml` does not already exist in the install target, `install` first
 
 If none is found, `install` runs an interactive setup wizard (TTY only) before writing `config.yaml`:
 
-1. select LLM provider (`openai|gemini|cloudflare`)
-2. fill provider-specific required fields (`api_key` for `openai/gemini`; `account_id` + `api_token` for `cloudflare`)
+1. select LLM provider (`openai-compatible|gemini|anthropic|cloudflare`)
+2. fill provider-specific required fields
 3. set model
-4. set Telegram `bot_token` + `group_trigger_mode`
-5. optionally set Slack `bot_token` + `app_token` + `group_trigger_mode`
+4. fill `IDENTITY.md`
+5. choose a `SOUL.md` preset or customize it
 
 Use `mistermorph install --yes` to skip interactive prompts.
 
@@ -88,13 +86,25 @@ export MISTER_MORPH_LLM_PROVIDER="openai"
 export MISTER_MORPH_LLM_MODEL="gpt-5.4"
 ```
 
-Mister Morph also supports Azure OpenAI, Anthropic Claude, AWS Bedrock, and others (see `assets/config/config.example.yaml` for more options). If you prefer file-based config, use `~/.morph/config.yaml`.
+If you prefer file-based config, use `~/.morph/config.yaml`.
 
-### Step 4: One-time Run 
+## Start Modes
+
+### One-time run
 
 ```bash
 mistermorph run --task "Hello!"
 ```
+
+### Desktop App
+
+The desktop wrapper starts the Console UI for you and handles first-run setup inside the app.
+
+See [`docs/app.md`](docs/app.md) for build and run details.
+
+### Other modes
+
+Console server mode, Telegram, Slack, LINE, Lark, and runtime endpoint submission are documented in [`docs/modes.md`](docs/modes.md).
 
 ## Supported Models
 
@@ -112,107 +122,6 @@ mistermorph run --task "Hello!"
 | MiniMax | `minimax* / minimax-m2.5+` | ✅ Full |
 | GLM | `glm-4.6+` | ✅ Full |
 | Cloudflare Workers AI | `Workers AI model IDs` | ⚠️ Limited (no tool calling) |
-
-## Telegram bot mode
-
-Run a Telegram bot (long polling) so you can chat with the agent from Telegram:
-
-Edit the config file `~/.morph/config.yaml` and set your Telegram bot token:
-
-```yaml
-telegram:
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-  allowed_chat_ids: [] # add allowed chat ids here
-```
-
-```bash
-mistermorph telegram --log-level info
-```
-
-Notes:
-- Use `/id` to get the current chat id and add it to `allowed_chat_ids` for allowlisting.
-- In groups, the bot responds when you reply to it, or mention `@BotUsername`.
-- You can send a file; it will be downloaded under `file_cache_dir/telegram/` and the agent can process it. The agent can also send cached files back via `telegram_send_file`, cached images via `telegram_send_photo`, and local voice files via `telegram_send_voice`.
-- The last loaded skill(s) stay “sticky” per chat (so follow-up messages won’t forget SKILL.md); `/reset` clears this.
-- `telegram.group_trigger_mode=smart` runs addressing LLM on every group message; acceptance requires `addressed=true`, `confidence >= telegram.addressing_confidence_threshold`, and `interject > telegram.addressing_interject_threshold`.
-- `telegram.group_trigger_mode=talkative` also runs addressing LLM on every group message, but does not require `addressed=true` (it still uses the same confidence/interject thresholds).
-- Use `/reset` in chat to clear conversation history.
-- By default it runs multiple chats concurrently, but processes each chat serially (config: `telegram.max_concurrency`).
-
-## Slack bot mode
-
-Run a Slack bot with Socket Mode so you can chat with the agent in Slack:
-
-Edit the config file `~/.morph/config.yaml` and set your Slack tokens:
-
-```yaml
-slack:
-  bot_token: "YOUR_SLACK_BOT_TOKEN_HERE" # xoxb-...
-  app_token: "YOUR_SLACK_APP_TOKEN_HERE" # xapp-...
-  allowed_team_ids: [] # optional allowlist
-  allowed_channel_ids: [] # optional allowlist
-```
-
-```bash
-mistermorph slack --log-level info
-```
-
-Notes:
-- Requires both `xoxb` bot token and `xapp` app token.
-- Group trigger and addressing controls mirror Telegram style (`strict|smart|talkative` + confidence/interject thresholds).
-- By default it runs multiple conversations concurrently, but processes each `team_id:channel_id` conversation serially (`slack.max_concurrency` controls global concurrency).
-- `heartbeat.enabled=true` and `heartbeat.interval>0` will start heartbeat loop alongside Slack runtime.
-- Slack heartbeat notifications are delivered to `slack.allowed_channel_ids`; if this list is empty, heartbeat still runs but skips channel notifications.
-- See [`docs/slack.md`](docs/slack.md) for setup and thread behavior details.
-- See [`docs/bus.md`](docs/bus.md) for bus routing and ordering semantics.
-
-
-## Console WebUI
-
-Run a local Console web UI for runtime inspection and file management.
-
-Console currently includes:
-- task list + task detail
-- TODO files editor (`TODO.md`, `TODO.DONE.md`)
-- contacts files editor (`ACTIVE.md`, `INACTIVE.md`)
-- persona files editor (`IDENTITY.md`, `SOUL.md`)
-- system diagnostics/config view
-
-Build frontend:
-
-```bash
-cd web/console
-pnpm install
-pnpm build
-```
-
-Start Console backend + static hosting:
-
-```bash
-MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-MISTER_MORPH_ENDPOINT_MAIN_TOKEN=dev-token \
-MISTER_MORPH_CONSOLE_PASSWORD=secret \
-mistermorph console serve --console-static-dir ./web/console/dist
-```
-
-`config.yaml` example:
-
-```yaml
-server:
-  auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
-
-console:
-  endpoints:
-    - name: "Telegram"
-      url: "http://127.0.0.1:8787"
-      auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
-```
-
-Open:
-
-`http://127.0.0.1:9080/`
-
-More details: [`docs/console.md`](docs/console.md).
 
 ## Embedding to other projects
 
