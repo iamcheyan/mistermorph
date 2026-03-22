@@ -26,8 +26,8 @@ func TestNormalizeConfigProviderForSetup(t *testing.T) {
 	if got := normalizeConfigProviderForSetup(setupProviderOpenAICompatible, "https://api.openai.com"); got != "openai" {
 		t.Fatalf("normalizeConfigProviderForSetup() = %q, want openai", got)
 	}
-	if got := normalizeConfigProviderForSetup(setupProviderOpenAICompatible, "https://api.deepseek.com"); got != "openai_custom" {
-		t.Fatalf("normalizeConfigProviderForSetup() = %q, want openai_custom", got)
+	if got := normalizeConfigProviderForSetup(setupProviderOpenAICompatible, "https://api.deepseek.com"); got != "openai" {
+		t.Fatalf("normalizeConfigProviderForSetup() = %q, want openai", got)
 	}
 	if got := normalizeConfigProviderForSetup(setupProviderCloudflare, defaultEndpointForSetupProvider(setupProviderCloudflare)); got != "cloudflare" {
 		t.Fatalf("normalizeConfigProviderForSetup() = %q, want cloudflare", got)

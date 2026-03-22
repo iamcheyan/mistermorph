@@ -1,0 +1,70 @@
+.raw-text-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 28px);
+  background: rgba(31, 30, 28, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.raw-text-dialog {
+  width: min(920px, 100%);
+  max-height: min(86vh, 820px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.raw-text-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.raw-text-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.raw-text-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text-0);
+}
+
+.raw-text-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.raw-text-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.raw-text-body {
+  min-height: 0;
+}
+
+.raw-text-body .q-textarea-input {
+  min-height: min(58vh, 560px);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "zero" 1;
+}

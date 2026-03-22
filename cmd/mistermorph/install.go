@@ -48,6 +48,16 @@ func newInstallCmd() *cobra.Command {
 				}
 			}
 
+			identityPath := filepath.Join(dir, "IDENTITY.md")
+			writeIdentity := true
+			if _, err := os.Stat(identityPath); err == nil {
+				writeIdentity = false
+			}
+			soulPath := filepath.Join(dir, "SOUL.md")
+			writeSoul := true
+			if _, err := os.Stat(soulPath); err == nil {
+				writeSoul = false
+			}
 			hbPath := filepath.Join(dir, "HEARTBEAT.md")
 			writeHeartbeat := true
 			if _, err := os.Stat(hbPath); err == nil {
@@ -68,24 +78,8 @@ func newInstallCmd() *cobra.Command {
 			if _, err := os.Stat(todoDonePath); err == nil {
 				writeTodoDone = false
 			}
-			identityPath := filepath.Join(dir, "IDENTITY.md")
-			writeIdentity := true
-			if _, err := os.Stat(identityPath); err == nil {
-				writeIdentity = false
-			}
-			soulPath := filepath.Join(dir, "SOUL.md")
-			writeSoul := true
-			if _, err := os.Stat(soulPath); err == nil {
-				writeSoul = false
-			}
 
-			type initFilePlan struct {
-				Name   string
-				Path   string
-				Write  bool
-				Loader func() (string, error)
-			}
-			filePlans := []initFilePlan{
+			initialSteps := []installStep{
 				{
 					Name:  "config.yaml",
 					Path:  cfgPath,
@@ -98,6 +92,43 @@ func newInstallCmd() *cobra.Command {
 						return patchInitConfigWithSetup(body, dir, cfgSetup), nil
 					},
 				},
+				{
+					Name:   "IDENTITY.md",
+					Path:   identityPath,
+					Write:  writeIdentity,
+					Loader: loadIdentityTemplate,
+				},
+				{
+					Name:   "SOUL.md",
+					Path:   soulPath,
+					Write:  writeSoul,
+					Loader: loadSoulTemplate,
+				},
+			}
+			fmt.Println(clifmt.Headerf("==> Installing setup flow (%d steps)", len(initialSteps)))
+			for i, step := range initialSteps {
+				if err := writeInstallStepFile(i+1, len(initialSteps), step); err != nil {
+					return err
+				}
+				if !step.Write {
+					continue
+				}
+				if yes || !supportsInteractivePrompts(cmd) {
+					continue
+				}
+				switch step.Name {
+				case "IDENTITY.md":
+					if err := runInstallIdentitySetup(cmd.InOrStdin(), cmd.OutOrStdout(), step.Path); err != nil {
+						return err
+					}
+				case "SOUL.md":
+					if err := runInstallSoulSetup(cmd.InOrStdin(), cmd.OutOrStdout(), step.Path); err != nil {
+						return err
+					}
+				}
+			}
+
+			deferredSteps := []installStep{
 				{
 					Name:   "HEARTBEAT.md",
 					Path:   hbPath,
@@ -122,58 +153,11 @@ func newInstallCmd() *cobra.Command {
 					Write:  writeTodoDone,
 					Loader: loadTodoDoneTemplate,
 				},
-				{
-					Name:   "IDENTITY.md",
-					Path:   identityPath,
-					Write:  writeIdentity,
-					Loader: loadIdentityTemplate,
-				},
-				{
-					Name:   "SOUL.md",
-					Path:   soulPath,
-					Write:  writeSoul,
-					Loader: loadSoulTemplate,
-				},
 			}
-			totalSkipped := 0
-			fmt.Println(clifmt.Headerf("==> Installing required files (%d)", len(filePlans)))
-			for i, plan := range filePlans {
-				fmt.Printf("[%d/%d] %s (1 file) ... ", i+1, len(filePlans), plan.Name)
-				if !plan.Write {
-					totalSkipped++
-					fmt.Printf("%s %s\n", clifmt.Success("done"), clifmt.Warn("(skipped)"))
-					fmt.Printf("    %s %s\n", plan.Path, clifmt.Warn("(skipped)"))
-					continue
-				}
-				body, err := plan.Loader()
-				if err != nil {
+			fmt.Println(clifmt.Headerf("==> Installing deferred markdown files (%d files)", len(deferredSteps)))
+			for i, step := range deferredSteps {
+				if err := writeInstallStepFile(i+1, len(deferredSteps), step); err != nil {
 					return err
-				}
-				if err := os.MkdirAll(filepath.Dir(plan.Path), 0o755); err != nil {
-					return err
-				}
-				if err := os.WriteFile(plan.Path, []byte(body), 0o644); err != nil {
-					return err
-				}
-				fmt.Println(clifmt.Success("done"))
-				fmt.Printf("    %s\n", plan.Path)
-			}
-			if totalSkipped > 0 {
-				fmt.Printf("%s: %d files %s\n", clifmt.Success("done"), len(filePlans), clifmt.Warn(fmt.Sprintf("(%d skipped)", totalSkipped)))
-			} else {
-				fmt.Printf("%s: %d files\n", clifmt.Success("done"), len(filePlans))
-			}
-
-			if !yes && supportsInteractivePrompts(cmd) {
-				if writeIdentity {
-					if err := runInstallIdentitySetup(cmd.InOrStdin(), cmd.OutOrStdout(), identityPath); err != nil {
-						return err
-					}
-				}
-				if writeSoul {
-					if err := runInstallSoulSetup(cmd.InOrStdin(), cmd.OutOrStdout(), soulPath); err != nil {
-						return err
-					}
 				}
 			}
 
@@ -184,6 +168,35 @@ func newInstallCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompts (dangerous)")
 
 	return cmd
+}
+
+type installStep struct {
+	Name   string
+	Path   string
+	Write  bool
+	Loader func() (string, error)
+}
+
+func writeInstallStepFile(index int, total int, step installStep) error {
+	fmt.Printf("[%d/%d] %s (1 file) ... ", index, total, step.Name)
+	if !step.Write {
+		fmt.Printf("%s %s\n", clifmt.Success("done"), clifmt.Warn("(skipped)"))
+		fmt.Printf("    %s %s\n", step.Path, clifmt.Warn("(skipped)"))
+		return nil
+	}
+	body, err := step.Loader()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(step.Path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(step.Path, []byte(body), 0o644); err != nil {
+		return err
+	}
+	fmt.Println(clifmt.Success("done"))
+	fmt.Printf("    %s\n", step.Path)
+	return nil
 }
 
 func resolveInstallDir(args []string) (string, error) {

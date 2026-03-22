@@ -58,6 +58,7 @@ func defaultEndpointForSetupProvider(choice string) string {
 }
 
 func normalizeConfigProviderForSetup(choice string, endpoint string) string {
+	_ = endpoint
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case setupProviderGemini:
 		return setupProviderGemini
@@ -66,20 +67,7 @@ func normalizeConfigProviderForSetup(choice string, endpoint string) string {
 	case setupProviderCloudflare:
 		return setupProviderCloudflare
 	default:
-		if isOfficialOpenAIEndpoint(endpoint) {
-			return "openai"
-		}
-		return "openai_custom"
-	}
-}
-
-func isOfficialOpenAIEndpoint(raw string) bool {
-	value := strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), "/")
-	switch value {
-	case "", "https://api.openai.com", "https://api.openai.com/v1", "http://api.openai.com", "http://api.openai.com/v1":
-		return true
-	default:
-		return false
+		return "openai"
 	}
 }
 

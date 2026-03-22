@@ -350,6 +350,8 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
+	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
+	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
 	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))

@@ -13,7 +13,10 @@ import {
   setSelectedEndpointRef,
 } from "../core/context";
 import {
+  blockingSetupIntegrityItems,
   consoleSetupTargetEndpointRef,
+  fetchConsoleSetupIntegrity,
+  isAllowedRepairSetupRoute,
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
@@ -25,6 +28,7 @@ import {
   LoginView,
   MemoryView,
   OverviewView,
+  RepairView,
   RuntimeView,
   SetupView,
   SettingsView,
@@ -43,7 +47,15 @@ function isChatPath(path) {
   return value === "/chat" || value.startsWith("/chat/");
 }
 
-const SETUP_FREE_PATHS = new Set(["/setup", "/setup/llm", "/setup/persona", "/setup/soul", "/setup/done", "/settings"]);
+const SETUP_FREE_PATHS = new Set([
+  "/setup",
+  "/setup/llm",
+  "/setup/persona",
+  "/setup/soul",
+  "/setup/done",
+  "/setup/repair",
+  "/settings",
+]);
 
 function selectedEndpointCanChat() {
   const selectedRef = typeof endpointState.selectedRef === "string" ? endpointState.selectedRef.trim() : "";
@@ -63,6 +75,7 @@ const routes = [
   { path: "/setup/persona", component: SetupView, meta: { setupStage: "persona" } },
   { path: "/setup/soul", component: SetupView, meta: { setupStage: "soul" } },
   { path: "/setup/done", component: SetupView, meta: { setupStage: "done" } },
+  { path: "/setup/repair", component: RepairView },
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
   { path: "/chat/:topic_id", component: ChatView },
@@ -133,6 +146,16 @@ router.beforeEach(async (to) => {
     }
   }
   try {
+    const integrityItems = blockingSetupIntegrityItems(await fetchConsoleSetupIntegrity().catch(() => []));
+    if (integrityItems.length > 0) {
+      if (to.path === "/setup/repair" || isAllowedRepairSetupRoute(to, integrityItems)) {
+        return true;
+      }
+      return { path: "/setup/repair", query: { redirect: to.fullPath } };
+    }
+    if (to.path === "/setup/repair") {
+      return { path: "/setup", query: to.query };
+    }
     await loadEndpoints();
   } catch {
     endpointState.items = [];

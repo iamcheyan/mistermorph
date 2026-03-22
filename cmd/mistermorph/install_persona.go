@@ -176,8 +176,6 @@ func parseInstallYAMLScalar(raw string) string {
 	if value == "" {
 		return ""
 	}
-	value = strings.SplitN(value, " #", 2)[0]
-	value = strings.TrimSpace(value)
 	if len(value) >= 2 && ((strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) || (strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`))) {
 		value = value[1 : len(value)-1]
 	}

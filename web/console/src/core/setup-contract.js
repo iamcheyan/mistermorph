@@ -52,18 +52,8 @@ function defaultEndpointForSetupProvider(choice) {
   }
 }
 
-function isOfficialOpenAIEndpoint(endpoint) {
-  const value = String(endpoint || "").trim().replace(/\/+$/, "").toLowerCase();
-  return (
-    value === "" ||
-    value === "https://api.openai.com" ||
-    value === "https://api.openai.com/v1" ||
-    value === "http://api.openai.com" ||
-    value === "http://api.openai.com/v1"
-  );
-}
-
 function normalizeSetupProviderForSave(choice, endpoint) {
+  void endpoint;
   switch (normalizeSetupProviderChoice(choice)) {
     case SETUP_PROVIDER_GEMINI:
       return SETUP_PROVIDER_GEMINI;
@@ -72,7 +62,7 @@ function normalizeSetupProviderForSave(choice, endpoint) {
     case SETUP_PROVIDER_CLOUDFLARE:
       return SETUP_PROVIDER_CLOUDFLARE;
     default:
-      return isOfficialOpenAIEndpoint(endpoint) ? "openai" : "openai_custom";
+      return "openai";
   }
 }
 

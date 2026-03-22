@@ -1,6 +1,13 @@
-import { runtimeApiFetchForEndpoint } from "./context";
+import { apiFetch, runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
+
+const SETUP_DEFERRED_MARKDOWN_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "TODO.md", "TODO.DONE.md"]);
+const SETUP_REPAIR_STAGE_BY_KEY = {
+  config: "llm",
+  identity: "persona",
+  soul: "soul",
+};
 
 function normalizeEndpointItem(item) {
   return {
@@ -46,6 +53,9 @@ function consoleSetupTargetEndpointRef(state) {
 }
 
 function setupStagePath(stage) {
+  if (stage === "repair") {
+    return "/setup/repair";
+  }
   if (stage === "persona") {
     return "/setup/persona";
   }
@@ -56,6 +66,45 @@ function setupStagePath(stage) {
     return "/setup/done";
   }
   return "/setup/llm";
+}
+
+async function fetchConsoleSetupIntegrity() {
+  const data = await apiFetch("/setup/integrity");
+  return Array.isArray(data?.items) ? data.items : [];
+}
+
+function blockingSetupIntegrityItems(items) {
+  return Array.isArray(items)
+    ? items.filter(
+        (item) =>
+          item &&
+          typeof item.key === "string" &&
+          typeof item.stage === "string" &&
+          (item.status === "malformed" || item.status === "unreadable")
+      )
+    : [];
+}
+
+function repairStageForKey(key) {
+  const normalized = typeof key === "string" ? key.trim() : "";
+  return SETUP_REPAIR_STAGE_BY_KEY[normalized] || "";
+}
+
+function repairRouteForKey(key) {
+  return setupStagePath(repairStageForKey(key));
+}
+
+function isAllowedRepairSetupRoute(routeLike, items) {
+  const path = typeof routeLike?.path === "string" ? routeLike.path.trim() : "";
+  const repairKey = typeof routeLike?.query?.repair === "string" ? routeLike.query.repair.trim() : "";
+  if (!path || !repairKey) {
+    return false;
+  }
+  const expectedPath = repairRouteForKey(repairKey);
+  if (!expectedPath || path !== expectedPath) {
+    return false;
+  }
+  return blockingSetupIntegrityItems(items).some((item) => item.key === repairKey);
 }
 
 async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
@@ -108,7 +157,7 @@ async function consoleStateFilesIndex(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) 
   }
 }
 
-async function ensureConsoleSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
   if (!ref) {
     return null;
@@ -120,6 +169,9 @@ async function ensureConsoleSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF)
   for (const file of SETUP_REQUIRED_MARKDOWN_FILES) {
     const name = typeof file?.name === "string" ? file.name.trim() : "";
     if (!name) {
+      continue;
+    }
+    if (!SETUP_DEFERRED_MARKDOWN_FILES.has(name)) {
       continue;
     }
     if (index.get(name)?.exists === true) {
@@ -165,31 +217,29 @@ async function resolveConsoleSetupStage(items) {
   }
   const local = setup?.consoleLocalEndpoint;
   if (local?.connected === true && local?.can_submit === true) {
-    const index = await ensureConsoleSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF);
-    const hasIdentity =
-      index && index.has("IDENTITY.md")
-        ? index.get("IDENTITY.md")?.exists === true
-        : await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF);
-    if (hasIdentity === false) {
+    const hasIdentity = await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    if (hasIdentity !== true) {
       return { stage: "persona", setup };
     }
-    const soulExists =
-      index && index.has("SOUL.md")
-        ? index.get("SOUL.md")?.exists === true
-        : await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
-    if (soulExists === false) {
+    const hasSoul = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    if (hasSoul !== true) {
       return { stage: "soul", setup };
     }
+    await ensureConsoleDeferredSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF);
   }
   return { stage: "ready", setup };
 }
 
 export {
   buildConsoleSetupState,
+  blockingSetupIntegrityItems,
   consoleIdentityExists,
   consoleSoulExists,
   consoleSetupTargetEndpointRef,
   consoleStateFileInfo,
+  fetchConsoleSetupIntegrity,
+  isAllowedRepairSetupRoute,
+  repairRouteForKey,
   resolveConsoleSetupStage,
   setupStagePath,
 };

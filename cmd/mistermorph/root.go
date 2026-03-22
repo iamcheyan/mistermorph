@@ -50,6 +50,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "mistermorph",
 		Short: "Unified Agent CLI",
 	}
+	attachRuntimeFilePreflight(cmd)
 
 	cobra.OnInitialize(initConfig)
 

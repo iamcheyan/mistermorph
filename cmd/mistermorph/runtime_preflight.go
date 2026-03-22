@@ -1,0 +1,56 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"path/filepath"
+
+	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/spf13/cobra"
+)
+
+func attachRuntimeFilePreflight(root *cobra.Command) {
+	if root == nil {
+		return
+	}
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if !shouldRunRuntimeFilePreflight(cmd) {
+			return nil
+		}
+		return runRuntimeFilePreflight(cmd.ErrOrStderr())
+	}
+}
+
+func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.CommandPath() {
+	case "mistermorph run", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark":
+		return true
+	default:
+		return false
+	}
+}
+
+func runRuntimeFilePreflight(stderr io.Writer) error {
+	cfgFile, _ := resolveConfigFile()
+	if cfgFile != "" {
+		item := onboardingcheck.InspectConfigPath(cfgFile)
+		if item.IsBroken() {
+			return fmt.Errorf("%s is malformed: %s", item.Name, item.Error)
+		}
+	}
+	stateDir := statepaths.FileStateDir()
+	for _, item := range []onboardingcheck.Item{
+		onboardingcheck.InspectIdentityPath(filepath.Join(stateDir, "IDENTITY.md")),
+		onboardingcheck.InspectSoulPath(filepath.Join(stateDir, "SOUL.md")),
+	} {
+		if !item.IsBroken() {
+			continue
+		}
+		_, _ = fmt.Fprintf(stderr, "warn: %s is %s: %s\n", item.Name, item.Status, item.Error)
+	}
+	return nil
+}

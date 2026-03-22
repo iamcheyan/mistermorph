@@ -125,6 +125,43 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	}
 }
 
+func TestPatchInitConfigWithSetup_OpenAICompatiblePrunesCloudflareBlock(t *testing.T) {
+	body, err := loadConfigExample()
+	if err != nil {
+		t.Fatalf("loadConfigExample() error = %v", err)
+	}
+
+	got := patchInitConfigWithSetup(body, "/tmp/my-state", &installConfigSetup{
+		Provider: setupProviderOpenAICompatible,
+		Endpoint: "https://api.deepseek.com",
+		Model:    "deepseek-chat",
+		APIKey:   "sk-openai-compatible",
+	})
+
+	if !strings.Contains(got, `provider: openai`) {
+		t.Fatalf("patched config missing openai provider: %s", got)
+	}
+	if strings.Contains(got, "provider: openai_custom") {
+		t.Fatalf("patched config should not write openai_custom: %s", got)
+	}
+	if strings.Contains(got, "\n  cloudflare:\n") || strings.Contains(got, "account_id:") || strings.Contains(got, "api_token:") {
+		t.Fatalf("patched config should not include cloudflare block: %s", got)
+	}
+}
+
+func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
+	body, err := loadConfigExample()
+	if err != nil {
+		t.Fatalf("loadConfigExample() error = %v", err)
+	}
+
+	got := patchInitConfigWithSetup(body, "/tmp/my-state", nil)
+
+	if strings.Contains(got, "\n  cloudflare:\n") || strings.Contains(got, "account_id:") || strings.Contains(got, "api_token:") {
+		t.Fatalf("default patched config should not include cloudflare block: %s", got)
+	}
+}
+
 func TestNormalizeConsoleBasePath(t *testing.T) {
 	cases := []struct {
 		input string

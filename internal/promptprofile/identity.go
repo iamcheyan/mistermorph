@@ -8,6 +8,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	markdownutil "github.com/quailyquaily/mistermorph/internal/markdown"
+	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
@@ -60,6 +61,22 @@ func loadPersonaDoc(path string, kind string, log *slog.Logger) (string, string)
 	}
 	if strings.EqualFold(markdownutil.FrontmatterStatus(string(raw)), "draft") {
 		return "", "draft"
+	}
+	switch kind {
+	case "identity":
+		if err := onboardingcheck.ValidateIdentityMarkdown(string(raw)); err != nil {
+			if log != nil {
+				log.Warn("persona_load_failed", "kind", kind, "path", path, "error", err.Error())
+			}
+			return "", "malformed"
+		}
+	case "soul":
+		if err := onboardingcheck.ValidateSoulMarkdown(string(raw)); err != nil {
+			if log != nil {
+				log.Warn("persona_load_failed", "kind", kind, "path", path, "error", err.Error())
+			}
+			return "", "malformed"
+		}
 	}
 	content = strings.TrimSpace(markdownutil.StripFrontmatter(string(raw)))
 	if content == "" {

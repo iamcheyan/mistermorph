@@ -298,6 +298,8 @@ const SetupView = {
     const soulEditMode = ref(false);
 
     const routeStage = computed(() => normalizeStage(route.meta?.setupStage));
+    const repairKey = computed(() => String(route.query?.repair || "").trim());
+    const inRepairMode = computed(() => repairKey.value !== "");
     const stageMeta = computed(() => STAGE_META[routeStage.value] || STAGE_META.llm);
     const setupName = computed(() => String(personaForm.name || "").trim() || t("setup_done_name_fallback"));
     const stageTitle = computed(() =>
@@ -321,7 +323,7 @@ const SetupView = {
       () => String(llmForm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
     );
     const previousStage = computed(() => PREVIOUS_STAGE[routeStage.value] || "");
-    const showPrevious = computed(() => previousStage.value !== "");
+    const showPrevious = computed(() => !inRepairMode.value && previousStage.value !== "");
     const stageKicker = computed(
       () =>
         `[[ ${t("setup_title")} // ${
@@ -551,6 +553,12 @@ const SetupView = {
     }
 
     async function syncRoute(options = {}) {
+      if (inRepairMode.value) {
+        if (options.loadStage !== false) {
+          await loadStageForm(routeStage.value);
+        }
+        return false;
+      }
       if (options.refreshEndpoints !== false) {
         await loadEndpoints();
       }
@@ -584,6 +592,14 @@ const SetupView = {
       return false;
     }
 
+    async function finishStep() {
+      if (inRepairMode.value) {
+        await router.replace({ path: "/setup", query: {} });
+        return;
+      }
+      await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+    }
+
     async function saveLLM() {
       if (llmSaveDisabled.value) {
         return;
@@ -607,7 +623,7 @@ const SetupView = {
           },
         });
         applyLLMPayload(payload);
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -622,7 +638,7 @@ const SetupView = {
       saving.value = true;
       err.value = "";
       try {
-        const content = updateIdentityMarkdown(loadedIdentityRaw.value, personaForm);
+        const content = inRepairMode.value ? buildIdentityMarkdown(personaForm) : updateIdentityMarkdown(loadedIdentityRaw.value, personaForm);
         loadedIdentityRaw.value = content;
         await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/IDENTITY.md", {
           method: "PUT",
@@ -630,7 +646,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -659,7 +675,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {

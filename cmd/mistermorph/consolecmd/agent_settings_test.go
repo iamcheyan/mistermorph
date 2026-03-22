@@ -85,8 +85,8 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	if !strings.Contains(out, "provider: anthropic") || !strings.Contains(out, "tools_emulation_mode: fallback") {
 		t.Fatalf("serialized config missing updated llm block: %s", out)
 	}
-	if !strings.Contains(out, "account_id: acc-next") {
-		t.Fatalf("serialized config missing cloudflare account: %s", out)
+	if strings.Contains(out, "\n  cloudflare:\n") || strings.Contains(out, "account_id: acc-next") {
+		t.Fatalf("serialized config should prune cloudflare block for non-cloudflare provider: %s", out)
 	}
 	if !strings.Contains(out, "- remote_download") {
 		t.Fatalf("serialized config missing multimodal sources: %s", out)
@@ -154,8 +154,8 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if !strings.Contains(string(raw), "provider: anthropic") || !strings.Contains(string(raw), "reasoning_effort: high") {
 		t.Fatalf("config missing updated llm settings: %s", string(raw))
 	}
-	if !strings.Contains(string(raw), "account_id: acc-live") {
-		t.Fatalf("config missing cloudflare account update: %s", string(raw))
+	if strings.Contains(string(raw), "\n  cloudflare:\n") || strings.Contains(string(raw), "account_id: acc-live") {
+		t.Fatalf("config should prune cloudflare block for non-cloudflare provider: %s", string(raw))
 	}
 	if !strings.Contains(string(raw), "- remote_download") {
 		t.Fatalf("config missing multimodal update: %s", string(raw))
@@ -182,14 +182,41 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if payload.LLM.Provider != "anthropic" || payload.LLM.ReasoningEffort != "high" {
 		t.Fatalf("payload.LLM = %+v", payload.LLM)
 	}
-	if payload.LLM.CloudflareAccountID != "acc-live" {
-		t.Fatalf("payload.LLM.CloudflareAccountID = %q, want acc-live", payload.LLM.CloudflareAccountID)
+	if payload.LLM.CloudflareAccountID != "" {
+		t.Fatalf("payload.LLM.CloudflareAccountID = %q, want empty", payload.LLM.CloudflareAccountID)
 	}
 	if len(payload.Multimodal.ImageSources) != 2 {
 		t.Fatalf("payload.Multimodal = %+v", payload.Multimodal)
 	}
 	if payload.Tools.BashEnabled {
 		t.Fatalf("payload.Tools.BashEnabled = true, want false")
+	}
+}
+
+func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  model: gpt-5.2\n  cloudflare:\n    api_token: ${CLOUDFLARE_API_TOKEN}\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
+		LLM: llmSettingsPayload{
+			Provider:            "cloudflare",
+			Model:               "@cf/meta/llama-3.1-8b-instruct",
+			CloudflareAccountID: "acc-live",
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettings() error = %v", err)
+	}
+	out := string(serialized)
+	if !strings.Contains(out, "provider: cloudflare") || !strings.Contains(out, "account_id: acc-live") {
+		t.Fatalf("serialized config missing cloudflare settings: %s", out)
+	}
+	if !strings.Contains(out, "api_token: ${CLOUDFLARE_API_TOKEN}") {
+		t.Fatalf("serialized config should preserve cloudflare api_token: %s", out)
 	}
 }
 
@@ -212,5 +239,70 @@ func TestHandleAgentSettingsPutRejectsInvalidConfig(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsGetFallsBackWhenConfigIsMalformed(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm: [\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5.2",
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "\"provider\":\"openai\"") {
+		t.Fatalf("response should fall back to current viper defaults: %s", rec.Body.String())
+	}
+}
+
+func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm: [\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
+		LLM: llmSettingsPayload{
+			Provider: "openai",
+			Model:    "gpt-5.2",
+			APIKey:   "sk-test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettings() error = %v", err)
+	}
+	out := string(serialized)
+	if strings.Contains(out, "llm: [") {
+		t.Fatalf("serialized config should replace malformed yaml: %s", out)
+	}
+	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "model: gpt-5.2") {
+		t.Fatalf("serialized config missing repaired llm block: %s", out)
 	}
 }

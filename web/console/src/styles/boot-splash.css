@@ -1,6 +1,4 @@
 .boot-splash {
-  --boot-overlay: rgba(240, 242, 236, 0.94);
-  --boot-overlay-edge: rgba(247, 247, 243, 0.98);
   --boot-mark: rgba(23, 32, 25, 0.76);
   --boot-track: rgba(23, 32, 25, 0.1);
   --boot-signal: rgba(78, 122, 96, 0.32);
@@ -9,9 +7,6 @@
   z-index: 9999;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.66), transparent 34%),
-    linear-gradient(180deg, var(--boot-overlay-edge), var(--boot-overlay));
   opacity: 1;
   transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;

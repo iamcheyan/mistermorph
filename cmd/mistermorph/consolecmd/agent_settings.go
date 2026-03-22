@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/integration"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
@@ -73,8 +74,11 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 	}
 	settings, err := readAgentSettings(configPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		if !isInvalidConfigYAMLError(err) {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		settings = readAgentSettingsFromReader(viper.GetViper())
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"llm":         settings.LLM,
@@ -168,8 +172,7 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 	}
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
-	tmp.SetConfigType("yaml")
-	if err := tmp.ReadConfig(bytes.NewReader(data)); err != nil {
+	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
 	return readAgentSettingsFromReader(tmp), nil
@@ -178,7 +181,10 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
 	doc, err := loadYAMLDocument(configPath)
 	if err != nil {
-		return nil, err
+		if !isInvalidConfigYAMLError(err) {
+			return nil, err
+		}
+		doc = newEmptyYAMLDocument()
 	}
 	root, err := documentMapping(doc)
 	if err != nil {
@@ -190,8 +196,12 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 	setOrDeleteMappingScalar(llmNode, "endpoint", values.LLM.Endpoint)
 	setOrDeleteMappingScalar(llmNode, "model", values.LLM.Model)
 	setOrDeleteMappingScalar(llmNode, "api_key", values.LLM.APIKey)
-	cloudflareNode := ensureMappingValue(llmNode, "cloudflare")
-	setOrDeleteMappingScalar(cloudflareNode, "account_id", values.LLM.CloudflareAccountID)
+	if strings.EqualFold(strings.TrimSpace(values.LLM.Provider), "cloudflare") {
+		cloudflareNode := ensureMappingValue(llmNode, "cloudflare")
+		setOrDeleteMappingScalar(cloudflareNode, "account_id", values.LLM.CloudflareAccountID)
+	} else {
+		deleteMappingKey(llmNode, "cloudflare")
+	}
 	setOrDeleteMappingScalar(llmNode, "reasoning_effort", values.LLM.ReasoningEffort)
 	setOrDeleteMappingScalar(llmNode, "tools_emulation_mode", values.LLM.ToolsEmulationMode)
 
@@ -233,24 +243,12 @@ func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &yaml.Node{
-				Kind: yaml.DocumentNode,
-				Content: []*yaml.Node{{
-					Kind: yaml.MappingNode,
-					Tag:  "!!map",
-				}},
-			}, nil
+			return newEmptyYAMLDocument(), nil
 		}
 		return nil, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return &yaml.Node{
-			Kind: yaml.DocumentNode,
-			Content: []*yaml.Node{{
-				Kind: yaml.MappingNode,
-				Tag:  "!!map",
-			}},
-		}, nil
+		return newEmptyYAMLDocument(), nil
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -263,6 +261,27 @@ func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 		}}
 	}
 	return &doc, nil
+}
+
+func newEmptyYAMLDocument() *yaml.Node {
+	return &yaml.Node{
+		Kind: yaml.DocumentNode,
+		Content: []*yaml.Node{{
+			Kind: yaml.MappingNode,
+			Tag:  "!!map",
+		}},
+	}
+}
+
+func readExpandedConsoleConfig(v *viper.Viper, configPath string) error {
+	if v == nil {
+		return fmt.Errorf("config reader is nil")
+	}
+	return configutil.ReadExpandedConfig(v, configPath, nil)
+}
+
+func isInvalidConfigYAMLError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid config yaml")
 }
 
 func documentMapping(doc *yaml.Node) (*yaml.Node, error) {
@@ -349,6 +368,19 @@ func setOrDeleteMappingScalar(node *yaml.Node, key, value string) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
 	)
+}
+
+func deleteMappingKey(node *yaml.Node, key string) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
+			continue
+		}
+		node.Content = append(node.Content[:i], node.Content[i+2:]...)
+		return
+	}
 }
 
 func setMappingBoolPath(node *yaml.Node, section, key string, value bool) {

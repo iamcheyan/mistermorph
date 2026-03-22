@@ -402,8 +402,11 @@ func readTrimmedLine(reader *bufio.Reader) (string, error) {
 }
 
 func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) string {
-	if setup == nil || strings.TrimSpace(cfg) == "" {
+	if strings.TrimSpace(cfg) == "" {
 		return cfg
+	}
+	if setup == nil {
+		return removeConfigCloudflareBlock(cfg)
 	}
 
 	cfg = replaceConfigLine(
@@ -422,8 +425,7 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: `+yamlQuotedScalar(setup.CloudflareAPIToken))
 	default:
 		cfg = replaceConfigLinePrefix(cfg, "  api_key: ", `  api_key: `+yamlQuotedScalar(setup.APIKey)+apiKeyComment)
-		cfg = replaceConfigLine(cfg, `    account_id: ""`, `    account_id: ""`)
-		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: ""`)
+		cfg = removeConfigCloudflareBlock(cfg)
 	}
 
 	return cfg
@@ -566,6 +568,23 @@ func replaceConfigLinePrefix(cfg string, prefix string, to string) string {
 			return strings.Join(lines, "\n")
 		}
 	}
+	return cfg
+}
+
+func removeConfigCloudflareBlock(cfg string) string {
+	withComment := strings.Join([]string{
+		"  # Provider-specific settings for Cloudflare Workers AI.",
+		"  cloudflare:",
+		`    account_id: ""`,
+		`    api_token: "${CLOUDFLARE_API_TOKEN}"`,
+	}, "\n") + "\n"
+	withoutComment := strings.Join([]string{
+		"  cloudflare:",
+		`    account_id: ""`,
+		`    api_token: "${CLOUDFLARE_API_TOKEN}"`,
+	}, "\n") + "\n"
+	cfg = strings.Replace(cfg, withComment, "", 1)
+	cfg = strings.Replace(cfg, withoutComment, "", 1)
 	return cfg
 }
 
