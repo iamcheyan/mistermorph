@@ -53,3 +53,106 @@ jobs:
         with:
           name: goreleaser-dist
           path: dist/*
+
+  desktop-apps:
+    name: Build Desktop App (${{ matrix.label }})
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: goreleaser
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-amd64
+            os: ubuntu-24.04
+            asset_name: mistermorph-desktop-linux-amd64
+            binary_ext: ""
+            go_build_tags: "wailsdesktop production webkit2_41"
+          - label: macos-arm64
+            os: macos-14
+            asset_name: mistermorph-desktop-darwin-arm64
+            binary_ext: ""
+            go_build_tags: "wailsdesktop production"
+          - label: windows-amd64
+            os: windows-2022
+            asset_name: mistermorph-desktop-windows-amd64
+            binary_ext: ".exe"
+            go_build_tags: "wailsdesktop production"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/console/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir web/console install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --dir web/console build
+
+      - name: Install Linux desktop build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Verify desktop package compiles
+        run: go test -tags "${{ matrix.go_build_tags }}" ./desktop/wails -count=1
+
+      - name: Build desktop app binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          output="dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}"
+          go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "-s -w" -o "${output}" ./desktop/wails
+
+      - name: Generate checksum
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          file="${{ matrix.asset_name }}${{ matrix.binary_ext }}"
+          shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
+
+      - name: Generate checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $file = "${{ matrix.asset_name }}${{ matrix.binary_ext }}"
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
+          "$hash *$file" | Set-Content "dist/$file.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}
+            dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}" \
+            "dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}.sha256" \
+            --clobber
