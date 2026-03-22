@@ -25,12 +25,13 @@ const (
 var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
 
 type llmSettingsPayload struct {
-	Provider           string `json:"provider"`
-	Endpoint           string `json:"endpoint"`
-	Model              string `json:"model"`
-	APIKey             string `json:"api_key"`
-	ReasoningEffort    string `json:"reasoning_effort"`
-	ToolsEmulationMode string `json:"tools_emulation_mode"`
+	Provider            string `json:"provider"`
+	Endpoint            string `json:"endpoint"`
+	Model               string `json:"model"`
+	APIKey              string `json:"api_key"`
+	CloudflareAccountID string `json:"cloudflare_account_id"`
+	ReasoningEffort     string `json:"reasoning_effort"`
+	ToolsEmulationMode  string `json:"tools_emulation_mode"`
 }
 
 type multimodalSettingsPayload struct {
@@ -189,6 +190,8 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 	setOrDeleteMappingScalar(llmNode, "endpoint", values.LLM.Endpoint)
 	setOrDeleteMappingScalar(llmNode, "model", values.LLM.Model)
 	setOrDeleteMappingScalar(llmNode, "api_key", values.LLM.APIKey)
+	cloudflareNode := ensureMappingValue(llmNode, "cloudflare")
+	setOrDeleteMappingScalar(cloudflareNode, "account_id", values.LLM.CloudflareAccountID)
 	setOrDeleteMappingScalar(llmNode, "reasoning_effort", values.LLM.ReasoningEffort)
 	setOrDeleteMappingScalar(llmNode, "tools_emulation_mode", values.LLM.ToolsEmulationMode)
 
@@ -413,12 +416,13 @@ func readAgentSettingsFromReader(r interface {
 	}
 	return agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider:           strings.TrimSpace(r.GetString("llm.provider")),
-			Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
-			Model:              strings.TrimSpace(r.GetString("llm.model")),
-			APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
-			ReasoningEffort:    strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-			ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+			Provider:            strings.TrimSpace(r.GetString("llm.provider")),
+			Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
+			Model:               strings.TrimSpace(r.GetString("llm.model")),
+			APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
+			CloudflareAccountID: strings.TrimSpace(r.GetString("llm.cloudflare.account_id")),
+			ReasoningEffort:     strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+			ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
 		},
 		Multimodal: multimodalSettingsPayload{
 			ImageSources: sanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),

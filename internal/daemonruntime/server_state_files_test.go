@@ -21,11 +21,12 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 		identityPath:     "/tmp/IDENTITY.md",
 		soulPath:         "/tmp/SOUL.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
+		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
 
 	items := describeStateFiles(paths, "")
-	if len(items) != 7 {
-		t.Fatalf("len(items) = %d, want 7", len(items))
+	if len(items) != 8 {
+		t.Fatalf("len(items) = %d, want 8", len(items))
 	}
 
 	foundHeartbeat := false
@@ -49,6 +50,7 @@ func TestResolveStateFileSpec(t *testing.T) {
 		identityPath:     "/tmp/IDENTITY.md",
 		soulPath:         "/tmp/SOUL.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
+		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
 
 	if spec, ok := resolveStateFileSpec(paths, "", "heartbeat.md"); !ok || spec.Group != "heartbeat" {
@@ -59,6 +61,9 @@ func TestResolveStateFileSpec(t *testing.T) {
 	}
 	if spec, ok := resolveStateFileSpec(paths, "todo", "todo.md"); !ok || spec.Name != "TODO.md" {
 		t.Fatalf("resolve todo failed: ok=%v spec=%#v", ok, spec)
+	}
+	if spec, ok := resolveStateFileSpec(paths, "", "scripts.md"); !ok || spec.Group != "scripts" {
+		t.Fatalf("resolve scripts failed: ok=%v spec=%#v", ok, spec)
 	}
 }
 
@@ -94,8 +99,8 @@ func TestStateFilesRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(payload.Items) != 7 {
-		t.Fatalf("len(items) = %d, want 7", len(payload.Items))
+	if len(payload.Items) != 8 {
+		t.Fatalf("len(items) = %d, want 8", len(payload.Items))
 	}
 }
 

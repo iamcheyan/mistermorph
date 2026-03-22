@@ -112,11 +112,17 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "No readable config.yaml found. Starting interactive config setup.")
 
-	provider, err := promptChoice(reader, out, "Select llm provider", []string{"openai", "gemini", "cloudflare"}, "openai")
+	provider, err := promptChoice(
+		reader,
+		out,
+		"Select llm provider",
+		setupProviderChoices(),
+		setupProviderOpenAICompatible,
+	)
 	if err != nil {
 		return nil, err
 	}
-	endpointDefault := defaultEndpointForProvider(provider)
+	endpointDefault := defaultEndpointForSetupProvider(provider)
 	endpoint, err := promptLineWithDefault(reader, out, "LLM endpoint", endpointDefault)
 	if err != nil {
 		return nil, err
@@ -128,12 +134,12 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 	}
 
 	switch provider {
-	case "openai", "gemini":
+	case setupProviderOpenAICompatible, setupProviderGemini, setupProviderAnthropic:
 		setup.APIKey, err = promptRequiredLine(reader, out, "LLM api_key")
 		if err != nil {
 			return nil, err
 		}
-	case "cloudflare":
+	case setupProviderCloudflare:
 		setup.CloudflareAccount, err = promptRequiredLine(reader, out, "Cloudflare account_id")
 		if err != nil {
 			return nil, err
@@ -149,116 +155,8 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 		return nil, err
 	}
 
-	setup.TelegramBotToken, err = promptRequiredLine(reader, out, "Telegram bot_token")
-	if err != nil {
-		return nil, err
-	}
-	setup.TelegramGroupTriggerMode, err = promptChoice(reader, out, "Telegram group trigger mode", []string{"strict", "smart", "talkative"}, "talkative")
-	if err != nil {
-		return nil, err
-	}
-
-	setup.ConfigureSlack, err = promptYesNo(reader, out, "Configure Slack now?", false)
-	if err != nil {
-		return nil, err
-	}
-	if setup.ConfigureSlack {
-		setup.SlackBotToken, err = promptRequiredLine(reader, out, "Slack bot_token")
-		if err != nil {
-			return nil, err
-		}
-		setup.SlackAppToken, err = promptRequiredLine(reader, out, "Slack app_token")
-		if err != nil {
-			return nil, err
-		}
-		setup.SlackGroupTrigger, err = promptChoice(reader, out, "Slack group trigger mode", []string{"strict", "smart", "talkative"}, "smart")
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	setup.ConfigureConsole, err = promptYesNo(reader, out, "Configure Console now?", true)
-	if err != nil {
-		return nil, err
-	}
-	if setup.ConfigureConsole {
-		setup.ConsoleListen, err = promptLineWithDefault(reader, out, "Console listen", "127.0.0.1:9080")
-		if err != nil {
-			return nil, err
-		}
-		for {
-			basePathInput, readErr := promptLineWithDefault(reader, out, "Console base_path", "/")
-			if readErr != nil {
-				return nil, readErr
-			}
-			normalized, normErr := normalizeConsoleBasePath(basePathInput)
-			if normErr != nil {
-				fmt.Fprintf(out, "Invalid console base_path: %v\n", normErr)
-				continue
-			}
-			setup.ConsoleBasePath = normalized
-			break
-		}
-		setup.ConsolePassword, err = promptRequiredLine(reader, out, "Console password")
-		if err != nil {
-			return nil, err
-		}
-		setup.ConsoleEndpointName, err = promptLineWithDefault(reader, out, "Console endpoint name", "Main Runtime")
-		if err != nil {
-			return nil, err
-		}
-		for {
-			endpointInput, readErr := promptLineWithDefault(reader, out, "Console endpoint url", "http://127.0.0.1:8787")
-			if readErr != nil {
-				return nil, readErr
-			}
-			normalized, normErr := normalizeConsoleEndpointURL(endpointInput)
-			if normErr != nil {
-				fmt.Fprintf(out, "Invalid console endpoint url: %v\n", normErr)
-				continue
-			}
-			setup.ConsoleEndpointURL = normalized
-			break
-		}
-		if isLikelyLocalEndpointURL(setup.ConsoleEndpointURL) {
-			setup.ServerAuthTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
-			setup.ConsoleEndpointAuthTokenEnv = setup.ServerAuthTokenEnv
-			token, genErr := generateInstallAuthToken()
-			if genErr != nil {
-				return nil, genErr
-			}
-			setup.GeneratedServerAuthToken = token
-		} else {
-			for {
-				envName, readErr := promptLineWithDefault(reader, out, "Console endpoint auth token env var", "MISTER_MORPH_ENDPOINT_MAIN_TOKEN")
-				if readErr != nil {
-					return nil, readErr
-				}
-				envName = strings.TrimSpace(envName)
-				if !isValidEnvVarName(envName) {
-					fmt.Fprintln(out, "Invalid env var name. Use [A-Z_][A-Z0-9_]*.")
-					continue
-				}
-				setup.ConsoleEndpointAuthTokenEnv = envName
-				break
-			}
-		}
-		printConsoleSetupSummary(out, setup)
-	}
-
 	fmt.Fprintln(out, "Interactive config setup captured.")
 	return setup, nil
-}
-
-func defaultEndpointForProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "gemini":
-		return "https://generativelanguage.googleapis.com"
-	case "cloudflare":
-		return "https://api.cloudflare.com/client/v4"
-	default:
-		return "https://api.openai.com"
-	}
 }
 
 var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
@@ -508,13 +406,17 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 		return cfg
 	}
 
-	cfg = replaceConfigLine(cfg, "  provider: openai", "  provider: "+strings.ToLower(strings.TrimSpace(setup.Provider)))
+	cfg = replaceConfigLine(
+		cfg,
+		"  provider: openai",
+		"  provider: "+normalizeConfigProviderForSetup(setup.Provider, setup.Endpoint),
+	)
 	cfg = replaceConfigLine(cfg, `  endpoint: "https://api.openai.com"`, `  endpoint: `+yamlQuotedScalar(setup.Endpoint))
 	cfg = replaceConfigLinePrefix(cfg, "  model: ", `  model: `+yamlQuotedScalar(setup.Model))
 
 	apiKeyComment := " # or set via MISTER_MORPH_LLM_API_KEY"
 	switch strings.ToLower(strings.TrimSpace(setup.Provider)) {
-	case "cloudflare":
+	case setupProviderCloudflare:
 		cfg = replaceConfigLinePrefix(cfg, "  api_key: ", `  api_key: ""`+apiKeyComment)
 		cfg = replaceConfigLine(cfg, `    account_id: ""`, `    account_id: `+yamlQuotedScalar(setup.CloudflareAccount))
 		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: `+yamlQuotedScalar(setup.CloudflareAPIToken))
@@ -522,20 +424,6 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 		cfg = replaceConfigLinePrefix(cfg, "  api_key: ", `  api_key: `+yamlQuotedScalar(setup.APIKey)+apiKeyComment)
 		cfg = replaceConfigLine(cfg, `    account_id: ""`, `    account_id: ""`)
 		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: ""`)
-	}
-
-	cfg = replaceConfigLine(cfg, `  bot_token: ""`, `  bot_token: `+yamlQuotedScalar(setup.TelegramBotToken))
-	cfg = replaceConfigLine(cfg, `  group_trigger_mode: "talkative"`, `  group_trigger_mode: `+yamlQuotedScalar(setup.TelegramGroupTriggerMode))
-
-	if setup.ConfigureSlack {
-		// The first bot_token replacement above targets telegram; the second targets slack.
-		cfg = replaceConfigLine(cfg, `  bot_token: ""`, `  bot_token: `+yamlQuotedScalar(setup.SlackBotToken))
-		cfg = replaceConfigLine(cfg, `  app_token: ""`, `  app_token: `+yamlQuotedScalar(setup.SlackAppToken))
-		cfg = replaceConfigLine(cfg, `  group_trigger_mode: "smart"`, `  group_trigger_mode: `+yamlQuotedScalar(setup.SlackGroupTrigger))
-	}
-	cfg = applyServerAuthTokenSetupOverrides(cfg, setup)
-	if setup.ConfigureConsole {
-		cfg = applyConsoleConfigSetupOverrides(cfg, setup)
 	}
 
 	return cfg

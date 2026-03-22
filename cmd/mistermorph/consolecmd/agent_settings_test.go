@@ -16,7 +16,7 @@ import (
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: openai\n  model: gpt-5.2\n  reasoning_effort: high\n"+
+		"llm:\n  provider: openai\n  model: gpt-5.2\n  reasoning_effort: high\n  cloudflare:\n    account_id: acc-123\n"+
 			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
 			"tools:\n  bash:\n    enabled: false\n",
 	), 0o600); err != nil {
@@ -29,6 +29,9 @@ func TestReadAgentSettings(t *testing.T) {
 	}
 	if got.LLM.Provider != "openai" || got.LLM.Model != "gpt-5.2" || got.LLM.ReasoningEffort != "high" {
 		t.Fatalf("got.LLM = %+v", got.LLM)
+	}
+	if got.LLM.CloudflareAccountID != "acc-123" {
+		t.Fatalf("got.LLM.CloudflareAccountID = %q, want acc-123", got.LLM.CloudflareAccountID)
 	}
 	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
 		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
@@ -54,9 +57,10 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider:           "anthropic",
-			Model:              "claude-3-7-sonnet",
-			ToolsEmulationMode: "fallback",
+			Provider:            "anthropic",
+			Model:               "claude-3-7-sonnet",
+			CloudflareAccountID: "acc-next",
+			ToolsEmulationMode:  "fallback",
 		},
 		Multimodal: multimodalSettingsPayload{
 			ImageSources: []string{"telegram", "remote_download"},
@@ -80,6 +84,9 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "provider: anthropic") || !strings.Contains(out, "tools_emulation_mode: fallback") {
 		t.Fatalf("serialized config missing updated llm block: %s", out)
+	}
+	if !strings.Contains(out, "account_id: acc-next") {
+		t.Fatalf("serialized config missing cloudflare account: %s", out)
 	}
 	if !strings.Contains(out, "- remote_download") {
 		t.Fatalf("serialized config missing multimodal sources: %s", out)
@@ -128,7 +135,7 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{
-		"llm":{"provider":"anthropic","model":"claude-3-7-sonnet","api_key":"${ANTHROPIC_API_KEY}","reasoning_effort":"high","tools_emulation_mode":"fallback"},
+		"llm":{"provider":"anthropic","model":"claude-3-7-sonnet","api_key":"${ANTHROPIC_API_KEY}","cloudflare_account_id":"acc-live","reasoning_effort":"high","tools_emulation_mode":"fallback"},
 		"multimodal":{"image_sources":["telegram","remote_download"]},
 		"tools":{"write_file_enabled":true,"contacts_send_enabled":false,"todo_update_enabled":true,"plan_create_enabled":false,"url_fetch_enabled":true,"web_search_enabled":false,"bash_enabled":false}
 	}`)
@@ -146,6 +153,9 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "provider: anthropic") || !strings.Contains(string(raw), "reasoning_effort: high") {
 		t.Fatalf("config missing updated llm settings: %s", string(raw))
+	}
+	if !strings.Contains(string(raw), "account_id: acc-live") {
+		t.Fatalf("config missing cloudflare account update: %s", string(raw))
 	}
 	if !strings.Contains(string(raw), "- remote_download") {
 		t.Fatalf("config missing multimodal update: %s", string(raw))
@@ -171,6 +181,9 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 	if payload.LLM.Provider != "anthropic" || payload.LLM.ReasoningEffort != "high" {
 		t.Fatalf("payload.LLM = %+v", payload.LLM)
+	}
+	if payload.LLM.CloudflareAccountID != "acc-live" {
+		t.Fatalf("payload.LLM.CloudflareAccountID = %q, want acc-live", payload.LLM.CloudflareAccountID)
 	}
 	if len(payload.Multimodal.ImageSources) != 2 {
 		t.Fatalf("payload.Multimodal = %+v", payload.Multimodal)

@@ -2,18 +2,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import "./SetupView.css";
 
-import catSoulTemplate from "../../../../assets/config/souls/cat.md?raw";
-import dogSoulTemplate from "../../../../assets/config/souls/dog.md?raw";
-import researchScholarSoulTemplate from "../../../../assets/config/souls/research_scholar.md?raw";
-import softwareEngineerSoulTemplate from "../../../../assets/config/souls/software_engineer.md?raw";
-import catFaceImage from "../assets/souls/cat/Faceset.png";
-import catSpriteImage from "../assets/souls/cat/SpriteSheet.png";
-import dogFaceImage from "../assets/souls/dog/Faceset.png";
-import dogSpriteImage from "../assets/souls/dog/SpriteSheet.png";
-import engineerFaceImage from "../assets/souls/software_engineer/Faceset.png";
-import engineerSpriteImage from "../assets/souls/software_engineer/SpriteSheet.png";
-import scholarFaceImage from "../assets/souls/research_scholar/Faceset.png";
-import scholarSpriteImage from "../assets/souls/research_scholar/SpriteSheet.png";
 import MarkdownEditor from "../components/MarkdownEditor";
 import {
   apiFetch,
@@ -28,15 +16,15 @@ import {
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
+import {
+  defaultEndpointForSetupProvider,
+  normalizeSetupProviderChoice,
+  normalizeSetupProviderForSave,
+  SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPTIONS,
+} from "../core/setup-contract";
+import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
 import { endpointState } from "../stores";
-
-const PROVIDER_OPTIONS = [
-  { title: "OpenAI", value: "openai" },
-  { title: "Anthropic", value: "anthropic" },
-  { title: "Gemini", value: "gemini" },
-  { title: "xAI", value: "xai" },
-  { title: "DeepSeek", value: "deepseek" },
-];
 
 const TOTAL_STEPS = 3;
 const IDENTITY_FIELDS = ["name", "creature", "vibe", "emoji"];
@@ -44,11 +32,6 @@ const IDENTITY_YAML_FENCE_RE = /```(?:yaml|yml)\s*\n([\s\S]*?)\n```/i;
 const PREVIOUS_STAGE = {
   persona: "llm",
   soul: "persona",
-};
-const NEXT_STAGE = {
-  llm: "persona",
-  persona: "soul",
-  soul: "done",
 };
 
 const STAGE_META = {
@@ -110,72 +93,14 @@ function buildCustomSoulDocument() {
 `);
 }
 
-const SOUL_PRESETS = [
-  {
-    id: "research_scholar",
-    icon: "QIconEcosystem",
-    titleKey: "setup_soul_preset_scholar_title",
-    noteKey: "setup_soul_preset_scholar_note",
-    content: normalizeSoulDocument(researchScholarSoulTemplate),
-    faceSrc: scholarFaceImage,
-    spriteSrc: scholarSpriteImage,
-    spriteFrames: 4,
-    spriteFrameWidth: 32,
-    spriteFrameHeight: 32,
-    spriteScale: 2.5,
-  },
-  {
-    id: "software_engineer",
-    icon: "QIconSpeedoMeter",
-    titleKey: "setup_soul_preset_engineer_title",
-    noteKey: "setup_soul_preset_engineer_note",
-    content: normalizeSoulDocument(softwareEngineerSoulTemplate),
-    faceSrc: engineerFaceImage,
-    spriteSrc: engineerSpriteImage,
-    spriteFrames: 4,
-    spriteFrameWidth: 32,
-    spriteFrameHeight: 32,
-    spriteScale: 2.5,
-  },
-  {
-    id: "cat",
-    icon: "QIconFingerprint",
-    titleKey: "setup_soul_preset_cat_title",
-    noteKey: "setup_soul_preset_cat_note",
-    content: normalizeSoulDocument(catSoulTemplate),
-    faceSrc: catFaceImage,
-    spriteSrc: catSpriteImage,
-    spriteFrames: 2,
-    spriteFrameWidth: 16,
-    spriteFrameHeight: 16,
-    spriteScale: 2.5,
-  },
-  {
-    id: "dog",
-    icon: "QIconUsers",
-    titleKey: "setup_soul_preset_dog_title",
-    noteKey: "setup_soul_preset_dog_note",
-    content: normalizeSoulDocument(dogSoulTemplate),
-    faceSrc: dogFaceImage,
-    spriteSrc: dogSpriteImage,
-    spriteFrames: 2,
-    spriteFrameWidth: 16,
-    spriteFrameHeight: 16,
-    spriteScale: 2.5,
-  },
-];
-
-function findSoulPreset(id) {
-  return SOUL_PRESETS.find((item) => item.id === id) || SOUL_PRESETS[0];
-}
-
 function buildDefaultPayload() {
   return {
     llm: {
-      provider: "openai",
+      provider: SETUP_PROVIDER_OPTIONS[0].value,
       endpoint: "",
       model: "",
       api_key: "",
+      cloudflare_account_id: "",
       reasoning_effort: "",
       tools_emulation_mode: "",
     },
@@ -359,10 +284,11 @@ const SetupView = {
     const loadedIdentityRaw = ref("");
     const loadedSoulRaw = ref("");
     const llmForm = reactive({
-      provider: "openai",
+      provider: SETUP_PROVIDER_OPTIONS[0].value,
       endpoint: "",
       model: "",
       api_key: "",
+      cloudflare_account_id: "",
     });
     const personaForm = reactive(buildEmptyIdentityProfile());
     const soulSelectionContent = ref("");
@@ -387,9 +313,12 @@ const SetupView = {
         })
       ).trim()
     );
-    const providerItems = computed(() => PROVIDER_OPTIONS);
+    const providerItems = computed(() => SETUP_PROVIDER_OPTIONS);
     const providerItem = computed(
       () => providerItems.value.find((item) => item.value === llmForm.provider) || providerItems.value[0]
+    );
+    const showCloudflareAccountField = computed(
+      () => String(llmForm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
     );
     const previousStage = computed(() => PREVIOUS_STAGE[routeStage.value] || "");
     const showPrevious = computed(() => previousStage.value !== "");
@@ -408,7 +337,8 @@ const SetupView = {
         saving.value ||
         String(llmForm.provider || "").trim() === "" ||
         String(llmForm.model || "").trim() === "" ||
-        String(llmForm.api_key || "").trim() === ""
+        String(llmForm.api_key || "").trim() === "" ||
+        (showCloudflareAccountField.value && String(llmForm.cloudflare_account_id || "").trim() === "")
     );
     const personaSaveDisabled = computed(
       () =>
@@ -546,13 +476,12 @@ const SetupView = {
     function applyLLMPayload(data) {
       const normalized = normalizePayload(data);
       loadedPayload.value = normalized;
-      llmForm.provider = String(normalized.llm.provider || "").trim() || "openai";
-      if (!providerItems.value.some((item) => item.value === llmForm.provider)) {
-        llmForm.provider = "openai";
-      }
-      llmForm.endpoint = String(normalized.llm.endpoint || "").trim();
+      llmForm.provider = normalizeSetupProviderChoice(normalized.llm.provider);
+      llmForm.endpoint =
+        String(normalized.llm.endpoint || "").trim() || defaultEndpointForSetupProvider(llmForm.provider);
       llmForm.model = String(normalized.llm.model || "").trim();
       llmForm.api_key = String(normalized.llm.api_key || "").trim();
+      llmForm.cloudflare_account_id = String(normalized.llm.cloudflare_account_id || "").trim();
     }
 
     async function loadLLMForm() {
@@ -625,23 +554,32 @@ const SetupView = {
       if (options.refreshEndpoints !== false) {
         await loadEndpoints();
       }
+      const setupState = await resolveConsoleSetupStage(endpointState.items);
       if (route.path === "/setup") {
-        await router.replace({ path: "/setup/llm", query: route.query });
+        const target =
+          setupState.stage === "ready"
+            ? options.onReady === "done"
+              ? "/setup/done"
+              : "/setup/done"
+            : setupStagePath(setupState.stage);
+        await router.replace({ path: target, query: route.query });
         return false;
       }
-      if (options.nextStage) {
-        const targetPath = setupStagePath(options.nextStage);
+      if (setupState.stage !== "ready") {
+        const targetPath = setupStagePath(setupState.stage);
         if (route.path !== targetPath) {
           await router.replace({ path: targetPath, query: route.query });
           return false;
         }
       }
+      if (options.onReady === "done" && route.path !== "/setup/done") {
+        if (setupState.stage === "ready") {
+          await router.replace({ path: "/setup/done", query: route.query });
+          return false;
+        }
+      }
       if (options.loadStage !== false) {
         await loadStageForm(routeStage.value);
-      }
-      if (options.onReady === "done" && route.path !== "/setup/done") {
-        await router.replace({ path: "/setup/done", query: route.query });
-        return false;
       }
       return false;
     }
@@ -658,17 +596,18 @@ const SetupView = {
           body: {
             llm: {
               ...loadedPayload.value.llm,
-              provider: String(llmForm.provider || "").trim(),
+              provider: normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint),
               endpoint: String(llmForm.endpoint || "").trim(),
               model: String(llmForm.model || "").trim(),
               api_key: String(llmForm.api_key || "").trim(),
+              cloudflare_account_id: String(llmForm.cloudflare_account_id || "").trim(),
             },
             multimodal: loadedPayload.value.multimodal,
             tools: loadedPayload.value.tools,
           },
         });
         applyLLMPayload(payload);
-        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.llm });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -691,7 +630,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.persona });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -720,7 +659,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.soul });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -729,7 +668,12 @@ const SetupView = {
     }
 
     function onProviderChange(item) {
-      llmForm.provider = String(item?.value || "").trim() || providerItems.value[0].value;
+      const nextProvider = String(item?.value || "").trim() || providerItems.value[0].value;
+      const previousDefault = defaultEndpointForSetupProvider(llmForm.provider);
+      llmForm.provider = nextProvider;
+      if (String(llmForm.endpoint || "").trim() === "" || String(llmForm.endpoint || "").trim() === previousDefault) {
+        llmForm.endpoint = defaultEndpointForSetupProvider(nextProvider);
+      }
     }
 
     function applySoulPreset(id) {
@@ -827,6 +771,7 @@ const SetupView = {
       doneStatusItems,
       providerItems,
       providerItem,
+      showCloudflareAccountField,
       previousStage,
       showPrevious,
       llmSaveDisabled,
@@ -902,6 +847,15 @@ const SetupView = {
               v-model="llmForm.api_key"
               inputType="password"
               :placeholder="t('settings_agent_api_key_placeholder')"
+              :disabled="loading || saving"
+            />
+          </label>
+
+          <label v-if="showCloudflareAccountField" class="setup-field is-wide">
+            <span class="setup-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
+            <QInput
+              v-model="llmForm.cloudflare_account_id"
+              :placeholder="t('settings_agent_cloudflare_account_placeholder')"
               :disabled="loading || saving"
             />
           </label>

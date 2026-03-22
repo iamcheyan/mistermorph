@@ -14,7 +14,7 @@ import {
   setSelectedEndpointRef,
   translate,
 } from "../core/context";
-import { consoleSetupTargetEndpointRef, resolveConsoleSetupStage } from "../core/setup";
+import { consoleSetupTargetEndpointRef, resolveConsoleSetupStage, setupStagePath } from "../core/setup";
 
 const LoginView = {
   setup() {
@@ -32,7 +32,7 @@ const LoginView = {
       const setupState = await resolveConsoleSetupStage(endpointState.items);
       const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/overview";
       if (setupState.stage !== "ready") {
-        const next = { path: "/setup/llm" };
+        const next = { path: setupStagePath(setupState.stage) };
         if (redirect && redirect !== "/overview" && redirect !== "/") {
           next.query = { redirect };
         }

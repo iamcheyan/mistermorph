@@ -97,26 +97,11 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	}
 
 	setup := &installConfigSetup{
-		Provider:                    "cloudflare",
-		Endpoint:                    "https://api.cloudflare.com/client/v4",
-		Model:                       "@cf/meta/llama-3.1-8b-instruct",
-		CloudflareAccount:           "acc-123",
-		CloudflareAPIToken:          "token-xyz",
-		TelegramBotToken:            "tg-token",
-		TelegramGroupTriggerMode:    "smart",
-		ConfigureSlack:              true,
-		SlackBotToken:               "xoxb-test",
-		SlackAppToken:               "xapp-test",
-		SlackGroupTrigger:           "talkative",
-		ConfigureConsole:            true,
-		ConsoleListen:               "0.0.0.0:9080",
-		ConsoleBasePath:             "/admin/console",
-		ConsolePassword:             "console-secret",
-		ConsoleEndpointName:         "Main",
-		ConsoleEndpointURL:          "http://127.0.0.1:8787",
-		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_SERVER_AUTH_TOKEN",
-		ServerAuthTokenEnv:          "MISTER_MORPH_SERVER_AUTH_TOKEN",
-		GeneratedServerAuthToken:    "generated-token-value",
+		Provider:           "cloudflare",
+		Endpoint:           "https://api.cloudflare.com/client/v4",
+		Model:              "@cf/meta/llama-3.1-8b-instruct",
+		CloudflareAccount:  "acc-123",
+		CloudflareAPIToken: "token-xyz",
 	}
 
 	got := patchInitConfigWithSetup(body, "/tmp/my-state", setup)
@@ -135,20 +120,8 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	assertContains(`api_key: "" # or set via MISTER_MORPH_LLM_API_KEY`)
 	assertContains(`account_id: "acc-123"`)
 	assertContains(`api_token: "token-xyz"`)
-	assertContains(`bot_token: "tg-token"`)
-	assertContains(`group_trigger_mode: "smart"`)
-	assertContains(`bot_token: "xoxb-test"`)
-	assertContains(`app_token: "xapp-test"`)
-	assertContains(`group_trigger_mode: "talkative"`)
-	assertContains(`auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"`)
-	assertContains(`console:`)
-	assertContains(`listen: "0.0.0.0:9080"`)
-	assertContains(`base_path: "/admin/console"`)
-	assertContains(`password: "console-secret" # or set via MISTER_MORPH_CONSOLE_PASSWORD`)
-	assertContains(`- name: "Main"`)
-	assertContains(`url: "http://127.0.0.1:8787"`)
-	if strings.Contains(got, "Telegram Instance") || strings.Contains(got, "Slack Instance") {
-		t.Fatalf("console endpoints template should be replaced with setup endpoint")
+	if strings.Contains(got, "tg-token") || strings.Contains(got, "xoxb-test") || strings.Contains(got, "console-secret") {
+		t.Fatalf("patched config should not include removed onboarding integrations: %s", got)
 	}
 }
 

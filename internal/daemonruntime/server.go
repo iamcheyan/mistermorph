@@ -998,6 +998,7 @@ type runtimeStatePaths struct {
 	identityPath     string
 	soulPath         string
 	heartbeatPath    string
+	scriptsPath      string
 	todoWIP          string
 	todoDone         string
 	auditPath        string
@@ -1017,6 +1018,7 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		identityPath:     filepath.Join(stateDir, "IDENTITY.md"),
 		soulPath:         filepath.Join(stateDir, "SOUL.md"),
 		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
+		scriptsPath:      statepaths.ScriptsNotesPath(),
 		todoWIP:          statepaths.TODOWIPPath(),
 		todoDone:         statepaths.TODODONEPath(),
 		auditPath:        resolveGuardAuditPath(stateDir),
@@ -1073,6 +1075,7 @@ func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 		{Name: "IDENTITY.md", Group: "persona", Path: paths.identityPath},
 		{Name: "SOUL.md", Group: "persona", Path: paths.soulPath},
 		{Name: "HEARTBEAT.md", Group: "heartbeat", Path: paths.heartbeatPath},
+		{Name: "SCRIPTS.md", Group: "scripts", Path: paths.scriptsPath},
 	}
 }
 

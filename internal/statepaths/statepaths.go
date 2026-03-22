@@ -10,6 +10,7 @@ import (
 
 const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
+	ScriptsNotesFilename       = "SCRIPTS.md"
 	TODOWIPFilename            = "TODO.md"
 	TODODONEFilename           = "TODO.DONE.md"
 )
@@ -72,6 +73,10 @@ func LLMUsageProjectionPath() string {
 
 func HeartbeatChecklistPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), HeartbeatChecklistFilename)
+}
+
+func ScriptsNotesPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), ScriptsNotesFilename)
 }
 
 func TODOWIPPath() string {

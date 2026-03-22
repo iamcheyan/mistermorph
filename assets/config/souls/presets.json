@@ -1,0 +1,34 @@
+[
+  {
+    "id": "research_scholar",
+    "template_path": "config/souls/research_scholar.md",
+    "cli_title": "Research Scholar",
+    "cli_description": "INTJ mind, rigorous logic, first-principles, real intellectual passion.",
+    "web_title_key": "setup_soul_preset_scholar_title",
+    "web_note_key": "setup_soul_preset_scholar_note"
+  },
+  {
+    "id": "software_engineer",
+    "template_path": "config/souls/software_engineer.md",
+    "cli_title": "Software Engineer",
+    "cli_description": "Senior engineer. Architecture, implementation, no overdesign, no laziness.",
+    "web_title_key": "setup_soul_preset_engineer_title",
+    "web_note_key": "setup_soul_preset_engineer_note"
+  },
+  {
+    "id": "cat",
+    "template_path": "config/souls/cat.md",
+    "cli_title": "Cat",
+    "cli_description": "Sharp, emoji-friendly, brief, protective, and unexpectedly soft.",
+    "web_title_key": "setup_soul_preset_cat_title",
+    "web_note_key": "setup_soul_preset_cat_note"
+  },
+  {
+    "id": "dog",
+    "template_path": "config/souls/dog.md",
+    "cli_title": "Dog",
+    "cli_description": "Your most loyal companion. Loves you.",
+    "web_title_key": "setup_soul_preset_dog_title",
+    "web_note_key": "setup_soul_preset_dog_note"
+  }
+]

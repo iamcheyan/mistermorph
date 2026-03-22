@@ -13,6 +13,13 @@ import {
   runtimeEndpointByRef,
   translate,
 } from "../core/context";
+import {
+  defaultEndpointForSetupProvider,
+  normalizeSetupProviderChoice,
+  normalizeSetupProviderForSave,
+  SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPTIONS,
+} from "../core/setup-contract";
 
 function tuiKicker(left, right) {
   const lhs = String(left || "").trim();
@@ -22,19 +29,6 @@ function tuiKicker(left, right) {
   }
   return `[ ${(lhs || rhs).toUpperCase()} ]`;
 }
-
-const PROVIDER_OPTIONS = [
-  { title: "OpenAI", value: "openai" },
-  { title: "Anthropic", value: "anthropic" },
-  { title: "Gemini", value: "gemini" },
-  { title: "xAI", value: "xai" },
-  { title: "DeepSeek", value: "deepseek" },
-  { title: "Azure", value: "azure" },
-  { title: "Bedrock", value: "bedrock" },
-  { title: "Cloudflare", value: "cloudflare" },
-  { title: "OpenAI Compatible", value: "openai_custom" },
-  { title: "Susanoo", value: "susanoo" },
-];
 
 const MULTIMODAL_SOURCES = [
   { id: "telegram", titleKey: "settings_multimodal_source_telegram", noteKey: "settings_multimodal_note_telegram" },
@@ -71,6 +65,7 @@ function buildAgentSnapshot(state) {
       endpoint: String(state.llm.endpoint || "").trim(),
       model: String(state.llm.model || "").trim(),
       api_key: String(state.llm.api_key || "").trim(),
+      cloudflare_account_id: String(state.llm.cloudflare_account_id || "").trim(),
       reasoning_effort: String(state.llm.reasoning_effort || "").trim(),
       tools_emulation_mode: String(state.llm.tools_emulation_mode || "").trim(),
     },
@@ -130,6 +125,7 @@ const SettingsView = {
         endpoint: "",
         model: "",
         api_key: "",
+        cloudflare_account_id: "",
         reasoning_effort: "",
         tools_emulation_mode: "",
       },
@@ -154,9 +150,12 @@ const SettingsView = {
       },
     });
 
-    const providerItems = computed(() => PROVIDER_OPTIONS);
+    const providerItems = computed(() => SETUP_PROVIDER_OPTIONS);
     const providerItem = computed(
       () => providerItems.value.find((item) => item.value === state.llm.provider) || null
+    );
+    const showCloudflareAccountField = computed(
+      () => String(state.llm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
     );
     const reasoningEffortItems = computed(() => [
       { title: t("settings_llm_reasoning_none"), value: "" },
@@ -260,7 +259,12 @@ const SettingsView = {
 
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
-      () => agentLoading.value || agentSaving.value || !String(state.llm.provider || "").trim() || !agentDirty.value
+      () =>
+        agentLoading.value ||
+        agentSaving.value ||
+        !String(state.llm.provider || "").trim() ||
+        !agentDirty.value ||
+        (showCloudflareAccountField.value && String(state.llm.cloudflare_account_id || "").trim() === "")
     );
     const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
     const consoleSaveDisabled = computed(() => consoleLoading.value || consoleSaving.value || !consoleDirty.value);
@@ -271,10 +275,14 @@ const SettingsView = {
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const imageSources = Array.isArray(multimodal.image_sources) ? multimodal.image_sources : [];
 
-      state.llm.provider = typeof llm.provider === "string" ? llm.provider : "";
-      state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
+      state.llm.provider = normalizeSetupProviderChoice(llm.provider);
+      state.llm.endpoint =
+        typeof llm.endpoint === "string" && llm.endpoint.trim() !== ""
+          ? llm.endpoint
+          : defaultEndpointForSetupProvider(state.llm.provider);
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.api_key = typeof llm.api_key === "string" ? llm.api_key : "";
+      state.llm.cloudflare_account_id = typeof llm.cloudflare_account_id === "string" ? llm.cloudflare_account_id : "";
       state.llm.reasoning_effort = typeof llm.reasoning_effort === "string" ? llm.reasoning_effort : "";
       state.llm.tools_emulation_mode =
         typeof llm.tools_emulation_mode === "string" ? llm.tools_emulation_mode : "off";
@@ -337,10 +345,11 @@ const SettingsView = {
     function buildSavePayload() {
       return {
         llm: {
-          provider: state.llm.provider,
+          provider: normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint),
           endpoint: state.llm.endpoint,
           model: state.llm.model,
           api_key: state.llm.api_key,
+          cloudflare_account_id: state.llm.cloudflare_account_id,
           reasoning_effort: state.llm.reasoning_effort,
           tools_emulation_mode: state.llm.tools_emulation_mode,
         },
@@ -428,7 +437,12 @@ const SettingsView = {
       if (!item || typeof item !== "object") {
         return;
       }
-      state.llm.provider = String(item.value || "").trim();
+      const nextProvider = String(item.value || "").trim();
+      const previousDefault = defaultEndpointForSetupProvider(state.llm.provider);
+      state.llm.provider = nextProvider;
+      if (String(state.llm.endpoint || "").trim() === "" || String(state.llm.endpoint || "").trim() === previousDefault) {
+        state.llm.endpoint = defaultEndpointForSetupProvider(nextProvider);
+      }
     }
 
     function onReasoningEffortChange(item) {
@@ -527,6 +541,7 @@ const SettingsView = {
       state,
       providerItems,
       providerItem,
+      showCloudflareAccountField,
       reasoningEffortItems,
       reasoningEffortItem,
       toolsEmulationItems,
@@ -662,6 +677,14 @@ const SettingsView = {
                     v-model="state.llm.api_key"
                     inputType="password"
                     :placeholder="t('settings_agent_api_key_placeholder')"
+                    :disabled="agentLoading || agentSaving"
+                  />
+                </label>
+                <label v-if="showCloudflareAccountField" class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
+                  <QInput
+                    v-model="state.llm.cloudflare_account_id"
+                    :placeholder="t('settings_agent_cloudflare_account_placeholder')"
                     :disabled="agentLoading || agentSaving"
                   />
                 </label>

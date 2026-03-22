@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/assets"
-	"github.com/quailyquaily/mistermorph/cmd/mistermorph/skillscmd"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
@@ -19,7 +18,7 @@ func newInstallCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install [dir]",
-		Short: "Install config.yaml, HEARTBEAT.md, SCRIPTS.md, IDENTITY.md, SOUL.md, TODO templates, contacts templates, memory template, and built-in skills",
+		Short: "Install config.yaml plus the core onboarding markdown files",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := resolveInstallDir(args)
@@ -69,30 +68,6 @@ func newInstallCmd() *cobra.Command {
 			if _, err := os.Stat(todoDonePath); err == nil {
 				writeTodoDone = false
 			}
-			contactsDirName := strings.TrimSpace(viper.GetString("contacts.dir_name"))
-			if contactsDirName == "" {
-				contactsDirName = "contacts"
-			}
-			contactsActivePath := filepath.Join(dir, contactsDirName, "ACTIVE.md")
-			writeContactsActive := true
-			if _, err := os.Stat(contactsActivePath); err == nil {
-				writeContactsActive = false
-			}
-			contactsInactivePath := filepath.Join(dir, contactsDirName, "INACTIVE.md")
-			writeContactsInactive := true
-			if _, err := os.Stat(contactsInactivePath); err == nil {
-				writeContactsInactive = false
-			}
-			memoryDirName := strings.TrimSpace(viper.GetString("memory.dir_name"))
-			if memoryDirName == "" {
-				memoryDirName = "memory"
-			}
-			memoryIndexPath := filepath.Join(dir, memoryDirName, "index.md")
-			writeMemoryIndex := true
-			if _, err := os.Stat(memoryIndexPath); err == nil {
-				writeMemoryIndex = false
-			}
-
 			identityPath := filepath.Join(dir, "IDENTITY.md")
 			writeIdentity := true
 			if _, err := os.Stat(identityPath); err == nil {
@@ -148,24 +123,6 @@ func newInstallCmd() *cobra.Command {
 					Loader: loadTodoDoneTemplate,
 				},
 				{
-					Name:   "contacts/ACTIVE.md",
-					Path:   contactsActivePath,
-					Write:  writeContactsActive,
-					Loader: loadContactsActiveTemplate,
-				},
-				{
-					Name:   "contacts/INACTIVE.md",
-					Path:   contactsInactivePath,
-					Write:  writeContactsInactive,
-					Loader: loadContactsInactiveTemplate,
-				},
-				{
-					Name:   "memory/index.md",
-					Path:   memoryIndexPath,
-					Write:  writeMemoryIndex,
-					Loader: loadMemoryIndexTemplate,
-				},
-				{
 					Name:   "IDENTITY.md",
 					Path:   identityPath,
 					Write:  writeIdentity,
@@ -185,7 +142,7 @@ func newInstallCmd() *cobra.Command {
 				if !plan.Write {
 					totalSkipped++
 					fmt.Printf("%s %s\n", clifmt.Success("done"), clifmt.Warn("(skipped)"))
-					skillscmd.PrintInstalledFileInfos([]skillscmd.InstalledFileInfo{{Path: plan.Path, Skipped: true}})
+					fmt.Printf("    %s %s\n", plan.Path, clifmt.Warn("(skipped)"))
 					continue
 				}
 				body, err := plan.Loader()
@@ -199,7 +156,7 @@ func newInstallCmd() *cobra.Command {
 					return err
 				}
 				fmt.Println(clifmt.Success("done"))
-				skillscmd.PrintInstalledFileInfos([]skillscmd.InstalledFileInfo{{Path: plan.Path}})
+				fmt.Printf("    %s\n", plan.Path)
 			}
 			if totalSkipped > 0 {
 				fmt.Printf("%s: %d files %s\n", clifmt.Success("done"), len(filePlans), clifmt.Warn(fmt.Sprintf("(%d skipped)", totalSkipped)))
@@ -207,17 +164,17 @@ func newInstallCmd() *cobra.Command {
 				fmt.Printf("%s: %d files\n", clifmt.Success("done"), len(filePlans))
 			}
 
-			skillsDir := filepath.Join(dir, "skills")
-			skillDirs, err := skillscmd.DiscoverBuiltInSkills()
-			if err != nil {
-				return err
-			}
-			selected, err := skillscmd.SelectBuiltInSkills(skillDirs, yes)
-			if err != nil {
-				return err
-			}
-			if err := skillscmd.InstallBuiltInSkills(skillsDir, false, false, false, selected); err != nil {
-				return err
+			if !yes && supportsInteractivePrompts(cmd) {
+				if writeIdentity {
+					if err := runInstallIdentitySetup(cmd.InOrStdin(), cmd.OutOrStdout(), identityPath); err != nil {
+						return err
+					}
+				}
+				if writeSoul {
+					if err := runInstallSoulSetup(cmd.InOrStdin(), cmd.OutOrStdout(), soulPath); err != nil {
+						return err
+					}
+				}
 			}
 
 			fmt.Printf("[i] initialized %s\n", dir)

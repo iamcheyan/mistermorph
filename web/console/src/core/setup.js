@@ -1,5 +1,6 @@
 import { runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
+import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
 function normalizeEndpointItem(item) {
   return {
@@ -81,20 +82,80 @@ async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOI
   }
 }
 
-async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
-  const info = await consoleStateFileInfo("IDENTITY.md", endpointRef);
-  if (!info) {
+async function consoleStateFilesIndex(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+  const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
+  if (!ref) {
     return null;
   }
-  return info.exists === true;
+  try {
+    const data = await runtimeApiFetchForEndpoint(ref, "/state/files");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const index = new Map();
+    for (const item of items) {
+      const name = typeof item?.name === "string" ? item.name.trim() : "";
+      if (!name) {
+        continue;
+      }
+      index.set(name, {
+        exists: item?.exists === true,
+        path: typeof item?.path === "string" ? item.path : "",
+        group: typeof item?.group === "string" ? item.group : "",
+      });
+    }
+    return index;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureConsoleSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+  const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
+  if (!ref) {
+    return null;
+  }
+  const index = await consoleStateFilesIndex(ref);
+  if (!index) {
+    return null;
+  }
+  for (const file of SETUP_REQUIRED_MARKDOWN_FILES) {
+    const name = typeof file?.name === "string" ? file.name.trim() : "";
+    if (!name) {
+      continue;
+    }
+    if (index.get(name)?.exists === true) {
+      continue;
+    }
+    try {
+      await runtimeApiFetchForEndpoint(ref, `/state/files/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: {
+          content: typeof file?.content === "string" ? file.content : "",
+        },
+      });
+      index.set(name, { ...(index.get(name) || {}), exists: true });
+    } catch {
+      // Leave missing if the runtime cannot write yet.
+    }
+  }
+  return index;
+}
+
+async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+  const index = await consoleStateFilesIndex(endpointRef);
+  if (index) {
+    return index.get("IDENTITY.md")?.exists === true;
+  }
+  const info = await consoleStateFileInfo("IDENTITY.md", endpointRef);
+  return info ? info.exists === true : null;
 }
 
 async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
-  const info = await consoleStateFileInfo("SOUL.md", endpointRef);
-  if (!info) {
-    return null;
+  const index = await consoleStateFilesIndex(endpointRef);
+  if (index) {
+    return index.get("SOUL.md")?.exists === true;
   }
-  return info.exists === true;
+  const info = await consoleStateFileInfo("SOUL.md", endpointRef);
+  return info ? info.exists === true : null;
 }
 
 async function resolveConsoleSetupStage(items) {
@@ -104,11 +165,18 @@ async function resolveConsoleSetupStage(items) {
   }
   const local = setup?.consoleLocalEndpoint;
   if (local?.connected === true && local?.can_submit === true) {
-    const hasIdentity = await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    const index = await ensureConsoleSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF);
+    const hasIdentity =
+      index && index.has("IDENTITY.md")
+        ? index.get("IDENTITY.md")?.exists === true
+        : await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF);
     if (hasIdentity === false) {
       return { stage: "persona", setup };
     }
-    const soulExists = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    const soulExists =
+      index && index.has("SOUL.md")
+        ? index.get("SOUL.md")?.exists === true
+        : await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
     if (soulExists === false) {
       return { stage: "soul", setup };
     }
