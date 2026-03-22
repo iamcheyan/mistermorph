@@ -7,7 +7,6 @@
 - [为什么选择 Mister Morph](#why-mistermorph)
 - [快速开始](#quickstart)
 - [支持模型](#supported-models)
-- [守护进程模式](#daemon-mode)
 - [Telegram 机器人模式](#telegram-bot-mode)
 - [嵌入到其他项目](#embedding-to-other-projects)
 - [内置工具](#built-in-tools)
@@ -124,25 +123,6 @@ mistermorph telegram --log-level info
 - `telegram.group_trigger_mode=talkative` 也会让每条群消息进入 addressing LLM 判定，但不要求 `addressed=true`（仍受 confidence/interject 阈值控制）。
 - 可在 chat 中使用 `/reset` 清空对话历史。
 - 默认支持多 chat 并发处理，但单个 chat 内按串行处理（配置项：`telegram.max_concurrency`）。
-
-<a id="daemon-mode"></a>
-## 守护进程模式（已废弃）
-
-这是旧的本地 HTTP 守护进程模式。更推荐使用各 channel 自己的 runtime endpoint，并通过显式 `mistermorph submit --server-url ...` 提交任务。
-
-启动守护进程：
-
-```bash
-export MISTER_MORPH_SERVER_AUTH_TOKEN="change-me"
-mistermorph serve --server-listen 127.0.0.1:8787 --log-level info
-```
-
-提交任务：
-
-```bash
-mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORPH_SERVER_AUTH_TOKEN" --wait \
-  --task "Summarize this repo and write to ./summary.md"
-```
 
 <a id="embedding-to-other-projects"></a>
 ## 嵌入到其他项目
@@ -266,11 +246,6 @@ mistermorph run --inspect-prompt --inspect-request --task "..."
 - `--timeout`
 - `--inspect-prompt`
 - `--inspect-request`
-
-**serve**（已废弃）
-- `--server-listen`
-- `--server-auth-token`
-- `--server-max-queue`
 
 **submit**
 - `--task`

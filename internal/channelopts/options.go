@@ -719,9 +719,6 @@ func resolveServeListen(r ConfigReader, channelKey string, channelDefault string
 	if listen := strings.TrimSpace(r.GetString(channelKey)); listen != "" {
 		return listen
 	}
-	if legacy := strings.TrimSpace(r.GetString("server.listen")); legacy != "" {
-		return legacy
-	}
 	return channelDefault
 }
 

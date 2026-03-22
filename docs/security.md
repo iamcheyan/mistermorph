@@ -6,7 +6,7 @@ title: Security
 
 This document focuses on:
 
-- **process isolation** and **filesystem sandboxing** when running `mistermorph` as a long-lived daemon (for example, via `mistermorph serve`)
+- **process isolation** and **filesystem sandboxing** for long-lived runtime processes such as `mistermorph telegram`, `mistermorph slack`, `mistermorph line`, `mistermorph lark`, or `mistermorph console serve`
 - **secret handling** for authenticated outbound HTTP calls (profile-based credential injection)
 - **Guard (M1)**: outbound allowlists, redaction, async approvals, and audit logs
 
@@ -153,7 +153,7 @@ Guard approvals are asynchronous by design:
 - Approval state is stored in file state (`<file_state_dir>/<guard.dir_name>/approvals/guard_approvals.json` by default).
 - Approval expiry is **hard-coded to 5 minutes** in M1.
 
-Long-running modes that start the embedded admin server (including `mistermorph serve`) expose minimal management endpoints authenticated with `server.auth_token`:
+Long-running modes that start the embedded admin server expose minimal management endpoints authenticated with `server.auth_token`:
 
 - `GET /approvals/{id}` (status + metadata; never returns `resume_state`)
 - `POST /approvals/{id}/approve`
@@ -171,7 +171,7 @@ Audit:
 
 ## Systemd sandbox
 
-Because of those capabilities, daemon mode is a good candidate for a **deny-by-default** runtime profile:
+Because of those capabilities, long-lived runtime processes are a good candidate for a **deny-by-default** runtime profile:
 
 - keep the root filesystem read-only
 - allow writes only to explicitly declared directories
@@ -252,7 +252,7 @@ MISTER_MORPH_SERVER_AUTH_TOKEN="..."
 - `url_fetch` rejects sensitive headers in user-provided `headers` to reduce accidental leaks.
 - `url_fetch` supports saving binary responses to `file_cache_dir` (instead of inlining bytes in the LLM context), which is recommended for PDFs.
 - When at least one allowlisted auth profile is configured, `bash` can still be enabled for local automation, but `curl` is rejected by default to avoid “bash + curl” carrying authenticated HTTP requests.
-- `bash` does not inherit the full daemon/parent environment. It runs with a small built-in allowlist (`PATH`, locale, shell/home, temp, XDG, and SSL cert vars) so `MISTER_MORPH_*` secrets are not exposed to subprocesses by default.
+- `bash` does not inherit the full parent environment. It runs with a small built-in allowlist (`PATH`, locale, shell/home, temp, XDG, and SSL cert vars) so `MISTER_MORPH_*` secrets are not exposed to subprocesses by default.
 - If a local workflow needs extra variables, inject them explicitly with `tools.bash.injected_env_vars`.
 
 ### Filesystem sandboxing
@@ -306,6 +306,6 @@ The example unit also enables common isolation options:
 ## Notes and limitations
 
 - systemd hardening is not a perfect sandbox. If you need stronger isolation, consider running in a container/VM.
-- If you enable the `bash` tool, treat it as high risk. Prefer keeping it disabled in daemon mode, or requiring confirmations and using a strict allowlist of read-only bind mounts.
+- If you enable the `bash` tool, treat it as high risk. Prefer keeping it disabled in long-lived runtime processes, or requiring confirmations and using a strict allowlist of read-only bind mounts.
 - Even with profile-based auth, avoid enabling arbitrary outbound execution paths (e.g. shelling out to network tools). Prefer structured tools with explicit allowlists and fail-closed policy.
 - Guard M1 is intentionally small: Telegram approval UX and durable task storage across daemon restarts are not implemented yet.

@@ -176,9 +176,7 @@ Runtime routes used through `/proxy`:
   - generated Console config snippet
   - suggested env var names
   - endpoint health probe result (`GET <endpoint>/health`)
-- If the endpoint URL is local loopback (`localhost` / `127.0.0.1` / `::1`), wizard auto-generates a runtime auth token and uses `MISTER_MORPH_SERVER_AUTH_TOKEN` for both:
-  - `server.auth_token`
-  - `console.endpoints[0].auth_token`
+- If the endpoint URL is local loopback (`localhost` / `127.0.0.1` / `::1`), wizard auto-generates a runtime auth token and uses `MISTER_MORPH_SERVER_AUTH_TOKEN` for endpoint auth.
 
 ## Build (production static)
 
@@ -190,18 +188,11 @@ pnpm install
 pnpm build
 ```
 
-2. (Optional) Start daemon if you also want a remote endpoint:
+2. Start console backend + static hosting:
 
 ```bash
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-go run ./cmd/mistermorph serve --server-auth-token dev-token
-```
-
-3. Start console backend + static hosting:
-
-```bash
-MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-MISTER_MORPH_ENDPOINT_MAIN_TOKEN=dev-token \
+MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN=dev-token \
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 go run ./cmd/mistermorph console serve --console-static-dir ./web/console/dist
 ```
@@ -214,25 +205,18 @@ server:
 
 console:
   endpoints:
-    - name: "Main"
+    - name: "Telegram"
       url: "http://127.0.0.1:8787"
-      auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"
+      auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
 ```
 
-4. Open:
+3. Open:
 
 `http://127.0.0.1:9080/`
 
 ## Dev (hot reload)
 
-1. (Optional) Start daemon:
-
-```bash
-MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-go run ./cmd/mistermorph serve --server-auth-token dev-token
-```
-
-2. Start console backend:
+1. Start console backend:
 
 ```bash
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
@@ -240,7 +224,7 @@ MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 go run ./cmd/mistermorph console serve
 ```
 
-3. Start Vite dev server:
+2. Start Vite dev server:
 
 ```bash
 cd web/console
@@ -248,7 +232,7 @@ pnpm install
 pnpm dev
 ```
 
-4. Open:
+3. Open:
 
 `http://127.0.0.1:5173/`
 
@@ -256,3 +240,4 @@ Notes:
 - Vite proxies `/api` to `http://127.0.0.1:9080`.
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
 - `--console-static-dir` is optional in dev. If you omit it, `console serve` exposes only `/api` and does not serve the SPA itself.
+- Optional external endpoints should point to an existing channel runtime such as `mistermorph telegram`, `mistermorph slack`, `mistermorph line`, or `mistermorph lark`.

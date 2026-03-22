@@ -69,8 +69,6 @@ func ApplyViperDefaults(v *viper.Viper) {
 	v.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)
 	v.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
-	// Daemon server.
-	v.SetDefault("server.listen", "127.0.0.1:8787")
 	v.SetDefault("server.max_queue", 100)
 
 	// Submit client.

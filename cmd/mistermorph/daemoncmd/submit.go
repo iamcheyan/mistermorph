@@ -40,11 +40,7 @@ func NewSubmitCmd() *cobra.Command {
 			serverURL, _ := cmd.Flags().GetString("server-url")
 			serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 			if serverURL == "" {
-				serverListen := strings.TrimSpace(viper.GetString("server.listen"))
-				if serverListen == "" {
-					serverListen = "127.0.0.1:8787"
-				}
-				serverURL = "http://" + serverListen
+				return fmt.Errorf("missing --server-url")
 			}
 			auth, _ := cmd.Flags().GetString("auth-token")
 			auth = strings.TrimSpace(auth)
@@ -145,8 +141,8 @@ func NewSubmitCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("task", "", "Task to submit (if empty, reads from stdin).")
-	cmd.Flags().String("server-url", "", "Runtime base URL (recommended; deprecated fallback: http://<server.listen> or http://127.0.0.1:8787).")
-	cmd.Flags().String("auth-token", "", "Bearer token for daemon auth.")
+	cmd.Flags().String("server-url", "", "Runtime base URL (required).")
+	cmd.Flags().String("auth-token", "", "Bearer token for runtime auth.")
 	cmd.Flags().String("model", "", "Model name override (optional).")
 	cmd.Flags().String("submit-timeout", "", "Per-task timeout override (e.g. 2m, 30s).")
 	cmd.Flags().Bool("wait", false, "Wait for completion and print the final JSON.")

@@ -56,7 +56,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().String("config", "", "Config file path (optional).")
 	_ = viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 
-	// Global logging flags (usable across subcommands like run/serve/telegram).
+	// Global logging flags (usable across subcommands like run/console/telegram).
 	cmd.PersistentFlags().String("log-level", "", "Logging level: debug|info|warn|error (defaults to info).")
 	cmd.PersistentFlags().String("log-format", "text", "Logging format: text|json.")
 	cmd.PersistentFlags().Bool("log-add-source", false, "Include source file:line in logs.")
@@ -97,10 +97,6 @@ func newRootCmd() *cobra.Command {
 	telegramSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
-		RegistryFromViper: registryResolver.Registry,
-		GuardFromViper:    guardResolver.Guard,
-	}))
-	cmd.AddCommand(daemoncmd.NewServeCmd(daemoncmd.ServeDependencies{
 		RegistryFromViper: registryResolver.Registry,
 		GuardFromViper:    guardResolver.Guard,
 	}))
@@ -223,31 +219,6 @@ func initConfig() {
 		expandConfiguredDirKey("file_cache_dir")
 	}
 
-	for _, msg := range deprecatedConfigWarnings(viper.GetViper(), os.LookupEnv) {
-		warnf("%s", msg)
-	}
-}
-
-func deprecatedConfigWarnings(v *viper.Viper, lookupEnv func(string) (string, bool)) []string {
-	if v == nil {
-		return nil
-	}
-	listen := strings.TrimSpace(v.GetString("server.listen"))
-	if listen == "" {
-		return nil
-	}
-
-	envSet := false
-	if lookupEnv != nil {
-		_, envSet = lookupEnv(envPrefix + "_SERVER_LISTEN")
-	}
-	if !v.InConfig("server.listen") && !envSet {
-		return nil
-	}
-
-	return []string{
-		"server.listen is deprecated; prefer explicit --server-url for submit and channel-specific *.serve_listen for runtime APIs",
-	}
 }
 
 func resolveConfigFile() (string, bool) {

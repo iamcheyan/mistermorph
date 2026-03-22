@@ -280,9 +280,9 @@ tasks:
   # Directory name under file_state_dir for task storage.
   dir_name: "tasks"
   # Targets with file-backed task persistence enabled.
-  # Supported values: console, serve, telegram, slack, line, lark
+  # Supported values: console, telegram, slack, line, lark
   persistence_targets: ["console"]
-  # Rotation applies to shared log targets such as serve/telegram/slack/line/lark.
+  # Rotation applies to shared log targets such as telegram/slack/line/lark.
   rotate_max_bytes: 67108864
   targets:
     console:
@@ -301,9 +301,6 @@ skills:
 
 # Shared runtime server settings.
 server:
-  # Deprecated: listen address for legacy `mistermorph serve` (host:port).
-  # Also used as a deprecated shared fallback when channel-specific *.serve_listen is not set.
-  listen: ""
   # Bearer token required for submit/get endpoints.
   # Also used by channel runtime APIs (telegram/slack/line/lark/console runtime API server).
   # Prefer env var: MISTER_MORPH_SERVER_AUTH_TOKEN.
@@ -367,7 +364,6 @@ telegram:
   max_concurrency: 3
   # Runtime API listen address for Telegram runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
-  # Fallback order: telegram.serve_listen -> deprecated server.listen -> 127.0.0.1:8787
   serve_listen: ""
   # Note: file handling is always enabled; files are downloaded under file_cache_dir/telegram/ (max size is hardcoded).
 
@@ -399,7 +395,6 @@ slack:
   max_concurrency: 3
   # Runtime API listen address for Slack runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
-  # Fallback order: slack.serve_listen -> deprecated server.listen -> 127.0.0.1:8788
   serve_listen: ""
 
 # LINE bot mode (`mistermorph line`, webhook, group + private in V1).
@@ -431,7 +426,6 @@ line:
   max_concurrency: 3
   # Runtime API listen address for LINE runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
-  # Fallback order: line.serve_listen -> deprecated server.listen -> 127.0.0.1:8789
   serve_listen: ""
 
 # Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
@@ -467,7 +461,6 @@ lark:
   max_concurrency: 3
   # Runtime API listen address for Lark runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
-  # Fallback order: lark.serve_listen -> deprecated server.listen -> 127.0.0.1:8790
   serve_listen: ""
 
 # Heartbeat (periodic awareness/checkpoint).

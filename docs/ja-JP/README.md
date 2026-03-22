@@ -7,7 +7,6 @@
 - [Mister Morph を選ぶ理由](#why-mistermorph)
 - [クイックスタート](#quickstart)
 - [対応モデル](#supported-models)
-- [デーモンモード](#daemon-mode)
 - [Telegram ボットモード](#telegram-bot-mode)
 - [他プロジェクトへの組み込み](#embedding-to-other-projects)
 - [組み込みツール](#built-in-tools)
@@ -125,25 +124,6 @@ mistermorph telegram --log-level info
 - `telegram.group_trigger_mode=talkative` も各メッセージを addressing LLM で判定しますが、`addressed=true` は必須ではありません（confidence/interject の閾値は適用されます）。
 - チャットで `/reset` を実行すると会話履歴をクリアできます。
 - 既定では複数チャットを並列処理しつつ、各チャット内は直列で処理します（設定: `telegram.max_concurrency`）。
-
-<a id="daemon-mode"></a>
-## デーモンモード（非推奨）
-
-これは旧来のローカル HTTP デーモンモードです。各チャネルの runtime endpoint と明示的な `mistermorph submit --server-url ...` の利用を推奨します。
-
-デーモンを起動:
-
-```bash
-export MISTER_MORPH_SERVER_AUTH_TOKEN="change-me"
-mistermorph serve --server-listen 127.0.0.1:8787 --log-level info
-```
-
-タスクを送信:
-
-```bash
-mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORPH_SERVER_AUTH_TOKEN" --wait \
-  --task "Summarize this repo and write to ./summary.md"
-```
 
 <a id="embedding-to-other-projects"></a>
 ## 他プロジェクトへの組み込み
@@ -267,11 +247,6 @@ mistermorph run --inspect-prompt --inspect-request --task "..."
 - `--timeout`
 - `--inspect-prompt`
 - `--inspect-request`
-
-**serve**（非推奨）
-- `--server-listen`
-- `--server-auth-token`
-- `--server-max-queue`
 
 **submit**
 - `--task`

@@ -9,7 +9,6 @@ Other languages: [简体中文](docs/zh-CN/README.md) | [日本語](docs/ja-JP/R
 - [Why Mister Morph](#why-mistermorph)
 - [Quickstart](#quickstart)
 - [Supported Models](#supported-models)
-- [Daemon mode](#daemon-mode)
 - [Console WebUI](#console-webui)
 - [Telegram bot mode](#telegram-bot-mode)
 - [Slack bot mode](#slack-bot-mode)
@@ -168,24 +167,6 @@ Notes:
 - See [`docs/bus.md`](docs/bus.md) for bus routing and ordering semantics.
 
 
-## Daemon mode (deprecated)
-
-Legacy local HTTP daemon mode. Prefer channel-specific runtime endpoints plus explicit `mistermorph submit --server-url ...`.
-
-Start the daemon:
-
-```bash
-export MISTER_MORPH_SERVER_AUTH_TOKEN="change-me"
-mistermorph serve --server-listen 127.0.0.1:8787 --log-level info
-```
-
-Submit a task:
-
-```bash
-mistermorph submit --server-url http://127.0.0.1:8787 --auth-token "$MISTER_MORPH_SERVER_AUTH_TOKEN" --wait \
-  --task "Summarize this repo and write to ./summary.md"
-```
-
 ## Console WebUI
 
 Run a local Console web UI for runtime inspection and file management.
@@ -205,13 +186,6 @@ pnpm install
 pnpm build
 ```
 
-Start daemon (task API source):
-
-```bash
-MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-mistermorph serve --server-auth-token dev-token
-```
-
 Start Console backend + static hosting:
 
 ```bash
@@ -229,9 +203,9 @@ server:
 
 console:
   endpoints:
-    - name: "Main"
+    - name: "Telegram"
       url: "http://127.0.0.1:8787"
-      auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"
+      auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
 ```
 
 Open:
@@ -357,11 +331,6 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 - `--timeout`
 - `--inspect-prompt`
 - `--inspect-request`
-
-**serve** (deprecated)
-- `--server-listen`
-- `--server-auth-token`
-- `--server-max-queue`
 
 **submit**
 - `--task`

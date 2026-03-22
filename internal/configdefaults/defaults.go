@@ -53,7 +53,6 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)
 	v.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
-	v.SetDefault("server.listen", "")
 	v.SetDefault("server.max_queue", 100)
 
 	v.SetDefault("console.enabled", true)
