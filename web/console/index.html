@@ -10,6 +10,12 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="boot-overlay"></div>
+    <script type="module">
+      import { mountBootSplash } from "/src/components/BootSplash.js";
+
+      mountBootSplash(document.getElementById("boot-overlay"));
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

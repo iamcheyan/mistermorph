@@ -1,6 +1,7 @@
 import "./common.css";
 
 export { default as LoginView } from "./LoginView";
+export { default as BootPreviewView } from "./BootPreviewView";
 export { default as SetupView } from "./SetupView";
 export { default as OverviewView } from "./OverviewView";
 export { default as ChatView } from "./ChatView";

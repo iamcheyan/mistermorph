@@ -21,7 +21,7 @@ const AppLayout = {
   },
   template: `
     <div>
-      <section v-if="inLogin">
+      <section v-if="inShellless">
         <RouterView />
       </section>
       <section v-else class="app-shell">

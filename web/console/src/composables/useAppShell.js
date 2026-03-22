@@ -17,10 +17,11 @@ function useAppShell() {
   const router = useRouter();
   const route = useRoute();
   const inLogin = computed(() => route.path === "/login");
+  const inShellless = computed(() => route.meta && route.meta.shellless === true);
   const inOverview = computed(() => route.path === "/overview");
   const inSetup = computed(() => route.path === "/setup" || route.path.startsWith("/setup/"));
   const inStandalone = computed(() => inOverview.value || inSetup.value);
-  const inWorkspacePage = computed(() => !inLogin.value && !inStandalone.value);
+  const inWorkspacePage = computed(() => !inShellless.value && !inStandalone.value);
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>
     NAV_ITEMS_META.map((item) =>
@@ -56,7 +57,7 @@ function useAppShell() {
   }
 
   async function refreshEndpointsIfNeeded() {
-    if (inLogin.value || !authValid.value) {
+    if (inShellless.value || !authValid.value) {
       return;
     }
     if (endpointState.items.length > 0) {
@@ -133,6 +134,7 @@ function useAppShell() {
   return {
     t,
     inLogin,
+    inShellless,
     inOverview,
     inSetup,
     inStandalone,

@@ -18,6 +18,7 @@ import {
 } from "../core/setup";
 import {
   AuditView,
+  BootPreviewView,
   ChatView,
   ContactsView,
   LoginView,
@@ -54,7 +55,8 @@ function selectedEndpointCanChat() {
 }
 
 const routes = [
-  { path: "/login", component: LoginView },
+  { path: "/login", component: LoginView, meta: { public: true, shellless: true } },
+  { path: "/__boot-preview", component: BootPreviewView, meta: { public: true, shellless: true } },
   { path: "/setup", component: SetupView },
   { path: "/setup/llm", component: SetupView, meta: { setupStage: "llm" } },
   { path: "/setup/persona", component: SetupView, meta: { setupStage: "persona" } },
@@ -95,7 +97,7 @@ const NAV_ITEMS_META = [
 ];
 
 router.beforeEach(async (to) => {
-  if (to.path === "/login") {
+  if (to.meta && to.meta.public === true) {
     return true;
   }
   if (!authValid.value) {
