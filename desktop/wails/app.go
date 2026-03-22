@@ -3,34 +3,26 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"sync"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type App struct {
-	ctx        context.Context
-	host       *DesktopHost
+	wailsApp   *application.App
 	restartMu  sync.Mutex
 	restarting bool
 }
 
-func NewApp(host *DesktopHost) *App {
-	return &App{host: host}
+func NewApp() *App {
+	return &App{}
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-}
-
-func (a *App) shutdown(ctx context.Context) {
-	if a.host != nil {
-		a.host.Stop()
-	}
+func (a *App) Attach(wailsApp *application.App) {
+	a.wailsApp = wailsApp
 }
 
 // RestartApp relaunches the current executable and quits the current process.
@@ -59,8 +51,8 @@ func (a *App) RestartApp() error {
 		return fmt.Errorf("start new app process: %w", err)
 	}
 
-	if a.ctx != nil {
-		runtime.Quit(a.ctx)
+	if a.wailsApp != nil {
+		a.wailsApp.Quit()
 	}
 	return nil
 }

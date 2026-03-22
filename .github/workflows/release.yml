@@ -65,18 +65,27 @@ jobs:
         include:
           - label: linux-amd64
             os: ubuntu-24.04
-            asset_name: mistermorph-desktop-linux-amd64
-            binary_ext: ""
-            go_build_tags: "wailsdesktop production webkit2_41"
+            goos: linux
+            goarch: amd64
+            desktop_asset: mistermorph-desktop-linux-amd64.AppImage
+            raw_desktop_binary: dist/mistermorph-desktop
+            package_kind: appimage
+            go_build_tags: "wailsdesktop production"
           - label: macos-arm64
             os: macos-14
-            asset_name: mistermorph-desktop-darwin-arm64
-            binary_ext: ""
+            goos: darwin
+            goarch: arm64
+            desktop_asset: mistermorph-desktop-darwin-arm64.dmg
+            raw_desktop_binary: dist/mistermorph-desktop
+            package_kind: dmg
             go_build_tags: "wailsdesktop production"
           - label: windows-amd64
             os: windows-2022
-            asset_name: mistermorph-desktop-windows-amd64
-            binary_ext: ".exe"
+            goos: windows
+            goarch: amd64
+            desktop_asset: mistermorph-desktop-windows-amd64.exe
+            raw_desktop_binary: dist/mistermorph-desktop-windows-amd64.exe
+            package_kind: raw
             go_build_tags: "wailsdesktop production"
 
     steps:
@@ -119,31 +128,67 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          output="dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}"
-          go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "-s -w" -o "${output}" ./desktop/wails
+          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "-s -w" -o "${{ matrix.raw_desktop_binary }}" ./desktop/wails
+
+      - name: Build bundled backend binary
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -ldflags "-s -w" -o dist/mistermorph ./cmd/mistermorph
+
+      - name: Package macOS DMG
+        if: matrix.package_kind == 'dmg'
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${VERSION#v}" \
+          ARCH="${ARCH}" \
+          DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
+          BACKEND_BIN="dist/mistermorph" \
+          OUT_DIR="dist" \
+          ./desktop/wails/packaging/package-darwin.sh
+
+      - name: Package Linux AppImage
+        if: matrix.package_kind == 'appimage'
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${VERSION#v}" \
+          ARCH="${ARCH}" \
+          DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
+          BACKEND_BIN="dist/mistermorph" \
+          OUT_DIR="dist" \
+          APPIMAGE_NAME="${{ matrix.desktop_asset }}" \
+          ./desktop/wails/packaging/package-linux-appimage.sh
 
       - name: Generate checksum
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          file="${{ matrix.asset_name }}${{ matrix.binary_ext }}"
+          file="${{ matrix.desktop_asset }}"
           shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
 
       - name: Generate checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $file = "${{ matrix.asset_name }}${{ matrix.binary_ext }}"
+          $file = "${{ matrix.desktop_asset }}"
           $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
           "$hash *$file" | Set-Content "dist/$file.sha256"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
+          name: ${{ matrix.label }}
           path: |
-            dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}
-            dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}.sha256
+            dist/${{ matrix.desktop_asset }}
+            dist/${{ matrix.desktop_asset }}.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -153,6 +198,6 @@ jobs:
         shell: bash
         run: |
           gh release upload "${GITHUB_REF_NAME}" \
-            "dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}" \
-            "dist/${{ matrix.asset_name }}${{ matrix.binary_ext }}.sha256" \
+            "dist/${{ matrix.desktop_asset }}" \
+            "dist/${{ matrix.desktop_asset }}.sha256" \
             --clobber

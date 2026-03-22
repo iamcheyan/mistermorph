@@ -76,7 +76,7 @@ func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var bodyReader io.Reader
+	bodyReader := io.Reader(http.NoBody)
 	if len(body) > 0 {
 		bodyReader = bytes.NewReader(body)
 	}

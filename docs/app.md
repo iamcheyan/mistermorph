@@ -10,9 +10,9 @@ Provide a single desktop app entrypoint that:
 - supports first-run setup in Console
 - reuses existing backend (`mistermorph console serve`) and existing web console (`web/console`)
 
-## 2. Current Shape (MVP)
+## 2. Current Shape
 
-The desktop app is implemented under `desktop/wails` and built with tag `wailsdesktop` plus a Wails app tag such as `production`. On Linux distros that ship WebKitGTK 4.1 instead of 4.0 (for example Ubuntu 24.04), also add `webkit2_41`.
+The desktop app is implemented under `desktop/wails` and built with tag `wailsdesktop production`.
 
 - Wails process hosts the native window and Go bindings.
 - A child process runs `mistermorph console serve`.
@@ -110,23 +110,34 @@ sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 Run desktop app:
 
 ```bash
-go run -tags 'wailsdesktop production webkit2_41' ./desktop/wails
+go run -tags 'wailsdesktop production' ./desktop/wails
 ```
 
 Build desktop binary:
 
 ```bash
-go build -tags 'wailsdesktop production webkit2_41' -o ./bin/mistermorph-desktop ./desktop/wails
+go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
 ```
 
-## 9. Security and Scope Notes
+## 9. Packaging
+
+Tag releases build these desktop assets in GitHub Actions:
+
+- macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
+- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`
+- Windows `amd64`: `mistermorph-desktop-windows-amd64.exe`
+
+The DMG and AppImage packaging steps also bundle a sibling `mistermorph` backend binary next to the desktop wrapper executable inside the package. That lets the desktop host find `console serve` locally before falling back to PATH or GitHub release download.
+
+## 10. Security and Scope Notes
 
 - Child process listens on loopback only (`127.0.0.1`).
 - Child process only binds to loopback; no external listener is exposed.
 - This is an MVP wrapper, not yet a full packaging/distribution pipeline.
 
-## 10. Known Gaps
+## 11. Known Gaps
 
-- No full desktop packaging workflow in this doc yet (installer/signing/notarization).
+- No notarization/codesign flow yet for the macOS DMG.
+- Windows still ships as a raw `.exe`; no NSIS/MSIX packaging yet.
 - No dedicated UI for backend startup failure details yet.
 - CLI reuse is done through child process orchestration, not an extracted in-process console module.

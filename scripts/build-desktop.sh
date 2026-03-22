@@ -9,6 +9,7 @@ BACKEND_OUTPUT="./bin/mistermorph"
 BUILD_FRONTEND=1
 BUILD_BACKEND=1
 ENABLE_DEVTOOLS=1
+HOST_OS="$(uname -s)"
 
 usage() {
   cat <<'EOF'
@@ -25,7 +26,9 @@ Options:
   -h, --help          Show this help
 
 Default desktop build tags:
-  wailsdesktop production [webkit2_41 when available] devtools
+  Linux debug build:  wailsdesktop dev devtools
+  Other debug build:  wailsdesktop production devtools
+  Release build:      wailsdesktop production
 EOF
 }
 
@@ -68,21 +71,6 @@ if [[ -z "${DESKTOP_OUTPUT}" || -z "${BACKEND_OUTPUT}" ]]; then
   exit 1
 fi
 
-detect_webkit_tag() {
-  if command -v pkg-config >/dev/null 2>&1; then
-    if pkg-config --exists webkit2gtk-4.1; then
-      printf '%s\n' "webkit2_41"
-      return 0
-    fi
-    if pkg-config --exists webkit2gtk-4.0; then
-      printf '%s\n' ""
-      return 0
-    fi
-  fi
-  echo "Missing WebKitGTK development package. Need pkg-config entry for webkit2gtk-4.1 or webkit2gtk-4.0." >&2
-  exit 1
-}
-
 mkdir -p "$(dirname "${DESKTOP_OUTPUT}")" "$(dirname "${BACKEND_OUTPUT}")"
 
 if [[ "${BUILD_FRONTEND}" == "1" ]]; then
@@ -95,13 +83,16 @@ if [[ "${BUILD_BACKEND}" == "1" ]]; then
   go build -o "${BACKEND_OUTPUT}" ./cmd/mistermorph
 fi
 
-webkit_tag="$(detect_webkit_tag)"
-desktop_tags=(wailsdesktop production)
-if [[ -n "${webkit_tag}" ]]; then
-  desktop_tags+=("${webkit_tag}")
-fi
+desktop_tags=(wailsdesktop)
 if [[ "${ENABLE_DEVTOOLS}" == "1" ]]; then
-  desktop_tags+=("devtools")
+  if [[ "${HOST_OS}" == "Linux" ]]; then
+    # Wails v3 alpha currently has no linux+production+devtools implementation.
+    desktop_tags+=(dev devtools)
+  else
+    desktop_tags+=(production devtools)
+  fi
+else
+  desktop_tags+=(production)
 fi
 
 echo "==> Building desktop ${DESKTOP_OUTPUT}"

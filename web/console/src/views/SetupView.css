@@ -1,6 +1,6 @@
 .setup-screen {
   --setup-accent: rgb(183, 88, 34);
-  min-height: calc(100vh - 20px);
+  min-height: 100%;
   display: grid;
   place-items: center;
 }

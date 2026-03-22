@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -80,5 +81,27 @@ func TestInProcessRuntimeEndpointClientHealthOverridesSubmitCapability(t *testin
 	}
 	if health.CanSubmit {
 		t.Fatal("Health().CanSubmit = true, want false")
+	}
+}
+
+func TestInProcessRuntimeEndpointClientProxyEmptyPostBodyDoesNotPanic(t *testing.T) {
+	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
+		Mode:      "console",
+		AuthToken: "dev-token",
+		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+			return daemonruntime.SubmitTaskResponse{}, nil
+		},
+	})
+	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
+
+	status, raw, err := client.Proxy(context.Background(), http.MethodPost, "/tasks", nil)
+	if err != nil {
+		t.Fatalf("Proxy() error = %v", err)
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("Proxy() status = %d, want %d (%s)", status, http.StatusBadRequest, string(raw))
+	}
+	if !strings.Contains(string(raw), "invalid json") {
+		t.Fatalf("Proxy() body = %q, want invalid json", string(raw))
 	}
 }

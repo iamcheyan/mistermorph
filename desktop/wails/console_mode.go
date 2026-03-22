@@ -21,6 +21,8 @@ func maybeRunDesktopConsoleServe(args []string) (bool, error) {
 	}
 
 	serveArgs := append([]string(nil), args[1:]...)
+	cfgPath, explicit := resolveDesktopConfigPath(serveArgs)
+	printDesktopConfigPath("desktop console host", cfgPath, explicit)
 	if err := initDesktopConsoleViper(serveArgs); err != nil {
 		return true, err
 	}
@@ -67,6 +69,22 @@ func resolveDesktopConfigPath(args []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func printDesktopConfigPath(scope string, cfgPath string, explicit bool) {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "desktop"
+	}
+	source := "auto"
+	if explicit {
+		source = "explicit"
+	}
+	cfgPath = strings.TrimSpace(cfgPath)
+	if cfgPath == "" {
+		cfgPath = "(none)"
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "%s config path [%s]: %s\n", scope, source, cfgPath)
 }
 
 func isDesktopConfigNotFound(err error) bool {

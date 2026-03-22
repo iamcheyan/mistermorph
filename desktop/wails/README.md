@@ -1,4 +1,4 @@
-# MisterMorph Desktop (Wails v2)
+# MisterMorph Desktop (Wails v3)
 
 This directory contains the Wails desktop host for `mistermorph`.
 
@@ -13,10 +13,10 @@ This directory contains the Wails desktop host for `mistermorph`.
 ## Dev prerequisites
 
 - Go (same version as repository)
-- Wails v2 dependencies installed for your OS
+- Wails v3 desktop dependencies installed for your OS
 - Built console assets under `web/console/dist`
 
-On Ubuntu/Debian with WebKitGTK 4.1 (for example Ubuntu 24.04), install the Linux desktop build deps first:
+On Ubuntu/Debian, install the Linux desktop build deps first:
 
 ```bash
 sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
@@ -31,14 +31,16 @@ pnpm --dir web/console build
 Run desktop app from source:
 
 ```bash
-go run -tags 'wailsdesktop production webkit2_41' ./desktop/wails
+go run -tags 'wailsdesktop production' ./desktop/wails
 ```
 
 Build desktop binary:
 
 ```bash
-go build -tags 'wailsdesktop production webkit2_41' -o ./bin/mistermorph-desktop ./desktop/wails
+go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
 ```
+
+For local Linux builds with DevTools enabled, use [`scripts/build-desktop.sh`](/home/lyric/Codework/arch/mistermorph/scripts/build-desktop.sh). It automatically switches Linux debug builds to `wailsdesktop dev devtools`, because Wails v3 alpha does not currently support `linux + production + devtools`.
 
 ## Asset path override
 
@@ -68,3 +70,13 @@ Optional envs:
 - `MISTERMORPH_DESKTOP_BACKEND_VERSION=latest|vX.Y.Z` (default `latest`)
 - `MISTERMORPH_DESKTOP_BACKEND_CACHE_DIR=/abs/path` (default: user cache dir under `mistermorph/desktop/backend`)
 - `MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY=ondemand|always|never` (Linux only, default `ondemand`)
+
+## Release packaging
+
+Tag releases now build desktop release assets in GitHub Actions:
+
+- macOS: `mistermorph-desktop-darwin-arm64.dmg`
+- Linux: `mistermorph-desktop-linux-amd64.AppImage`
+- Windows: `mistermorph-desktop-windows-amd64.exe`
+
+The macOS DMG and Linux AppImage bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.

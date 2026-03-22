@@ -38,12 +38,12 @@ func TestExtractConfigPathFromArgs(t *testing.T) {
 		{
 			name: "split form",
 			args: []string{"--config", "/tmp/a.yaml"},
-			want: "/tmp/a.yaml",
+			want: filepath.Clean("/tmp/a.yaml"),
 		},
 		{
 			name: "equals form",
 			args: []string{"--config=/tmp/b.yaml"},
-			want: "/tmp/b.yaml",
+			want: filepath.Clean("/tmp/b.yaml"),
 		},
 		{
 			name: "no config",
