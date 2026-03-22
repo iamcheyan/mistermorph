@@ -110,7 +110,6 @@ Implemented channel adapters:
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - Telegram poll inbound path: Telegram inbound adapter -> bus -> handler -> worker queue
 - business outbound messages via bus: final text publish path, task failures, file-download failures, and plan updates
-- Telegram draft streaming output (`sendMessageDraft`, private-chat only) is channel-local direct send inside Telegram runtime/task loop; stream deltas are not published to bus
 - operational/admin messages (for example `/help`, initialization/system notices) may still use direct send
 
 `mistermorph slack`:
@@ -219,15 +218,14 @@ business output / proactive sender
   -> caller records outbox state (pending/sent/failed)
 ```
 
-Telegram draft-stream note:
-- `sendMessageDraft` incremental updates are intentionally not modeled as outbound bus messages.
-- Bus carries canonical outbound messages (final text/error/plan progress), while Telegram draft-stream deltas stay runtime-local.
+Telegram note:
+- Telegram outbound messages are currently delivered through canonical bus-driven send paths.
 
 ## 4) Design Evaluation (Current State)
 
 ### 4.1 Why this is reasonable now
 - Telegram / Slack inbound paths are unified through bus; LINE inbound webhook path is now on the same bus flow.
-- Canonical outbound messages are bus-driven while Telegram draft-stream deltas are runtime-local.
+- Canonical outbound messages are bus-driven.
 - Ordering is explicit and enforceable per `conversation_key`.
 - Backpressure is bounded and observable via typed error (`QUEUE_FULL`).
 - Idempotency is explicit via inbox/outbox keyed records.
@@ -249,7 +247,7 @@ Telegram draft-stream note:
 - Slack runtime bus path (`mistermorph slack`) with inbound publish and outbound delivery
 - LINE runtime bus path (`mistermorph line`) with webhook inbound publish and outbound delivery
 - main-path test coverage expansion
-- Telegram business outbound via bus for canonical events, with runtime-local direct draft streaming for incremental output
+- Telegram business outbound via bus for canonical events
 - typed error code propagation in call-site logging
 
 ### 5.2 Verified test set

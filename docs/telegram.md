@@ -23,15 +23,14 @@ These are related, but not the same switch.
 ## 2) End-to-End Flow
 
 ```text
-Inbound group message
+Inbound Telegram message (group path shown)
   -> prefilter (reply/mention guard)
   -> addressing LLM + grouptrigger.Decide(...)
      -> may call message_react in pre-run
      -> decide trigger yes/no
   -> if triggered: runTelegramTask (main run)
      -> main run may call message_react again
-     -> stream callback may update Telegram draft via sendMessageDraft
-     -> final.is_lightweight decides whether text is published
+     -> final.is_lightweight decides whether text is publishable
 ```
 
 ### 2.1 Runtime Delivery Path (ASCII)
@@ -56,24 +55,20 @@ Inbound group message
                         +-------------------+-------------------+
                         |                                       |
               +---------v-----------+                 +---------v-----------+
-              | stream delta/output |                 | final output        |
+              | main run output     |                 | final output        |
               +---------+-----------+                 +---------+-----------+
                         |                                       |
-          +-------------v-------------+             +-----------v-------------------+
-          | sendMessageDraft (direct) |             | try sendMessageDraft finalize |
-          +---------------------------+             +-----------+-------------------+
-                                                                |
-                                              +------------------------+------------------------+
-                                              |                                                 |
-                                  +-----------v-----------+                        +------------v------------+
-                                  | success/fail          |                        | publish outbound bus    |
-                                  | (draft is stream UI)  |                        | final text              |
-                                  +-----------------------+                        +------------+------------+
-                                                                                               |
-                                                                                   +-----------v-------------+
-                                                                                   | telegram delivery       |
-                                                                                   | adapter -> sendMessage  |
-                                                                                   +-------------------------+
+                        +-------------------+-------------------+
+                                            |
+                                +-----------v-------------------+
+                                | publish outbound bus          |
+                                | final text                    |
+                                +-----------+-------------------+
+                                            |
+                                +-----------v-------------+
+                                | telegram delivery       |
+                                | adapter -> sendMessage  |
+                                +-------------------------+
 ```
 
 ### 2.2 Pre Filter: `shouldSkipGroupReplyWithoutBodyMention`
@@ -179,6 +174,14 @@ It is not the final text publish switch.
 
 Inside `runTelegramTask(...)`, runtime builds a fresh tool registry and registers `message_react` again (if API and `message_id` are available).
 
+Telegram draft streaming is currently not enabled in runtime.
+
+Reason:
+
+- Telegram Bot API `sendMessageDraft` behaves like preview UI rather than a same-bubble final message primitive.
+- In practice this caused either disappearing replies or unacceptable duplicate-shadow windows in private chat.
+- Current runtime therefore keeps Telegram on `typing` + canonical final `sendMessage`.
+
 After `agent.Engine.Run(...)`, runtime reads `reactTool.LastReaction()`:
 
 - `nil`: no successful main-run reaction
@@ -201,10 +204,9 @@ Pre-run reaction does not change this rule.
 
 Text delivery path when `final.is_lightweight == false`:
 
-- runtime attempts Telegram draft delivery (`sendMessageDraft`) in the main run stream/finalize path for incremental UX
-- draft delivery is enabled for private chats only; group/supergroup skip draft path
-- runtime always publishes final text through normal bus outbound text path (delivery adapter -> `sendMessage`)
-- draft delivery success/failure does not replace the canonical final send path
+- runtime publishes the final text through the normal outbound bus text path (delivery adapter -> `sendMessage`)
+- Telegram draft streaming is intentionally disabled in the current Bot API implementation
+- private chats still get typing/status feedback through the normal runtime ticker, but not inline draft preview
 
 ## 6) Pre-Run vs Main-Run Reaction Interaction
 
@@ -227,7 +229,6 @@ Useful logs for debugging:
 - `telegram_group_trigger`
 - `telegram_group_addressing_reaction_applied`
 - `message_reaction_applied`
-- `telegram_stream_publish_error`
 
 ## 8) Quick Behavior Matrix
 
@@ -237,12 +238,11 @@ Useful logs for debugging:
 - pre-run no reaction, main-run reacted, `final.is_lightweight=true`: reaction only
 - pre-run no reaction, main-run no reaction, `addressing.is_lightweight=true`: possible when addressing JSON has empty/missing `reaction` and no pre-run tool call
 
-## 9) Telegram Draft Streaming and Bus Boundary
+## 9) Telegram Bus Boundary
 
-- `sendMessageDraft` is Telegram runtime-local transport for incremental/final draft updates.
-- this API path is private-chat only in current Telegram Bot API semantics.
-- stream deltas are not encoded as outbound bus messages.
-- bus still carries canonical outbound events in Telegram runtime:
+- Telegram outbound text remains canonical bus-driven delivery.
+- bus carries outbound events in Telegram runtime:
   - plan progress
   - error/file-download-error replies
   - final text publish path
+- draft streaming is not enabled in the current runtime.
