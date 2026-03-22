@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -36,36 +37,47 @@ func main() {
 	defer host.Stop()
 
 	appBinding := NewApp()
-	app := application.New(application.Options{
+	app := application.New(buildDesktopAppOptions(host, appBinding))
+	appBinding.Attach(app)
+	app.Window.NewWithOptions(buildDesktopWindowOptions(host.ConsoleURL()))
+
+	err := app.Run()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "desktop app exited with error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Options {
+	return application.Options{
 		Name:        "MisterMorph",
 		Description: "MisterMorph Desktop",
 		Linux: application.LinuxOptions{
 			ProgramName: "MisterMorph",
 		},
 		Assets: application.AssetOptions{
-			Handler: host.ProxyHandler(),
+			// Linux custom-scheme requests can lose JSON bodies; load the console over
+			// the local HTTP host instead of proxying the UI through the asset handler.
+			Handler: http.NotFoundHandler(),
 		},
 		OnShutdown: host.Stop,
 		Services: []application.Service{
 			application.NewService(appBinding),
 		},
-	})
-	appBinding.Attach(app)
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	}
+}
+
+func buildDesktopWindowOptions(consoleURL string) application.WebviewWindowOptions {
+	return application.WebviewWindowOptions{
 		Title:     "MisterMorph",
 		Width:     1360,
 		Height:    860,
 		MinWidth:  1000,
 		MinHeight: 680,
+		URL:       consoleURL,
 		Linux: application.LinuxWindow{
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},
-	})
-
-	err := app.Run()
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "desktop app exited with error: %v\n", err)
-		os.Exit(1)
 	}
 }
 
