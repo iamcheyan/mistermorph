@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+CALLER_DIR="$(pwd)"
 APP_BINARY_NAME="${APP_BINARY_NAME:-mistermorph-desktop}"
 DISPLAY_NAME="${DISPLAY_NAME:-MisterMorph}"
 VERSION="${VERSION:-0.0.0}"
@@ -12,9 +13,16 @@ BACKEND_BIN="${BACKEND_BIN:-${ROOT_DIR}/dist/mistermorph}"
 ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 WORK_ROOT="${WORK_ROOT:-${OUT_DIR}/appimage-work}"
-TOOLS_DIR="${WORK_ROOT}/tools"
-BUILD_DIR="${WORK_ROOT}/build"
 APPIMAGE_NAME="${APPIMAGE_NAME:-mistermorph-desktop-linux-${ARCH}.AppImage}"
+
+abspath() {
+  local path="$1"
+  if [[ "${path}" == /* ]]; then
+    printf '%s\n' "${path}"
+    return
+  fi
+  printf '%s\n' "${CALLER_DIR}/${path}"
+}
 
 require_file() {
   local path="$1"
@@ -34,6 +42,14 @@ done
 require_file "${DESKTOP_BIN}"
 require_file "${BACKEND_BIN}"
 require_file "${ICON_PNG}"
+
+DESKTOP_BIN="$(abspath "${DESKTOP_BIN}")"
+BACKEND_BIN="$(abspath "${BACKEND_BIN}")"
+ICON_PNG="$(abspath "${ICON_PNG}")"
+OUT_DIR="$(abspath "${OUT_DIR}")"
+WORK_ROOT="$(abspath "${WORK_ROOT}")"
+TOOLS_DIR="${WORK_ROOT}/tools"
+BUILD_DIR="${WORK_ROOT}/build"
 
 case "${ARCH}" in
   amd64)
