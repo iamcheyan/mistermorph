@@ -32,7 +32,7 @@
 .memory-workbench {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(220px, 0.78fr) minmax(0, 1.72fr);
+  grid-template-columns: minmax(220px, var(--workspace-sidebar-max-width, 310px)) minmax(0, 1fr);
   gap: clamp(18px, 2.4vw, 32px);
   align-items: stretch;
   min-width: 0;

@@ -81,11 +81,13 @@
 }
 
 .workspace-sidebar-section {
+  --workspace-sidebar-max-width: 310px;
   --workspace-sidebar-head-pad: 0;
   --workspace-sidebar-list-pad: 0;
   --workspace-sidebar-list-gap: 6px;
   --workspace-sidebar-item-pad: 12px 13px 11px 14px;
-  max-width: 310px;
+  width: 100%;
+  max-width: var(--workspace-sidebar-max-width);
 }
 
 .workspace-sidebar-head {
