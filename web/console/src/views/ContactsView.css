@@ -31,6 +31,10 @@
   gap: 14px;
 }
 
+.contact-card .q-card-leader-line {
+  display: none !important;
+}
+
 .contact-card.is-human {
   --q-card-marker-color: var(--q-c-blue);
 }

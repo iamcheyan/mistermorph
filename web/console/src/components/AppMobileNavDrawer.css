@@ -1,0 +1,17 @@
+.q-drawer.app-mobile-nav-drawer,
+.q-drawer.app-mobile-nav-drawer .q-drawer-body {
+  background: var(--q-c-dark) !important;
+  color: var(--q-c-light) !important;
+}
+
+.q-drawer.app-mobile-nav-drawer .q-drawer-body {
+  padding: 0 !important;
+}
+
+.app-mobile-nav-shell {
+  height: 100%;
+  min-height: 100%;
+  border-right: 0;
+  background: var(--q-c-dark);
+  color: var(--q-c-light);
+}

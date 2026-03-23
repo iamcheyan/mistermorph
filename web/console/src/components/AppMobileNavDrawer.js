@@ -1,3 +1,4 @@
+import "./AppMobileNavDrawer.css";
 import AppSidebarControls from "./AppSidebarControls";
 import AppNavList from "./AppNavList";
 
@@ -39,33 +40,36 @@ const AppMobileNavDrawer = {
   emits: ["update:modelValue", "close", "navigate", "endpoint-change", "go-overview", "go-settings"],
   template: `
     <QDrawer
+      class="app-mobile-nav-drawer"
       :modelValue="modelValue"
       @update:modelValue="$emit('update:modelValue', $event)"
-      :title="title"
       placement="left"
       size="272px"
+      :closable="false"
       :showMask="true"
       :maskClosable="true"
       :lockScroll="true"
       @close="$emit('close')"
     >
-      <AppSidebarControls
-        :t="t"
-        :endpointItems="endpointItems"
-        :selectedEndpointItem="selectedEndpointItem"
-        :currentPath="currentPath"
-        :mobile="true"
-        @endpoint-change="$emit('endpoint-change', $event)"
-        @go-overview="$emit('go-overview')"
-        @go-settings="$emit('go-settings')"
-      />
-      <AppNavList
-        :navItems="navItems"
-        :currentPath="currentPath"
-        :mobile="true"
-        keyPrefix="drawer-"
-        @navigate="$emit('navigate', $event)"
-      />
+      <div class="sidebar app-mobile-nav-shell">
+        <AppSidebarControls
+          :t="t"
+          :endpointItems="endpointItems"
+          :selectedEndpointItem="selectedEndpointItem"
+          :currentPath="currentPath"
+          :mobile="true"
+          @endpoint-change="$emit('endpoint-change', $event)"
+          @go-overview="$emit('go-overview')"
+          @go-settings="$emit('go-settings')"
+        />
+        <AppNavList
+          :navItems="navItems"
+          :currentPath="currentPath"
+          :mobile="true"
+          keyPrefix="drawer-"
+          @navigate="$emit('navigate', $event)"
+        />
+      </div>
     </QDrawer>
   `,
 };
