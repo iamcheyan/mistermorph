@@ -52,6 +52,7 @@ func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Opti
 	return application.Options{
 		Name:        "MisterMorph",
 		Description: "MisterMorph Desktop",
+		Icon:        desktopAppIconPNG,
 		Linux: application.LinuxOptions{
 			ProgramName: "MisterMorph",
 		},

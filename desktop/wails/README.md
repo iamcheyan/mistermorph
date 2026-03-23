@@ -80,3 +80,10 @@ Tag releases now build desktop release assets in GitHub Actions:
 - Windows: `mistermorph-desktop-windows-amd64.exe`
 
 The macOS DMG and Linux AppImage bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.
+The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published `.exe` carries the desktop app icon.
+
+If you want the same Windows executable icon in a local Windows build, run:
+
+```bash
+./scripts/generate-desktop-windows-resources.sh
+```

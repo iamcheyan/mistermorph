@@ -124,6 +124,13 @@ jobs:
       - name: Verify desktop package compiles
         run: go test -tags "${{ matrix.go_build_tags }}" ./desktop/wails -count=1
 
+      - name: Generate Windows desktop icon resources
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.goarch }}
+        run: ./scripts/generate-desktop-windows-resources.sh
+
       - name: Build desktop app binary
         shell: bash
         run: |
