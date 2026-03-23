@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -163,21 +162,10 @@ func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath st
 }
 
 func sameExecutablePath(a, b string) bool {
-	a = filepath.Clean(strings.TrimSpace(a))
-	b = filepath.Clean(strings.TrimSpace(b))
+	a = normalizeDesktopPathCandidate(a)
+	b = normalizeDesktopPathCandidate(b)
 	if a == "" || b == "" {
 		return false
-	}
-	if a == b {
-		return true
-	}
-	aEval, aErr := filepath.EvalSymlinks(a)
-	if aErr == nil {
-		a = filepath.Clean(aEval)
-	}
-	bEval, bErr := filepath.EvalSymlinks(b)
-	if bErr == nil {
-		b = filepath.Clean(bEval)
 	}
 	return a == b
 }

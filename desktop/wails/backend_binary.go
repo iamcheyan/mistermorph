@@ -45,11 +45,10 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 	out := make([]string, 0, 8)
 	seen := map[string]struct{}{}
 	add := func(raw string) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
+		clean := normalizeDesktopPathCandidate(raw)
+		if clean == "" {
 			return
 		}
-		clean := filepath.Clean(raw)
 		if _, ok := seen[clean]; ok {
 			return
 		}
@@ -65,9 +64,11 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 		add(filepath.Join(appDir, desktopBackendBinaryBaseName()))
 	}
 	if strings.TrimSpace(selfExePath) != "" {
-		exeDir := filepath.Dir(selfExePath)
+		exeDir := filepath.Dir(filepath.Clean(selfExePath))
 		add(filepath.Join(exeDir, desktopBackendBinaryBaseName()))
-		add(filepath.Join(exeDir, "bin", desktopBackendBinaryBaseName()))
+		if shouldSearchDesktopExecutableChildBin(exeDir) {
+			add(filepath.Join(exeDir, "bin", desktopBackendBinaryBaseName()))
+		}
 	}
 	if wd, err := os.Getwd(); err == nil {
 		add(filepath.Join(wd, "bin", desktopBackendBinaryBaseName()))
@@ -79,8 +80,62 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 	return out
 }
 
+func normalizeDesktopPathCandidate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	clean := filepath.Clean(raw)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return filepath.Clean(resolved)
+	}
+
+	ancestor, suffix := splitExistingPathPrefix(clean)
+	if ancestor == "" {
+		return clean
+	}
+	resolvedAncestor, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return clean
+	}
+	if suffix == "" || suffix == "." {
+		return filepath.Clean(resolvedAncestor)
+	}
+	return filepath.Clean(filepath.Join(resolvedAncestor, suffix))
+}
+
+func splitExistingPathPrefix(path string) (string, string) {
+	clean := filepath.Clean(path)
+	suffix := ""
+	for {
+		if _, err := os.Lstat(clean); err == nil {
+			return clean, suffix
+		}
+		next := filepath.Dir(clean)
+		if next == clean {
+			return "", ""
+		}
+		base := filepath.Base(clean)
+		if suffix == "" {
+			suffix = base
+		} else {
+			suffix = filepath.Join(base, suffix)
+		}
+		clean = next
+	}
+}
+
+func shouldSearchDesktopExecutableChildBin(exeDir string) bool {
+	switch strings.ToLower(strings.TrimSpace(filepath.Base(exeDir))) {
+	case "bin", "macos":
+		return false
+	default:
+		return true
+	}
+}
+
 func isExecutableFile(path string) bool {
-	path = filepath.Clean(strings.TrimSpace(path))
+	path = normalizeDesktopPathCandidate(path)
 	if path == "" {
 		return false
 	}

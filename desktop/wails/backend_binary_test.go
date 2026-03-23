@@ -112,6 +112,12 @@ func TestResolveDesktopBackendCandidates_AppDirPreferredOverWorkingDir(t *testin
 	if appIdx >= wdIdx {
 		t.Fatalf("appdir candidate index = %d, wd candidate index = %d, want appdir before wd in %#v", appIdx, wdIdx, candidates)
 	}
+	unexpected := filepath.Join(appDir, "usr", "bin", "bin", desktopBackendBinaryBaseName())
+	for _, c := range candidates {
+		if sameCleanPath(c, unexpected) {
+			t.Fatalf("unexpected nested bin candidate %q in %#v", c, candidates)
+		}
+	}
 }
 
 func TestIsExecutableFile(t *testing.T) {
@@ -125,13 +131,7 @@ func TestIsExecutableFile(t *testing.T) {
 }
 
 func sameCleanPath(a, b string) bool {
-	a = filepath.Clean(a)
-	b = filepath.Clean(b)
-	if resolved, err := filepath.EvalSymlinks(a); err == nil {
-		a = filepath.Clean(resolved)
-	}
-	if resolved, err := filepath.EvalSymlinks(b); err == nil {
-		b = filepath.Clean(resolved)
-	}
+	a = normalizeDesktopPathCandidate(a)
+	b = normalizeDesktopPathCandidate(b)
 	return a == b
 }
