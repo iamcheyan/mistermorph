@@ -12,14 +12,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
-	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -43,12 +44,13 @@ import (
 )
 
 const (
-	consoleLocalEndpointRef   = "ep_console_local"
-	consoleLocalEndpointName  = "Console Local"
-	consoleLocalEndpointURL   = "in-process://console-local"
-	consoleTopicTitleMaxChars = 72
-	consoleTopicTitleTimeout  = 20 * time.Second
-	consoleHeartbeatSkipNoLLM = "console_submit_unavailable"
+	consoleLocalEndpointRef               = "ep_console_local"
+	consoleLocalEndpointName              = "Console Local"
+	consoleLocalEndpointURL               = "in-process://console-local"
+	consoleTopicTitleMaxChars             = 72
+	consoleTopicTitleDirectOutputMaxRunes = 32
+	consoleTopicTitleTimeout              = 20 * time.Second
+	consoleHeartbeatSkipNoLLM             = "console_submit_unavailable"
 )
 
 type consoleLocalTaskJob struct {
@@ -423,7 +425,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 				"poke_enabled": r.canPokeHeartbeat(),
 			}, nil
 		},
-		Poke:          poke,
+		Poke: poke,
 	}
 }
 
@@ -666,8 +668,27 @@ func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, fi
 	if taskText == "" {
 		return
 	}
+	topic, ok := r.store.GetTopic(topicID)
+	if !ok || topic == nil {
+		return
+	}
+	if topic.LLMTitleGeneratedAt != nil {
+		return
+	}
+	if title := consoleTopicTitleFromOutput(finalOutput); title != "" {
+		if err := r.store.SetTopicTitle(topicID, title); err != nil {
+			r.logger.Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
+		}
+		return
+	}
+	if strings.TrimSpace(finalOutput) == "" {
+		return
+	}
 
 	go func() {
+		if current, ok := r.store.GetTopic(topicID); ok && current != nil && current.LLMTitleGeneratedAt != nil {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), consoleTopicTitleTimeout)
 		defer cancel()
 
@@ -676,7 +697,7 @@ func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, fi
 			r.logger.Debug("console_topic_title_generate_failed", "topic_id", topicID, "error", err.Error())
 			return
 		}
-		if err := r.store.SetTopicTitle(topicID, title); err != nil {
+		if err := r.store.SetTopicTitleFromLLM(topicID, title); err != nil {
 			r.logger.Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
 		}
 	}()
@@ -781,6 +802,17 @@ func seedConsoleTopicTitle(task string, explicit string) string {
 		title = strings.TrimSpace(title) + "..."
 	}
 	return strings.TrimSpace(title)
+}
+
+func consoleTopicTitleFromOutput(output string) string {
+	output = strings.Join(strings.Fields(strings.TrimSpace(output)), " ")
+	if output == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(output) > consoleTopicTitleDirectOutputMaxRunes {
+		return ""
+	}
+	return sanitizeConsoleTopicTitle(output)
 }
 
 func sanitizeConsoleTopicTitle(raw string) string {

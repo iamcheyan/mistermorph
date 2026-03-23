@@ -135,6 +135,53 @@ func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 	}
 }
 
+func TestConsoleFileStoreSetTopicTitleFromLLMPersistsGeneratedAt(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:          root,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	topic, err := store.CreateTopic("initial")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	if err := store.SetTopicTitleFromLLM(topic.ID, "llm title"); err != nil {
+		t.Fatalf("SetTopicTitleFromLLM() error = %v", err)
+	}
+
+	updated, ok := store.GetTopic(topic.ID)
+	if !ok || updated == nil {
+		t.Fatalf("GetTopic(%q) missing", topic.ID)
+	}
+	if updated.Title != "llm title" {
+		t.Fatalf("updated.Title = %q, want llm title", updated.Title)
+	}
+	if updated.LLMTitleGeneratedAt == nil {
+		t.Fatal("updated.LLMTitleGeneratedAt = nil, want non-nil")
+	}
+
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:          root,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	reloadedTopic, ok := reloaded.GetTopic(topic.ID)
+	if !ok || reloadedTopic == nil {
+		t.Fatalf("reloaded topic %q missing", topic.ID)
+	}
+	if reloadedTopic.LLMTitleGeneratedAt == nil {
+		t.Fatal("reloadedTopic.LLMTitleGeneratedAt = nil, want non-nil")
+	}
+}
+
 func TestConsoleFileStoreDoesNotPrecreateDefaultTopic(t *testing.T) {
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
 		RootDir:          t.TempDir(),

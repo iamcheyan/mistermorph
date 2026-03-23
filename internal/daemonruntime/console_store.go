@@ -326,6 +326,14 @@ func (s *ConsoleFileStore) DeleteTopic(id string) bool {
 }
 
 func (s *ConsoleFileStore) SetTopicTitle(id string, title string) error {
+	return s.setTopicTitle(id, title, false)
+}
+
+func (s *ConsoleFileStore) SetTopicTitleFromLLM(id string, title string) error {
+	return s.setTopicTitle(id, title, true)
+}
+
+func (s *ConsoleFileStore) setTopicTitle(id string, title string, fromLLM bool) error {
 	if s == nil {
 		return fmt.Errorf("console task store is nil")
 	}
@@ -346,10 +354,22 @@ func (s *ConsoleFileStore) SetTopicTitle(id string, title string) error {
 	if !ok || topicDeleted(topic) {
 		return fmt.Errorf("topic %q not found", id)
 	}
-	if topic.Title == title {
+	if fromLLM && topic.LLMTitleGeneratedAt != nil {
 		return nil
 	}
-	topic.Title = title
+	changed := false
+	if topic.Title != title {
+		topic.Title = title
+		changed = true
+	}
+	if fromLLM && topic.LLMTitleGeneratedAt == nil {
+		generatedAt := now
+		topic.LLMTitleGeneratedAt = &generatedAt
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
 	topic.UpdatedAt = now
 	s.topics[id] = normalizeTopicInfo(topic)
 	return s.persistTopicsLocked(now)
@@ -641,6 +661,10 @@ func hasTaskTrigger(trigger TaskTrigger) bool {
 func normalizeTopicInfo(topic TopicInfo) TopicInfo {
 	topic.ID = strings.TrimSpace(topic.ID)
 	topic.Title = strings.TrimSpace(topic.Title)
+	if topic.LLMTitleGeneratedAt != nil {
+		generatedAt := topic.LLMTitleGeneratedAt.UTC()
+		topic.LLMTitleGeneratedAt = &generatedAt
+	}
 	topic.CreatedAt = nonZeroTime(topic.CreatedAt)
 	topic.UpdatedAt = nonZeroTime(topic.UpdatedAt)
 	if topic.UpdatedAt.Before(topic.CreatedAt) {
