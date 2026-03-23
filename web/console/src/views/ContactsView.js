@@ -163,7 +163,7 @@ const ContactsView = {
     }
 
     function cardMarker(item) {
-      return kindText(item);
+      return `${kindText(item)} / ${statusText(item)}`;
     }
 
     function topicList(item) {
@@ -400,7 +400,7 @@ const ContactsView = {
         <QCard
           v-for="item in filteredItems"
           :key="item.contact_id"
-          variant="default"
+          variant="annotated"
           :hoverable="true"
           :dashed="isInactive(item)"
           :title="displayName(item)"
@@ -411,14 +411,6 @@ const ContactsView = {
           <header class="contact-head">
             <div class="contact-identity">
               <div class="contact-topline">
-                <div class="contact-badges">
-                  <QBadge
-                    :type="statusClass(item)"
-                    size="sm"
-                  >
-                    {{ statusText(item) }}
-                  </QBadge>
-                </div>
                 <div class="contact-actions">
                   <QButton
                     class="plain xs icon contact-action-button"

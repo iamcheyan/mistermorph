@@ -10,18 +10,20 @@
 
 .contacts-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 380px));
   gap: 12px;
   align-items: start;
+  justify-content: start;
 }
 
 .contacts-empty {
   margin: 0;
 }
 
-.contact-card.q-card-default {
+.contact-card {
   --contact-meta-label-width: 56px;
   container-type: inline-size;
+  width: min(100%, 380px);
   min-height: 0;
 }
 
@@ -81,16 +83,6 @@
 .contact-action-delete:hover,
 .contact-action-delete:focus-visible {
   color: var(--q-c-red);
-}
-
-.contact-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.contact-badges .q-badge {
-  flex: 0 0 auto;
 }
 
 .contact-timeline {

@@ -15,9 +15,14 @@
 
 .stats-section-panel {
   display: grid;
+  gap: 12px;
 }
 
-.stats-section-panel .q-card-content {
+.stats-section-panel-models.q-card-default {
+  min-height: 0;
+}
+
+.stats-section-panel-models .q-card-content {
   display: grid;
   gap: 14px;
 }
@@ -31,8 +36,7 @@
   display: grid;
 }
 
-.stats-summary-board.q-card-default,
-.stats-section-panel.q-card-default {
+.stats-summary-board.q-card-default {
   min-height: 0;
 }
 
@@ -150,15 +154,12 @@
   gap: 12px;
 }
 
-.stats-host-card + .stats-host-card {
-  padding-top: 14px;
-  border-top: 1px solid var(--line-soft);
+.stats-host-card.q-card-default {
+  min-height: 0;
 }
 
-.stats-host-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.stats-host-card .q-card-content {
+  display: grid;
   gap: 12px;
 }
 

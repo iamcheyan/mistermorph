@@ -176,13 +176,16 @@ const StatsView = {
             @change="onTabChange"
           />
 
-          <QCard v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel" variant="default">
+          <div v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel">
             <div v-if="visibleHosts.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
             <div v-else class="stats-host-list">
-              <section v-for="host in visibleHosts" :key="host.api_host" class="stats-host-card">
-                <div class="stats-host-head">
-                  <h4 class="ui-kicker">{{ tuiKicker(t("stats_api_host"), host.api_host) }}</h4>
-                </div>
+              <QCard
+                v-for="host in visibleHosts"
+                :key="host.api_host"
+                class="stats-host-card"
+                variant="default"
+                :eyebrow="host.api_host"
+              >
                 <div class="stats-host-metrics">
                   <QCard
                     v-for="item in sectionMetrics(host)"
@@ -220,11 +223,11 @@ const StatsView = {
                     </div>
                   </div>
                 </div>
-              </section>
+              </QCard>
             </div>
-          </QCard>
+          </div>
 
-          <QCard v-else class="stats-section-panel" variant="default">
+          <QCard v-else class="stats-section-panel stats-section-panel-models" variant="default">
             <div v-if="visibleModels.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
             <div v-else class="stats-model-list">
               <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
