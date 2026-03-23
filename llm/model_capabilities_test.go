@@ -9,6 +9,7 @@ func TestModelSupportsImageParts(t *testing.T) {
 	}{
 		{model: "gpt-5.2", want: true},
 		{model: "gemini-2.5-pro", want: true},
+		{model: "kimi-k2-vision", want: true},
 		{model: "grok-4", want: true},
 		{model: "grok-4-fast", want: true},
 		{model: "grok-5", want: true},
@@ -21,6 +22,7 @@ func TestModelSupportsImageParts(t *testing.T) {
 		{model: "vendor/models/grok-4-latest", want: true},
 		{model: "vendor/models/gpt-4.1", want: true},
 		{model: "vendor/models/gemini-2.5-pro", want: true},
+		{model: "moonshot/kimi-k2-vision", want: true},
 		{model: "grok-3", want: false},
 		{model: "xai/grok-3", want: false},
 		{model: "claude-2.1", want: false},
