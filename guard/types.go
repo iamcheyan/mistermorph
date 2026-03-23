@@ -72,6 +72,7 @@ type AuditEvent struct {
 	ToolName   string     `json:"tool_name,omitempty"`
 
 	ActionSummaryRedacted string `json:"action_summary_redacted"`
+	BodyOmittedFromAudit  bool   `json:"body_omitted_from_audit,omitempty"`
 	ActionHash            string `json:"action_hash,omitempty"`
 
 	RiskLevel RiskLevel `json:"risk_level"`

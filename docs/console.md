@@ -92,7 +92,7 @@ Stack:
 - Chat:
   - send task directly to current agent
   - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden heartbeat topic toggle, and current-topic delete
-  - topic title is seeded from the first prompt and can be asynchronously refined after the first successful task
+  - topic title is seeded from the first prompt; after the first successful task, short outputs can directly replace it, otherwise the runtime may asynchronously refine it once via LLM
   - topic-scoped `ChatHistoryItems` style list
   - poll task status/result from runtime `/tasks/{id}`
 - Tasks:
@@ -110,6 +110,8 @@ Stack:
   - windowed reads for large JSONL logs (`max_bytes` + `before`)
   - newest entries shown first in the UI
   - entries grouped by `run_id` for easier review
+  - `OutputPublish` audit events mark `body_omitted_from_audit: true` in the raw JSONL when the final body is intentionally not persisted
+  - Guard keeps `guard_audit.jsonl` as the canonical ledger and may emit per-decision mirrors such as `guard_audit.allow_with_redaction.jsonl`, `guard_audit.require_approval.jsonl`, and `guard_audit.deny.jsonl`
 - Settings:
   - language selector
   - logout button (danger style)

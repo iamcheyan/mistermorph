@@ -711,22 +711,45 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 				http.Error(w, "invalid status", http.StatusBadRequest)
 				return
 			}
-			limit := 20
+			limit := taskListDefaultLimit
 			if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
 				parsed, err := strconv.Atoi(rawLimit)
 				if err != nil || parsed <= 0 {
 					http.Error(w, "invalid limit", http.StatusBadRequest)
 					return
 				}
+				if parsed > taskListMaxLimit {
+					http.Error(w, "invalid limit", http.StatusBadRequest)
+					return
+				}
 				limit = parsed
+			}
+			cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
+			if _, ok := parseTaskListCursor(cursorRaw); !ok {
+				http.Error(w, "invalid cursor", http.StatusBadRequest)
+				return
 			}
 			items := reader.List(TaskListOptions{
 				Status:  status,
-				Limit:   limit,
+				Limit:   limit + 1,
 				TopicID: strings.TrimSpace(r.URL.Query().Get("topic_id")),
+				Cursor:  cursorRaw,
 			})
+			nextCursor := ""
+			hasNext := len(items) > limit
+			if hasNext {
+				items = items[:limit]
+				if len(items) > 0 {
+					nextCursor = buildTaskListCursor(items[len(items)-1])
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+			_ = json.NewEncoder(w).Encode(TaskListResponse{
+				Items:      items,
+				Limit:      limit,
+				NextCursor: nextCursor,
+				HasNext:    hasNext,
+			})
 			return
 
 		case http.MethodPost:
@@ -1517,6 +1540,30 @@ func diagnoseFileReadable(id, p string) map[string]any {
 	return map[string]any{"id": id, "ok": true}
 }
 
+func isAuditFamilyFileName(baseName, name string) bool {
+	baseName = strings.TrimSpace(baseName)
+	name = strings.TrimSpace(name)
+	if baseName == "" || name == "" {
+		return false
+	}
+	if name == baseName || strings.HasPrefix(name, baseName+".") {
+		return true
+	}
+	ext := filepath.Ext(baseName)
+	if ext == "" {
+		return false
+	}
+	stem := strings.TrimSuffix(baseName, ext)
+	if stem == "" || !strings.HasPrefix(name, stem+".") {
+		return false
+	}
+	suffix := strings.TrimPrefix(name, stem+".")
+	if suffix == "" {
+		return false
+	}
+	return strings.HasSuffix(suffix, ext) || strings.Contains(suffix, ext+".")
+}
+
 func listAuditFiles(basePath string) ([]auditFileItem, error) {
 	basePath = strings.TrimSpace(basePath)
 	if basePath == "" {
@@ -1547,7 +1594,7 @@ func listAuditFiles(basePath string) ([]auditFileItem, error) {
 		if name == "" {
 			continue
 		}
-		if name != baseName && !strings.HasPrefix(name, baseName+".") {
+		if !isAuditFamilyFileName(baseName, name) {
 			continue
 		}
 		info, err := entry.Info()
@@ -1597,7 +1644,7 @@ func resolveAuditFilePath(basePath, name string) (string, error) {
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return "", fmt.Errorf("invalid file name")
 	}
-	if name != baseName && !strings.HasPrefix(name, baseName+".") {
+	if !isAuditFamilyFileName(baseName, name) {
 		return "", fmt.Errorf("invalid file name")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(basePath), name)), nil

@@ -279,6 +279,7 @@ Suggested fields:
 - `action_type` (`ToolCallPre|ToolCallPost|OutputPublish|SkillInstall`)
 - `tool_name` (if any)
 - `action_summary_redacted`
+- `body_omitted_from_audit` (for events like `OutputPublish` where the final body is intentionally not stored)
 - `risk_level`, `decision`, `reasons[]`
 - `approval_request_id` (optional), `approval_status` (optional), `actor` (optional)
 - `action_hash` (SHA256 of canonical action)
@@ -289,6 +290,7 @@ M1 should use a single, clear storage approach:
 
 - **Audit events**: append-only **JSONL** under the service state directory (one JSON object per line).
   - Rationale: high-throughput, low overhead, resilient to schema evolution.
+  - Keep one canonical stream; optional derived mirror files may fan out by `decision` for operator convenience.
   - Retention (M1): rotate by size (e.g. 50–200MB per file) and/or by time (daily), and keep `N` days or a max total size cap.
 - **Approval state**: a small **SQLite** database under the same state directory (for durability across restarts).
   - Store only: pending approvals, action_hash binding, decision/actor/expiry, and resume metadata.

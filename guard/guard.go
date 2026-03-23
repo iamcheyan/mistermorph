@@ -302,6 +302,7 @@ func (g *Guard) emitAudit(ctx context.Context, meta Meta, a Action, res Result, 
 		ActionType:            a.Type,
 		ToolName:              strings.TrimSpace(a.ToolName),
 		ActionSummaryRedacted: sum,
+		BodyOmittedFromAudit:  auditBodyOmittedFromAudit(a.Type),
 		ActionHash:            hash,
 		RiskLevel:             res.RiskLevel,
 		Decision:              res.Decision,
@@ -326,6 +327,7 @@ func (g *Guard) emitApprovalResolutionAudit(ctx context.Context, rec ApprovalRec
 		ActionType:            rec.ActionType,
 		ToolName:              strings.TrimSpace(rec.ToolName),
 		ActionSummaryRedacted: strings.TrimSpace(rec.ActionSummaryRedacted),
+		BodyOmittedFromAudit:  auditBodyOmittedFromAudit(rec.ActionType),
 		ActionHash:            strings.TrimSpace(rec.ActionHash),
 		RiskLevel:             rec.RiskLevel,
 		Decision:              rec.Decision,
@@ -335,6 +337,10 @@ func (g *Guard) emitApprovalResolutionAudit(ctx context.Context, rec ApprovalRec
 		Actor:                 strings.TrimSpace(rec.Actor),
 	}
 	_ = g.audit.Emit(ctx, ev)
+}
+
+func auditBodyOmittedFromAudit(actionType ActionType) bool {
+	return actionType == ActionOutputPublish
 }
 
 func (g *Guard) summarizeActionRedacted(a Action) string {

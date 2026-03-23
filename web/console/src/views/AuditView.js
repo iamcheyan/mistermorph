@@ -1,4 +1,4 @@
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import "./AuditView.css";
 
 import AppPage from "../components/AppPage";
@@ -59,6 +59,17 @@ function normalizeAuditList(value) {
       return String(it).trim();
     })
     .filter((it) => it !== "");
+}
+
+function formatAuditStepMarker(value) {
+  const text = normalizeAuditText(value, "");
+  if (!text) {
+    return "";
+  }
+  if (/^\d+$/.test(text)) {
+    return text.padStart(2, "0");
+  }
+  return text;
 }
 
 function humanizeAuditToken(raw) {
@@ -132,6 +143,16 @@ function riskLabel(t, raw) {
 function auditReasonLabel(t, raw) {
   const text = String(raw || "").trim().toLowerCase();
   switch (text) {
+    case "bash_requires_approval":
+      return t("audit_reason_bash_requires_approval");
+    case "url_fetch_not_allowlisted":
+      return t("audit_reason_url_fetch_not_allowlisted");
+    case "invalid_url":
+      return t("audit_reason_invalid_url");
+    case "private_ip":
+      return t("audit_reason_private_ip");
+    case "non_allowlisted_domain":
+      return t("audit_reason_non_allowlisted_domain");
     case "sensitive_content_redacted":
       return t("audit_reason_sensitive_content_redacted");
     case "redacted_private_key_block":
@@ -163,6 +184,33 @@ function isOutputPublishSummaryPlaceholder(actionTypeRaw, summary) {
   );
 }
 
+function isBodyOmittedFromAudit(parsed, actionTypeRaw, summary) {
+  return (
+    toBool(parsed?.body_omitted_from_audit, false) ||
+    isOutputPublishSummaryPlaceholder(actionTypeRaw, summary)
+  );
+}
+
+function auditFamilyTitle(t, name) {
+  const value = String(name || "").trim();
+  if (!value) {
+    return t("audit_stream_other");
+  }
+  if (value.startsWith("guard_audit.allow_with_redaction.jsonl")) {
+    return t("audit_stream_allow_with_redaction");
+  }
+  if (value.startsWith("guard_audit.require_approval.jsonl")) {
+    return t("audit_stream_require_approval");
+  }
+  if (value.startsWith("guard_audit.deny.jsonl")) {
+    return t("audit_stream_deny");
+  }
+  if (value.startsWith("guard_audit.jsonl")) {
+    return t("audit_stream_all");
+  }
+  return t("audit_stream_other");
+}
+
 function toAuditFileItem(t, item) {
   const name = String(item?.name || "").trim();
   const sizeBytes = toInt(item?.size_bytes, 0);
@@ -180,6 +228,8 @@ function toAuditFileItem(t, item) {
     key: name,
     value: name,
     name,
+    title: auditFamilyTitle(t, name),
+    description: name,
     sizeBytes,
     modTime,
     current,
@@ -196,6 +246,8 @@ const AuditView = {
     const t = translate;
     const loading = ref(false);
     const err = ref("");
+    const isMobile = ref(false);
+    const mobileLedgerVisible = ref(false);
     const pageValue = ref(1);
     const fileItems = ref([]);
     const selectedFile = ref("");
@@ -219,24 +271,54 @@ const AuditView = {
     const selectedFileItem = computed(
       () => fileItems.value.find((item) => item.value === selectedFile.value) || fileItems.value[0] || null
     );
-    const selectedFileDropdownItem = computed(() => {
-      const item = selectedFileItem.value;
-      if (!item) {
-        return null;
-      }
-      return {
-        title: item.name,
-        value: item.value,
-      };
-    });
     const pageText = computed(() => {
       if (meta.total_pages <= 0) {
         return "-";
       }
       return `${meta.current_page} / ${meta.total_pages}`;
     });
-    const selectedFileTitle = computed(() => String(selectedFileItem.value?.name || "").trim() || t("audit_title"));
-    const showFilePicker = computed(() => fileItems.value.length > 1);
+    const selectedFileTitle = computed(() => String(selectedFileItem.value?.title || "").trim() || t("audit_title"));
+    const selectedFileMeta = computed(() => {
+      const item = selectedFileItem.value;
+      const parts = [];
+      const name = String(item?.name || "").trim();
+      if (name) {
+        parts.push(name);
+      }
+      if (item?.modTime) {
+        parts.push(formatAuditStamp(item.modTime));
+      }
+      if (typeof item?.sizeBytes === "number" && Number.isFinite(item.sizeBytes) && item.sizeBytes >= 0) {
+        parts.push(formatBytes(item.sizeBytes));
+      }
+      return parts.join(" · ");
+    });
+    const indexMeta = computed(() => t("audit_files_meta", { count: fileItems.value.length }));
+    const showIndexPane = computed(() => !isMobile.value || !mobileLedgerVisible.value);
+    const showLedgerPane = computed(() => !isMobile.value || mobileLedgerVisible.value);
+    const mobileShowBack = computed(() => isMobile.value && mobileLedgerVisible.value);
+    const mobileBarTitle = computed(() => (mobileShowBack.value ? selectedFileTitle.value || t("audit_title") : t("audit_title")));
+    const pageClass = computed(() => (isMobile.value ? "audit-page audit-page-mobile-split" : "audit-page"));
+
+    function refreshMobileMode() {
+      isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
+    }
+
+    function showIndexView() {
+      mobileLedgerVisible.value = false;
+    }
+
+    function isSelectedFileItem(item) {
+      return String(item?.value || "") === selectedFile.value;
+    }
+
+    function auditFileClass(item) {
+      const classes = ["audit-index-item", "workspace-sidebar-item"];
+      if (isSelectedFileItem(item)) {
+        classes.push("is-active");
+      }
+      return classes.join(" ");
+    }
 
     function parseAuditLine(line, idx) {
       const raw = typeof line === "string" ? line : String(line ?? "");
@@ -263,10 +345,10 @@ const AuditView = {
       const reasons = normalizeAuditList(parsed.reasons);
       const decisionRaw = normalizeAuditText(parsed.decision, "");
       const riskRaw = normalizeAuditText(parsed.risk_level, "");
-      const summaryPlaceholder = isOutputPublishSummaryPlaceholder(actionTypeRaw, summaryRaw);
-      const summary = summaryPlaceholder ? t("audit_output_publish_summary") : summaryRaw;
+      const bodyOmittedFromAudit = isBodyOmittedFromAudit(parsed, actionTypeRaw, summaryRaw);
+      const summary = summaryRaw;
       let reasonsText = reasons.length > 0 ? reasons.map((reason) => auditReasonLabel(t, reason)).join(" | ") : "-";
-      if (summaryPlaceholder && reasonsText === "-") {
+      if (bodyOmittedFromAudit && reasonsText === "-") {
         reasonsText = t("audit_output_publish_reason");
       }
       const hasTool = toolName !== "-";
@@ -279,7 +361,8 @@ const AuditView = {
         subtitleParts.push(`${t("audit_actor")} ${actor}`);
       }
       const subtitle = subtitleParts.join(" · ");
-      const stepMarker = stepText === "-" ? "" : `${primaryTitle} / ${stepText}`;
+      const formattedStep = formatAuditStepMarker(stepText);
+      const stepMarker = formattedStep ? `${primaryTitle} / ${formattedStep}` : "";
       const metaTrail = [];
       if (approvalStatus !== "-") {
         metaTrail.push(`${t("audit_approval")} ${humanizeAuditToken(approvalStatus)}`);
@@ -443,6 +526,9 @@ const AuditView = {
         return;
       }
       selectedFile.value = item.value;
+      if (isMobile.value) {
+        mobileLedgerVisible.value = true;
+      }
       await refreshLatest();
     }
 
@@ -455,7 +541,14 @@ const AuditView = {
       await refreshLatest();
     }
 
-    onMounted(init);
+    onMounted(() => {
+      window.addEventListener("resize", refreshMobileMode);
+      refreshMobileMode();
+      void init();
+    });
+    onUnmounted(() => {
+      window.removeEventListener("resize", refreshMobileMode);
+    });
     watch(
       () => endpointState.selectedRef,
       () => {
@@ -467,15 +560,24 @@ const AuditView = {
         t,
         loading,
         err,
+        isMobile,
+        mobileShowBack,
+        mobileBarTitle,
+        pageClass,
         fileItems,
         selectedFileItem,
-        selectedFileDropdownItem,
+        selectedFileMeta,
+        indexMeta,
         auditGroups,
         selectedFileTitle,
         meta,
         pageValue,
         pageText,
-        showFilePicker,
+        showIndexPane,
+        showLedgerPane,
+        isSelectedFileItem,
+        auditFileClass,
+        showIndexView,
         refreshLatest,
         goPrev,
         goNext,
@@ -485,25 +587,56 @@ const AuditView = {
         openRawDialog,
         closeRawDialog,
       };
-    },
+  },
   template: `
-    <AppPage :title="t('audit_title')" class="audit-page">
-      <section class="audit-ledger">
+    <AppPage :title="t('audit_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+      <template #leading>
+        <div class="audit-page-bar">
+          <QButton
+            v-if="mobileShowBack"
+            class="outlined xs icon audit-page-bar-back"
+            :title="t('audit_nav_title')"
+            :aria-label="t('audit_nav_title')"
+            @click="showIndexView"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
+        </div>
+      </template>
+      <div class="audit-workbench">
+        <aside v-if="showIndexPane" class="audit-index workspace-sidebar-section" :aria-label="t('audit_nav_title')">
+          <div class="audit-index-head workspace-sidebar-head">
+            <p class="ui-kicker">{{ t("audit_title") }}</p>
+            <h3 class="audit-index-title workspace-section-title">{{ t("audit_nav_title") }}</h3>
+            <p class="audit-index-meta">{{ indexMeta }}</p>
+          </div>
+          <div class="audit-index-items workspace-sidebar-list">
+            <button
+              v-for="item in fileItems"
+              :key="item.key"
+              type="button"
+              :class="auditFileClass(item)"
+              @click="onFileChange(item)"
+            >
+              <span class="workspace-sidebar-item-copy">
+                <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
+                <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
+              </span>
+              <span class="workspace-sidebar-item-marker" aria-hidden="true">
+                <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
+              </span>
+            </button>
+          </div>
+        </aside>
+
+        <section v-if="showLedgerPane" class="audit-ledger">
         <header class="audit-ledger-head">
           <div class="audit-ledger-copy">
-            <div class="audit-ledger-title-row">
-              <h2 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h2>
-            </div>
+            <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
+            <p v-if="selectedFileMeta" class="audit-ledger-meta">{{ selectedFileMeta }}</p>
           </div>
           <div class="audit-ledger-actions">
-            <div v-if="showFilePicker" class="audit-file-picker">
-              <QDropdownMenu
-                :items="fileItems"
-                :initialItem="selectedFileDropdownItem"
-                :placeholder="t('placeholder_audit_file')"
-                @change="onFileChange"
-              />
-            </div>
             <QButton
               class="plain sm icon"
               :loading="loading"
@@ -542,16 +675,11 @@ const AuditView = {
 
         <div v-if="meta.exists" class="audit-feed">
           <section v-for="group in auditGroups" :key="group.key" class="audit-group">
-            <header class="audit-group-head">
-              <div class="audit-group-head-main">
-                <span class="audit-group-label">{{ t("audit_run") }}</span>
-                <div class="audit-group-heading">
-                  <code class="audit-group-run">{{ group.title }}</code>
-                  <span v-if="group.latestTs !== '-'" class="audit-group-time">{{ group.latestTs }}</span>
-                </div>
-              </div>
-              <QBadge size="sm" type="default">{{ group.items.length }} {{ t("audit_group_count") }}</QBadge>
-            </header>
+            <QDivider class="audit-group-divider" :label="group.latestTs !== '-' ? group.latestTs : ''" />
+            <div class="audit-group-meta">
+              <code class="audit-group-run-id">{{ group.title }}</code>
+              <span class="audit-group-count">{{ group.items.length }} {{ t("audit_group_count") }}</span>
+            </div>
 
             <QCard
               v-for="item in group.items"
@@ -570,43 +698,27 @@ const AuditView = {
             >
               <template #header>
                 <div class="audit-item-head" v-if="item.parsed">
-                  <div v-if="item.subtitle" class="audit-item-primary">
-                    <p class="audit-item-subtitle">{{ item.subtitle }}</p>
-                  </div>
-                  <div class="audit-item-side">
-                    <div v-if="item.eventID !== '-' || item.tsText !== '-'" class="audit-item-meta-row">
-                      <code v-if="item.eventID !== '-'" class="audit-item-event-id">{{ item.eventID }}</code>
-                      <span v-if="item.tsText !== '-'" class="audit-item-time">{{ item.tsText }}</span>
-                    </div>
-                    <div class="audit-item-badges">
-                      <QBadge :type="item.decisionType">{{ item.decisionLabel }}</QBadge>
-                      <QBadge :type="item.riskType">{{ item.riskLabel }}</QBadge>
-                    </div>
-                  </div>
+                  <code v-if="item.eventID !== '-'" class="audit-item-event-id">{{ item.eventID }}</code>
+                  <p v-if="item.actionType !== '-'" class="audit-item-action-type">{{ item.actionType }}</p>
+                  <span v-if="item.tsText !== '-'" class="audit-item-time">{{ item.tsText }}</span>
                 </div>
 
                 <div class="audit-item-head" v-else>
-                  <div class="audit-item-side">
-                    <div class="audit-item-badges">
-                      <QBadge type="default" size="sm">{{ t("audit_raw") }}</QBadge>
-                    </div>
-                  </div>
+                  <p class="audit-item-action-type">{{ t("audit_raw") }}</p>
                 </div>
               </template>
 
               <template v-if="item.parsed">
-                <div v-if="item.reasonsText !== '-'" class="audit-detail-block audit-detail-block-note">
-                  <span class="audit-detail-label">{{ t("audit_reasons") }}</span>
-                  <p class="audit-detail-copy">{{ item.reasonsText }}</p>
-                </div>
-
                 <p v-if="item.summary !== '-'" class="audit-item-summary">{{ item.summary }}</p>
 
-                <div v-if="item.metaTrail.length > 0" class="audit-item-meta-trail">
-                  <template v-for="(metaItem, index) in item.metaTrail" :key="metaItem">
-                    <code v-if="index === 0" class="audit-item-meta-code">{{ metaItem }}</code>
-                    <span v-else class="audit-item-meta-text">{{ metaItem }}</span>
-                  </template>
+                <div class="audit-item-footer">
+                  <p class="audit-item-reasons" :class="{ 'is-empty': item.reasonsText === '-' }">
+                    {{ item.reasonsText === '-' ? '\u00A0' : item.reasonsText }}
+                  </p>
+                  <div class="audit-item-badges">
+                    <QBadge :type="item.decisionType">{{ item.decisionLabel }}</QBadge>
+                    <QBadge :type="item.riskType">{{ item.riskLabel }}</QBadge>
+                  </div>
                 </div>
               </template>
 
@@ -634,7 +746,8 @@ const AuditView = {
           :json="rawDialogJSON"
           @close="closeRawDialog"
         />
-      </section>
+        </section>
+      </div>
     </AppPage>
   `,
 };
