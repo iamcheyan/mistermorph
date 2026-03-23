@@ -1,4 +1,4 @@
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import "./MemoryView.css";
 
 import AppPage from "../components/AppPage";
@@ -163,6 +163,8 @@ const MemoryView = {
     const saving = ref(false);
     const err = ref("");
     const ok = ref("");
+    const isMobile = ref(false);
+    const mobileEditorVisible = ref(false);
 
     const rawMemoryItems = ref(DEFAULT_MEMORY_FILES.map((item) => toMemoryItem(t, item)));
     const modeTabs = computed(() => [
@@ -277,6 +279,19 @@ const MemoryView = {
     const saveDisabled = computed(
       () => saving.value || loading.value || !selectedMemory.value || content.value === loadedContent.value
     );
+    const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
+    const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
+    const mobileShowBack = computed(() => isMobile.value && mobileEditorVisible.value);
+    const mobileBarTitle = computed(() => (mobileShowBack.value ? editorTitle.value : t("memory_title")));
+    const pageClass = computed(() => (isMobile.value ? "memory-page memory-page-mobile-split" : "memory-page"));
+
+    function refreshMobileMode() {
+      isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
+    }
+
+    function showIndexView() {
+      mobileEditorVisible.value = false;
+    }
 
     function isSelectedDate(dayKey) {
       return String(dayKey || "") === String(selectedDateKey.value || "");
@@ -421,6 +436,9 @@ const MemoryView = {
         return;
       }
       selectedSessionID.value = String(item.id || "").trim();
+      if (isMobile.value) {
+        mobileEditorVisible.value = true;
+      }
       await loadContent(item.id);
     }
 
@@ -430,6 +448,9 @@ const MemoryView = {
       }
       const target = longTermItem.value;
       if (target && target.id) {
+        if (isMobile.value) {
+          mobileEditorVisible.value = true;
+        }
         await loadContent(target.id);
       }
     }
@@ -438,7 +459,14 @@ const MemoryView = {
       await refresh();
     }
 
-    onMounted(init);
+    onMounted(() => {
+      window.addEventListener("resize", refreshMobileMode);
+      refreshMobileMode();
+      void init();
+    });
+    onUnmounted(() => {
+      window.removeEventListener("resize", refreshMobileMode);
+    });
     watch(
       () => endpointState.selectedRef,
       () => {
@@ -492,12 +520,18 @@ const MemoryView = {
       editorTitle,
       editorMeta,
       saveDisabled,
+      showIndexPane,
+      showEditorPane,
+      mobileShowBack,
+      mobileBarTitle,
+      pageClass,
       isSelectedDate,
       isSelectedItem,
       dateClass,
       itemClass,
       sessionTitle,
       sessionMeta,
+      showIndexView,
       onModeChange,
       onDateSelect,
       onSessionSelect,
@@ -506,9 +540,23 @@ const MemoryView = {
     };
   },
   template: `
-    <AppPage :title="t('memory_title')" class="memory-page" :hideDesktopBar="true">
+    <AppPage :title="t('memory_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+      <template #leading>
+        <div class="memory-page-bar">
+          <QButton
+            v-if="mobileShowBack"
+            class="outlined xs icon memory-page-bar-back"
+            :title="t('memory_title')"
+            :aria-label="t('memory_title')"
+            @click="showIndexView"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
+        </div>
+      </template>
       <div class="memory-workbench">
-        <aside class="memory-index workspace-sidebar-section" :aria-label="t('memory_title')">
+        <aside v-if="showIndexPane" class="memory-index workspace-sidebar-section" :aria-label="t('memory_title')">
           <QTabs
             class="memory-index-tabs"
             :tabs="modeTabs"
@@ -591,7 +639,7 @@ const MemoryView = {
           </div>
         </aside>
 
-        <QCard class="memory-editor-card" variant="default">
+        <QCard v-if="showEditorPane" class="memory-editor-card" variant="default">
           <div class="memory-editor-shell">
             <header class="memory-editor-head">
               <div class="memory-editor-copy">

@@ -4,6 +4,31 @@
   overflow: hidden;
 }
 
+.files-page-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.files-page-bar-back {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px !important;
+}
+
+.files-page-bar-back .icon {
+  width: 13px;
+  min-width: 13px;
+  height: 13px;
+}
+
 .files-workbench {
   flex: 1 1 auto;
   display: grid;
@@ -171,6 +196,7 @@
 
   .files-index {
     position: static;
+    max-width: none;
   }
 
   .files-editor-card.q-card-default {
@@ -185,5 +211,11 @@
 
   .files-editor-actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 620px) {
+  .files-page-bar {
+    gap: 6px;
   }
 }

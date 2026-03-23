@@ -1,4 +1,4 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import "./StateFilesView.css";
 
 import AppPage from "../components/AppPage";
@@ -76,6 +76,8 @@ const StateFilesView = {
     const saving = ref(false);
     const err = ref("");
     const ok = ref("");
+    const isMobile = ref(false);
+    const mobileEditorVisible = ref(false);
 
     const fileItems = ref(DEFAULT_FILES.map((item) => toFileItem(t, item)).sort(compareFileItems));
     const selectedFile = ref(fileItems.value[0] || null);
@@ -123,6 +125,19 @@ const StateFilesView = {
         chars: content.value.length,
       })
     );
+    const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
+    const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
+    const mobileShowBack = computed(() => isMobile.value && mobileEditorVisible.value);
+    const mobileBarTitle = computed(() => (mobileShowBack.value ? selectedFileName.value || t("files_title") : t("files_title")));
+    const pageClass = computed(() => (isMobile.value ? "files-page files-page-mobile-split" : "files-page"));
+
+    function refreshMobileMode() {
+      isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
+    }
+
+    function showIndexView() {
+      mobileEditorVisible.value = false;
+    }
     function isSelectedItem(item) {
       return String(item?.name || "") === selectedFileName.value;
     }
@@ -220,6 +235,9 @@ const StateFilesView = {
         return;
       }
       selectedFile.value = item;
+      if (isMobile.value) {
+        mobileEditorVisible.value = true;
+      }
       await loadContent(item.name);
     }
 
@@ -228,7 +246,14 @@ const StateFilesView = {
       await loadContent(selectedFile.value?.name);
     }
 
-    onMounted(init);
+    onMounted(() => {
+      window.addEventListener("resize", refreshMobileMode);
+      refreshMobileMode();
+      void init();
+    });
+    onUnmounted(() => {
+      window.removeEventListener("resize", refreshMobileMode);
+    });
     return {
       t,
       loading,
@@ -243,18 +268,38 @@ const StateFilesView = {
       selectedFileName,
       selectedGroupTitle,
       editorMeta,
+      showIndexPane,
+      showEditorPane,
+      mobileShowBack,
+      mobileBarTitle,
+      pageClass,
       canSave,
       isSelectedItem,
       fileClass,
+      showIndexView,
       onContentChange,
       onFileChange,
       save,
     };
   },
   template: `
-    <AppPage :title="t('files_title')" class="files-page" :hideDesktopBar="true">
+    <AppPage :title="t('files_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+      <template #leading>
+        <div class="files-page-bar">
+          <QButton
+            v-if="mobileShowBack"
+            class="outlined xs icon files-page-bar-back"
+            :title="t('files_nav_title')"
+            :aria-label="t('files_nav_title')"
+            @click="showIndexView"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
+        </div>
+      </template>
       <div class="files-workbench">
-        <aside class="files-index workspace-sidebar-section" :aria-label="t('files_nav_title')">
+        <aside v-if="showIndexPane" class="files-index workspace-sidebar-section" :aria-label="t('files_nav_title')">
           <div class="files-index-head workspace-sidebar-head">
             <p class="ui-kicker">{{ t("files_title") }}</p>
             <h3 class="files-index-title workspace-section-title">{{ t("files_nav_title") }}</h3>
@@ -279,7 +324,7 @@ const StateFilesView = {
           </section>
         </aside>
 
-        <QCard class="files-editor-card" variant="default">
+        <QCard v-if="showEditorPane" class="files-editor-card" variant="default">
           <div class="files-editor-shell">
             <header class="files-editor-head">
               <div class="files-editor-copy">

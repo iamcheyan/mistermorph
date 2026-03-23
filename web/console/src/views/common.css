@@ -85,6 +85,7 @@
   --workspace-sidebar-list-pad: 0;
   --workspace-sidebar-list-gap: 6px;
   --workspace-sidebar-item-pad: 12px 13px 11px 14px;
+  max-width: 310px;
 }
 
 .workspace-sidebar-head {
@@ -166,6 +167,10 @@
   color: var(--text-1);
 }
 
+.workspace-sidebar-item.is-active .workspace-sidebar-item-title {
+  color: var(--q-c-dark);
+}
+
 .row,
 .toolbar {
   display: flex;
@@ -242,6 +247,10 @@
 }
 
 @media (max-width: 620px) {
+  .workspace-sidebar-section {
+    max-width: none;
+  }
+
   .workspace-sidebar-item {
     padding: 11px 12px;
   }
