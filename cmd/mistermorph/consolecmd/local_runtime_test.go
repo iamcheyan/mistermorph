@@ -3,11 +3,13 @@ package consolecmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
@@ -162,5 +164,153 @@ func TestConsoleLocalRuntimeMaybeRefreshTopicTitleUsesShortOutput(t *testing.T) 
 	}
 	if updated.LLMTitleGeneratedAt != nil {
 		t.Fatal("updated.LLMTitleGeneratedAt != nil, want nil for direct title path")
+	}
+}
+
+func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
+	base := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
+	tasks := make([]daemonruntime.TaskInfo, 0, 10)
+	for i := 9; i >= 1; i-- {
+		createdAt := base.Add(time.Duration(i) * time.Minute)
+		finishedAt := createdAt.Add(15 * time.Second)
+		result := map[string]any{
+			"final": map[string]any{
+				"output": fmt.Sprintf("answer %d", i),
+			},
+		}
+		if i == 7 {
+			result = map[string]any{"output": "answer 7"}
+		}
+		tasks = append(tasks, daemonruntime.TaskInfo{
+			ID:         fmt.Sprintf("task_%02d", i),
+			Status:     daemonruntime.TaskDone,
+			Task:       fmt.Sprintf("question %d", i),
+			CreatedAt:  createdAt,
+			FinishedAt: &finishedAt,
+			TopicID:    "topic_a",
+			Result:     result,
+		})
+	}
+	tasks = append(tasks, daemonruntime.TaskInfo{
+		ID:        "task_future",
+		Status:    daemonruntime.TaskDone,
+		Task:      "future question",
+		CreatedAt: base.Add(11 * time.Minute),
+		TopicID:   "topic_a",
+		Result:    map[string]any{"output": "future answer"},
+	})
+
+	history := buildConsoleTopicHistory(tasks, consoleLocalTaskJob{
+		TaskID:     "task_current",
+		TopicID:    "topic_a",
+		Task:       "current question",
+		CreatedAt:  base.Add(10 * time.Minute),
+		Trigger:    daemonruntime.TaskTrigger{Source: "ui"},
+		Timeout:    time.Minute,
+		Version:    1,
+		WakeSignal: daemonruntime.PokeInput{},
+	}, consoleHistoryRestoreTaskLimit)
+
+	if len(history) != 12 {
+		t.Fatalf("len(history) = %d, want 12", len(history))
+	}
+
+	gotTexts := make([]string, 0, len(history))
+	for _, item := range history {
+		gotTexts = append(gotTexts, item.Text)
+	}
+	wantTexts := []string{
+		"question 4", "answer 4",
+		"question 5", "answer 5",
+		"question 6", "answer 6",
+		"question 7", "answer 7",
+		"question 8", "answer 8",
+		"question 9", "answer 9",
+	}
+	if strings.Join(gotTexts, "\n") != strings.Join(wantTexts, "\n") {
+		t.Fatalf("history texts = %#v, want %#v", gotTexts, wantTexts)
+	}
+}
+
+func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *testing.T) {
+	root := t.TempDir()
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		RootDir:          root,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	base := time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 8; i++ {
+		createdAt := base.Add(time.Duration(i) * time.Minute)
+		finishedAt := createdAt.Add(30 * time.Second)
+		result := map[string]any{
+			"final": map[string]any{
+				"output": fmt.Sprintf("persisted answer %d", i),
+			},
+		}
+		if i == 6 {
+			result = map[string]any{"output": "persisted answer 6"}
+		}
+		if err := store.UpsertWithTrigger(daemonruntime.TaskInfo{
+			ID:         fmt.Sprintf("persisted_task_%02d", i),
+			Status:     daemonruntime.TaskDone,
+			Task:       fmt.Sprintf("persisted question %d", i),
+			Model:      "gpt-5.2",
+			Timeout:    "10m0s",
+			CreatedAt:  createdAt,
+			FinishedAt: &finishedAt,
+			TopicID:    topic.ID,
+			Result:     result,
+		}, daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit"}, ""); err != nil {
+			t.Fatalf("UpsertWithTrigger(done %d) error = %v", i, err)
+		}
+	}
+
+	currentCreatedAt := base.Add(9 * time.Minute)
+	if err := store.UpsertWithTrigger(daemonruntime.TaskInfo{
+		ID:        "persisted_task_current",
+		Status:    daemonruntime.TaskQueued,
+		Task:      "current persisted question",
+		Model:     "gpt-5.2",
+		Timeout:   "10m0s",
+		CreatedAt: currentCreatedAt,
+		TopicID:   topic.ID,
+	}, daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit"}, ""); err != nil {
+		t.Fatalf("UpsertWithTrigger(current) error = %v", err)
+	}
+
+	reloaded, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		RootDir:          root,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+
+	rt := &consoleLocalRuntime{store: reloaded}
+	history := rt.loadConsoleTopicHistory(consoleLocalTaskJob{
+		TaskID:    "persisted_task_current",
+		TopicID:   topic.ID,
+		Task:      "current persisted question",
+		CreatedAt: currentCreatedAt,
+	})
+	if len(history) != 12 {
+		t.Fatalf("len(history) = %d, want 12", len(history))
+	}
+	if history[0].Kind != chathistory.KindInboundUser || history[0].Text != "persisted question 3" {
+		t.Fatalf("history[0] = %#v, want persisted question 3 inbound", history[0])
+	}
+	last := history[len(history)-1]
+	if last.Kind != chathistory.KindOutboundAgent || last.Text != "persisted answer 8" {
+		t.Fatalf("history[last] = %#v, want persisted answer 8 outbound", last)
 	}
 }

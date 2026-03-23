@@ -591,6 +591,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if model == "" {
 		_, model = r.defaultLLMConfig()
 	}
+	historyMsgs, currentMsg, err := r.buildConsolePromptMessages(job)
+	if err != nil {
+		return nil, nil, err
+	}
 	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
 	memoryHooks := taskruntime.MemoryHooks{
 		Source:    "console",
@@ -636,13 +640,15 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:          task,
-		Model:         model,
-		Scene:         "console.loop",
-		OnStream:      onStream,
-		Meta:          meta,
-		PromptAugment: promptAugment,
-		Memory:        memoryHooks,
+		Task:           task,
+		Model:          model,
+		Scene:          "console.loop",
+		History:        historyMsgs,
+		CurrentMessage: currentMsg,
+		OnStream:       onStream,
+		Meta:           meta,
+		PromptAugment:  promptAugment,
+		Memory:         memoryHooks,
 	})
 	if err != nil {
 		return result.Final, result.Context, err
@@ -1018,38 +1024,21 @@ func buildConsoleMemoryRecordRequest(job consoleLocalTaskJob, subjectID, output 
 		subjectID = buildConsoleConversationKey(daemonruntime.ConsoleDefaultTopicID)
 	}
 	now := time.Now().UTC()
-	sentAt := job.CreatedAt
-	if sentAt.IsZero() {
-		sentAt = now
-	}
-	inbound := chathistory.ChatHistoryItem{
-		Channel:   "console",
-		Kind:      chathistory.KindInboundUser,
-		ChatID:    subjectID,
-		ChatType:  "private",
-		MessageID: job.TaskID,
-		SentAt:    sentAt,
-		Sender: chathistory.ChatHistorySender{
-			UserID:     "console:user",
-			Username:   "console",
-			Nickname:   "Console User",
-			DisplayRef: "console:user",
-		},
-		Text: strings.TrimSpace(job.Task),
-	}
+	inbound := newConsoleInboundHistoryItem(job)
+	inbound.ChatID = subjectID
 	outbound := chathistory.ChatHistoryItem{
-		Channel:          "console",
+		Channel:          consoleHistoryChannel,
 		Kind:             chathistory.KindOutboundAgent,
 		ChatID:           subjectID,
 		ChatType:         "private",
 		ReplyToMessageID: job.TaskID,
 		SentAt:           now,
 		Sender: chathistory.ChatHistorySender{
-			UserID:     "0",
-			Username:   "agent",
-			Nickname:   "MisterMorph",
+			UserID:     consoleAgentUserID,
+			Username:   consoleAgentUsername,
+			Nickname:   consoleAgentNickname,
 			IsBot:      true,
-			DisplayRef: "agent",
+			DisplayRef: consoleAgentUsername,
 		},
 		Text: strings.TrimSpace(output),
 	}
