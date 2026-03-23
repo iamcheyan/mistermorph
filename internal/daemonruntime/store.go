@@ -7,11 +7,17 @@ import (
 )
 
 const defaultMaxItems = 1000
+const (
+	taskListDefaultLimit     = 20
+	taskListMaxLimit         = 200
+	taskListInternalMaxLimit = taskListMaxLimit + 1
+)
 
 type TaskListOptions struct {
 	Status  TaskStatus
 	Limit   int
 	TopicID string
+	Cursor  string
 }
 
 // TaskReader is the minimal read API required by the daemon HTTP routes.
@@ -146,10 +152,10 @@ func (s *MemoryStore) List(opts TaskListOptions) []TaskInfo {
 	}
 	limit := opts.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = taskListDefaultLimit
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > taskListInternalMaxLimit {
+		limit = taskListInternalMaxLimit
 	}
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
 	topicID := strings.TrimSpace(opts.TopicID)
@@ -173,6 +179,7 @@ func (s *MemoryStore) List(opts TaskListOptions) []TaskInfo {
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
+	out = filterTasksByCursor(out, opts.Cursor)
 	if len(out) > limit {
 		out = out[:limit]
 	}

@@ -48,6 +48,13 @@ type TaskInfo struct {
 	TopicID           string     `json:"topic_id,omitempty"`
 }
 
+type TaskListResponse struct {
+	Items      []TaskInfo `json:"items"`
+	Limit      int        `json:"limit,omitempty"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+	HasNext    bool       `json:"has_next,omitempty"`
+}
+
 type TaskTrigger struct {
 	Source string `json:"source,omitempty"`
 	Event  string `json:"event,omitempty"`

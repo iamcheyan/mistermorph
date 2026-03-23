@@ -270,6 +270,7 @@ const ChatView = {
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
+    const renderedHistoryItems = ref({});
     const historyLoading = ref(false);
     const historyViewport = ref(null);
     const topics = ref([]);
@@ -393,6 +394,7 @@ const ChatView = {
       }
       return items;
     });
+    const hasVisibleTopics = computed(() => visibleTopics.value.length > 0);
     const selectedTopic = computed(() => {
       const selectedID = normalizeTopicID(selectedTopicID.value);
       if (!selectedID) {
@@ -436,6 +438,9 @@ const ChatView = {
       if (!mobileTopicSplitEnabled.value) {
         return t("chat_title");
       }
+      if (!hasVisibleTopics.value) {
+        return creatingTopic.value ? t("chat_topic_new") : t("chat_title");
+      }
       if (mobileTopicView.value === "topics") {
         return t("chat_topics_title");
       }
@@ -444,9 +449,11 @@ const ChatView = {
       }
       return selectedTopic.value ? topicTitle(selectedTopic.value) : t("chat_title");
     });
-    const mobileShowBack = computed(() => mobileTopicSplitEnabled.value && mobileTopicView.value === "chat");
+    const mobileShowBack = computed(
+      () => mobileTopicSplitEnabled.value && hasVisibleTopics.value && mobileTopicView.value === "chat"
+    );
     const showTopicSidebar = computed(() => {
-      if (!consoleTopicsEnabled.value) {
+      if (!consoleTopicsEnabled.value || !hasVisibleTopics.value) {
         return false;
       }
       if (!mobileTopicSplitEnabled.value) {
@@ -455,13 +462,13 @@ const ChatView = {
       return mobileTopicView.value === "topics";
     });
     const showChatPane = computed(() => {
-      if (!mobileTopicSplitEnabled.value) {
+      if (!mobileTopicSplitEnabled.value || !hasVisibleTopics.value) {
         return true;
       }
       return mobileTopicView.value === "chat";
     });
     const shellClass = computed(() => {
-      if (!consoleTopicsEnabled.value) {
+      if (!consoleTopicsEnabled.value || !hasVisibleTopics.value) {
         return "chat-shell";
       }
       if (!mobileTopicSplitEnabled.value) {
@@ -515,6 +522,10 @@ const ChatView = {
         mobileTopicView.value = "chat";
         return;
       }
+      if (!hasVisibleTopics.value) {
+        mobileTopicView.value = "chat";
+        return;
+      }
       if (options.preferTopics) {
         mobileTopicView.value = "topics";
         return;
@@ -533,6 +544,9 @@ const ChatView = {
     }
 
     function showTopicsView() {
+      if (!hasVisibleTopics.value) {
+        return;
+      }
       syncMobileTopicView({ preferTopics: true });
     }
 
@@ -653,6 +667,52 @@ const ChatView = {
         return;
       }
       scrollHistoryToBottom({ force: true });
+    }
+
+    function syncRenderedHistoryItems(items) {
+      const previous = renderedHistoryItems.value;
+      const next = {};
+      for (const item of Array.isArray(items) ? items : []) {
+        const itemID = String(item?.id || "").trim();
+        if (!itemID) {
+          continue;
+        }
+        if (String(item?.role || "").trim().toLowerCase() !== "agent") {
+          next[itemID] = true;
+          continue;
+        }
+        next[itemID] = previous[itemID] === true;
+      }
+      renderedHistoryItems.value = next;
+    }
+
+    function replaceHistoryItems(items) {
+      const nextItems = Array.isArray(items) ? items : [];
+      chatHistoryItems.value = nextItems;
+      syncRenderedHistoryItems(nextItems);
+    }
+
+    function historyItemRenderReady(item) {
+      if (String(item?.role || "").trim().toLowerCase() !== "agent") {
+        return true;
+      }
+      const itemID = String(item?.id || "").trim();
+      return itemID !== "" && renderedHistoryItems.value[itemID] === true;
+    }
+
+    function showHistorySkeleton(item) {
+      return String(item?.role || "").trim().toLowerCase() === "agent" && !historyItemRenderReady(item);
+    }
+
+    function markHistoryItemRendered(itemID) {
+      const key = String(itemID || "").trim();
+      if (key && renderedHistoryItems.value[key] !== true) {
+        renderedHistoryItems.value = {
+          ...renderedHistoryItems.value,
+          [key]: true,
+        };
+      }
+      handleMarkdownRendered();
     }
 
     function syncComposerHeight() {
@@ -884,7 +944,7 @@ const ChatView = {
         rawJSON: String(partial?.rawJSON || ""),
         pendingSeed: String(partial?.pendingSeed || ""),
       };
-      chatHistoryItems.value = [...chatHistoryItems.value, item];
+      replaceHistoryItems([...chatHistoryItems.value, item]);
       return item.id;
     }
 
@@ -898,7 +958,7 @@ const ChatView = {
         ...next[idx],
         ...patch,
       };
-      chatHistoryItems.value = next;
+      replaceHistoryItems(next);
     }
 
     function resolveAgentHistoryID(taskID, preferredHistoryID = "") {
@@ -1040,7 +1100,7 @@ const ChatView = {
       err.value = "";
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
-        chatHistoryItems.value = [];
+        replaceHistoryItems([]);
         return true;
       }
       historyLoading.value = true;
@@ -1049,13 +1109,13 @@ const ChatView = {
         let path = `/tasks?limit=${CHAT_HISTORY_LIMIT}`;
         if (consoleTopicsEnabled.value) {
           if (creatingTopic.value) {
-            chatHistoryItems.value = [];
+            replaceHistoryItems([]);
             historyAutoStick.value = true;
             return true;
           }
           const topicID = normalizeTopicID(selectedTopicID.value);
           if (!topicID) {
-            chatHistoryItems.value = [];
+            replaceHistoryItems([]);
             historyAutoStick.value = true;
             return true;
           }
@@ -1070,7 +1130,7 @@ const ChatView = {
             agentName: activeAgentName.value,
           })
         );
-        chatHistoryItems.value = nextItems.length > 0 ? nextItems : [emptyHistoryItem()];
+        replaceHistoryItems(nextItems.length > 0 ? nextItems : [emptyHistoryItem()]);
         scrollHistoryToBottom({ force: true });
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
@@ -1083,7 +1143,7 @@ const ChatView = {
         return true;
       } catch (e) {
         if (!preserveCurrent) {
-          chatHistoryItems.value = [];
+          replaceHistoryItems([]);
         }
         err.value = e?.message || t("msg_load_failed");
         return false;
@@ -1440,8 +1500,11 @@ const ChatView = {
       clickPageBarTitle,
       handleHistoryScroll,
       handleMarkdownRendered,
+      historyItemRenderReady,
       historyClass,
       historySurfaceClass,
+      markHistoryItemRendered,
+      showHistorySkeleton,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -1477,7 +1540,7 @@ const ChatView = {
           <aside v-if="showTopicSidebar" class="chat-topic-sidebar workspace-sidebar-section">
             <header class="chat-topic-sidebar-head workspace-sidebar-head">
               <div class="chat-topic-sidebar-copy">
-                <p class="ui-kicker">{{ topicSidebarKicker }}</p>
+                <p class="ui-kicker chat-topic-sidebar-kicker" @click="clickPageBarTitle">{{ topicSidebarKicker }}</p>
                 <div class="chat-topic-sidebar-title-row">
                   <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
                 </div>
@@ -1533,7 +1596,6 @@ const ChatView = {
             </header>
             <section v-if="showChatPlaceholder" class="chat-placeholder">
               <div class="chat-placeholder-copy">
-                <p v-if="deskMeta" class="chat-placeholder-meta">{{ deskMeta }}</p>
                 <h3 class="chat-placeholder-title workspace-document-title">{{ deskTitle }}</h3>
                 <p class="chat-placeholder-note">{{ chatPlaceholderHint }}</p>
               </div>
@@ -1545,22 +1607,20 @@ const ChatView = {
                   :disabled="composerDisabled"
                   :placeholder="composerPlaceholder"
                   @keydown.enter.exact.prevent="submitTask"
-                >
-                  <template #append>
-                    <div class="chat-composer-append">
-                      <QButton
-                        class="outlined sm icon chat-composer-send"
-                        :loading="sending"
-                        :disabled="sendDisabled"
-                        :title="t('chat_action_send')"
-                        :aria-label="t('chat_action_send')"
-                        @click="submitTask"
-                      >
-                        <QIconSend class="icon" />
-                      </QButton>
-                    </div>
-                  </template>
-                </QTextarea>
+                />
+                <div class="chat-composer-actions">
+                  <QButton
+                    class="primary chat-composer-send"
+                    :loading="sending"
+                    :disabled="sendDisabled"
+                    shortcut="↵"
+                    :title="t('chat_action_send') + ' (Enter)'"
+                    :aria-label="t('chat_action_send') + ' (Enter)'"
+                    @click="submitTask"
+                  >
+                    <span class="chat-composer-send-label">Send</span>
+                  </QButton>
+                </div>
               </div>
             </section>
             <template v-else>
@@ -1579,14 +1639,20 @@ const ChatView = {
                     {{ item.timeText }}
                   </code>
                   <div :class="historySurfaceClass(item)">
-                    <MarkdownContent
-                      v-if="item.role === 'agent'"
-                      class="chat-history-markdown"
-                      :source="item.text"
-                      format="auto"
-                      theme="blueprint"
-                      @rendered="handleMarkdownRendered"
-                    />
+                    <template v-if="item.role === 'agent'">
+                      <div v-if="showHistorySkeleton(item)" class="chat-history-skeleton" aria-hidden="true">
+                        <QSkeleton variant="text" width="92%" />
+                        <QSkeleton variant="text" width="100%" />
+                        <QSkeleton variant="text" width="68%" />
+                      </div>
+                      <MarkdownContent
+                        :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
+                        :source="item.text"
+                        format="auto"
+                        theme="blueprint"
+                        @rendered="markHistoryItemRendered(item.id)"
+                      />
+                    </template>
                     <div v-else class="chat-history-body">{{ item.text }}</div>
                   </div>
                 </article>
@@ -1603,18 +1669,17 @@ const ChatView = {
                 @keydown.enter.exact.prevent="submitTask"
               >
                 <template #append>
-                  <div class="chat-composer-append">
-                    <QButton
-                      class="outlined sm icon chat-composer-send"
-                      :loading="sending"
-                      :disabled="sendDisabled"
-                      :title="t('chat_action_send')"
-                      :aria-label="t('chat_action_send')"
-                      @click="submitTask"
-                    >
-                      <QIconSend class="icon" />
-                    </QButton>
-                  </div>
+                  <QButton
+                    class="primary chat-composer-send"
+                    :loading="sending"
+                    :disabled="sendDisabled"
+                    shortcut="↵"
+                    :title="t('chat_action_send') + ' (Enter)'"
+                    :aria-label="t('chat_action_send') + ' (Enter)'"
+                    @click="submitTask"
+                  >
+                    <span class="chat-composer-send-label">Send</span>
+                  </QButton>
                 </template>
               </QTextarea>
             </div>

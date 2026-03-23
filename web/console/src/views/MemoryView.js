@@ -433,6 +433,9 @@ const MemoryView = {
         return;
       }
       if (String(item.id) === String(selectedSessionID.value || "").trim()) {
+        if (isMobile.value) {
+          mobileEditorVisible.value = true;
+        }
         return;
       }
       selectedSessionID.value = String(item.id || "").trim();

@@ -403,33 +403,35 @@ const ContactsView = {
           variant="annotated"
           :hoverable="true"
           :dashed="isInactive(item)"
-          :title="displayName(item)"
           :marker="cardMarker(item)"
           marker-style="plate"
           :class="cardClass(item)"
         >
+          <template #header>
+            <div class="contact-topline">
+              <h3 class="contact-title">{{ displayName(item) }}</h3>
+              <div class="contact-actions">
+                <QButton
+                  class="plain xs icon contact-action-button"
+                  :title="isEditing(item) ? t('action_close') : t('action_edit')"
+                  :aria-label="isEditing(item) ? t('action_close') : t('action_edit')"
+                  @click="toggleEdit(item)"
+                >
+                  <QIconCode class="icon" />
+                </QButton>
+                <QButton
+                  class="plain xs icon contact-action-button contact-action-delete"
+                  :title="t('action_delete')"
+                  :aria-label="t('action_delete')"
+                  @click="confirmDelete(item)"
+                >
+                  <QIconTrash class="icon" />
+                </QButton>
+              </div>
+            </div>
+          </template>
           <header class="contact-head">
             <div class="contact-identity">
-              <div class="contact-topline">
-                <div class="contact-actions">
-                  <QButton
-                    class="plain xs icon contact-action-button"
-                    :title="isEditing(item) ? t('action_close') : t('action_edit')"
-                    :aria-label="isEditing(item) ? t('action_close') : t('action_edit')"
-                    @click="toggleEdit(item)"
-                  >
-                    <QIconCode class="icon" />
-                  </QButton>
-                  <QButton
-                    class="plain xs icon contact-action-button contact-action-delete"
-                    :title="t('action_delete')"
-                    :aria-label="t('action_delete')"
-                    @click="confirmDelete(item)"
-                  >
-                    <QIconTrash class="icon" />
-                  </QButton>
-                </div>
-              </div>
               <div v-if="item.persona_brief || topicList(item).length > 0" class="contact-body">
                 <p v-if="item.persona_brief" class="contact-brief">{{ item.persona_brief }}</p>
                 <div v-if="topicList(item).length > 0" class="topic-list">

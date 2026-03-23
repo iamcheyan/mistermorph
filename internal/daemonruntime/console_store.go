@@ -235,10 +235,10 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 	}
 	limit := opts.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = taskListDefaultLimit
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > taskListInternalMaxLimit {
+		limit = taskListInternalMaxLimit
 	}
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
 	topicID := strings.TrimSpace(opts.TopicID)
@@ -268,6 +268,7 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
+	out = filterTasksByCursor(out, opts.Cursor)
 	if len(out) > limit {
 		out = out[:limit]
 	}

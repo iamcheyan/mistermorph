@@ -64,6 +64,15 @@
   gap: 10px;
 }
 
+.contact-title {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1rem, 0.97rem + 0.16vw, 1.12rem);
+  line-height: 1.2;
+  color: var(--text-0);
+}
+
 .contact-actions {
   display: inline-flex;
   align-items: center;

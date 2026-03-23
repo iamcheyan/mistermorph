@@ -50,6 +50,42 @@ func TestMemoryStoreUpsertListGetUpdate(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListCursor(t *testing.T) {
+	t.Parallel()
+
+	s := NewMemoryStore(100)
+	base := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
+	for i, id := range []string{"task_c", "task_b", "task_a"} {
+		s.Upsert(TaskInfo{
+			ID:        id,
+			Status:    TaskDone,
+			Task:      id,
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: base.Add(time.Duration(-i) * time.Minute),
+		})
+	}
+
+	firstPage := s.List(TaskListOptions{Limit: 2})
+	if len(firstPage) != 2 {
+		t.Fatalf("len(firstPage) = %d, want 2", len(firstPage))
+	}
+	if firstPage[0].ID != "task_c" || firstPage[1].ID != "task_b" {
+		t.Fatalf("firstPage = %+v, want [task_c task_b]", firstPage)
+	}
+
+	secondPage := s.List(TaskListOptions{
+		Limit:  2,
+		Cursor: buildTaskListCursor(firstPage[1]),
+	})
+	if len(secondPage) != 1 {
+		t.Fatalf("len(secondPage) = %d, want 1", len(secondPage))
+	}
+	if secondPage[0].ID != "task_a" {
+		t.Fatalf("secondPage[0].ID = %q, want task_a", secondPage[0].ID)
+	}
+}
+
 func TestBuildTaskID(t *testing.T) {
 	t.Parallel()
 	got := BuildTaskID("sl", "T-1", "C/2", "1740130000.123")

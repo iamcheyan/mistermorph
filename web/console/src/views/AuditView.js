@@ -523,6 +523,9 @@ const AuditView = {
         return;
       }
       if (item.value === selectedFile.value) {
+        if (isMobile.value) {
+          mobileLedgerVisible.value = true;
+        }
         return;
       }
       selectedFile.value = item.value;

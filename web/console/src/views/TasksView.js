@@ -47,6 +47,8 @@ function shortenTaskID(raw) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+const TASKS_PAGE_SIZE = 20;
+
 const TasksView = {
   components: {
     AppPage,
@@ -55,38 +57,29 @@ const TasksView = {
   setup() {
     const t = translate;
     const router = useRouter();
-    const taskStatusItems = computed(() =>
-      TASK_STATUS_META.map((item) => ({
-        title: t(item.titleKey),
-        value: item.value,
-      }))
-    );
-    const statusValue = ref(TASK_STATUS_META[0].value);
-    const statusItem = computed(() => {
-      return taskStatusItems.value.find((item) => item.value === statusValue.value) || taskStatusItems.value[0] || null;
+    const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
+    const taskFeedEndpointRef = computed(() => {
+      const selected = selectedEndpoint.value;
+      if (!selected) {
+        return "";
+      }
+      const mapped = String(selected.submit_endpoint_ref || "").trim();
+      if (mapped) {
+        return mapped;
+      }
+      return String(selected.endpoint_ref || "").trim();
     });
-    const hasStatusFilter = computed(() => statusValue.value !== "");
-    const normalizedLimit = computed(() => Math.max(1, Math.min(200, parseInt(limitText.value || "20", 10) || 20)));
-    const limitText = ref("20");
+    const pageIndex = ref(0);
+    const pageCursors = ref([""]);
+    const nextCursor = ref("");
     const items = ref([]);
     const err = ref("");
     const loading = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
-    const emptyTitle = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_title") : t("tasks_empty_title")));
-    const emptyHint = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_hint") : t("tasks_empty_hint")));
-    const activeEndpointScope = computed(() => {
-      const refs = taskEndpointRefsForSelection();
-      const names = refs
-        .map((endpointRef) => runtimeEndpointByRef(endpointRef))
-        .filter(Boolean)
-        .map((endpoint) => String(endpoint.name || "").trim() || endpointChannelLabel(endpoint.mode, t))
-        .filter(Boolean);
-      return names.length > 0 ? names.join(" + ") : t("tasks_runtime_fallback");
-    });
-    const tasksShowingText = computed(() => t("tasks_showing", { count: items.value.length }));
-    const tasksScopeText = computed(() => t("tasks_scope", { value: activeEndpointScope.value }));
-    const tasksLimitText = computed(() => t("tasks_limit_label", { count: normalizedLimit.value }));
+    const emptyTitle = computed(() => t("tasks_empty_title"));
+    const emptyHint = computed(() => t("tasks_empty_hint"));
+    const tasksPageText = computed(() => `${pageIndex.value + 1}`);
     const taskStatusTitleMap = computed(() => {
       const map = new Map();
       for (const item of TASK_STATUS_META) {
@@ -95,57 +88,41 @@ const TasksView = {
       return map;
     });
 
+    function resetPagination() {
+      pageIndex.value = 0;
+      pageCursors.value = [""];
+      nextCursor.value = "";
+    }
+
     async function load() {
       loading.value = true;
       err.value = "";
       try {
+        const endpointRef = String(taskFeedEndpointRef.value || "").trim();
+        if (!endpointRef) {
+          items.value = [];
+          nextCursor.value = "";
+          return;
+        }
         const q = new URLSearchParams();
-        const v = statusValue.value || "";
-        if (v) {
-          q.set("status", v);
+        q.set("limit", String(TASKS_PAGE_SIZE));
+        const currentCursor = String(pageCursors.value[pageIndex.value] || "").trim();
+        if (currentCursor) {
+          q.set("cursor", currentCursor);
         }
-        q.set("limit", String(normalizedLimit.value));
-        const endpointRefs = taskEndpointRefsForSelection();
-        const settled = await Promise.allSettled(
-          endpointRefs.map(async (endpointRef) => {
-            const endpoint = runtimeEndpointByRef(endpointRef);
-            const data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks?${q.toString()}`);
-            return {
-              endpointRef,
-              endpoint,
-              items: Array.isArray(data?.items) ? data.items : [],
-            };
-          })
-        );
-        const failures = settled.filter((entry) => entry.status === "rejected");
-        const successes = settled.filter((entry) => entry.status === "fulfilled");
-        if (successes.length === 0) {
-          throw failures[0]?.reason || new Error(t("msg_load_failed"));
-        }
-        const merged = new Map();
-        for (const entry of successes) {
-          const { endpoint, endpointRef, items: rows } = entry.value;
-          const sourceLabel = endpointChannelLabel(endpoint?.mode, t);
-          for (const item of rows) {
-            const id = String(item?.id || "").trim();
-            if (!id) {
-              continue;
-            }
-            const nextItem = {
-              ...item,
-              source_label: sourceLabel,
-              source_mode: endpoint?.mode || "",
-              source_name: String(endpoint?.name || "").trim(),
-              source_endpoint_ref: endpointRef,
-              task_preview: taskTextPreview(item),
-            };
-            const current = merged.get(id);
-            if (!current || taskCreatedAt(nextItem) >= taskCreatedAt(current)) {
-              merged.set(id, nextItem);
-            }
-          }
-        }
-        items.value = Array.from(merged.values()).sort((left, right) => taskCreatedAt(right) - taskCreatedAt(left));
+        const endpoint = runtimeEndpointByRef(endpointRef);
+        const data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks?${q.toString()}`);
+        const rows = Array.isArray(data?.items) ? data.items : [];
+        const sourceLabel = endpointChannelLabel(endpoint?.mode, t);
+        items.value = rows.map((item) => ({
+          ...item,
+          source_label: sourceLabel,
+          source_mode: endpoint?.mode || "",
+          source_name: String(endpoint?.name || "").trim(),
+          source_endpoint_ref: endpointRef,
+          task_preview: taskTextPreview(item),
+        }));
+        nextCursor.value = String(data?.next_cursor || "").trim();
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
       } finally {
@@ -153,10 +130,25 @@ const TasksView = {
       }
     }
 
-    function onStatusChange(item) {
-      if (item && typeof item === "object") {
-        statusValue.value = typeof item.value === "string" ? item.value : "";
+    function prevPage() {
+      if (pageIndex.value <= 0) {
+        return;
       }
+      pageIndex.value -= 1;
+      void load();
+    }
+
+    function nextPage() {
+      const cursor = String(nextCursor.value || "").trim();
+      if (!cursor) {
+        return;
+      }
+      const nextPageIndex = pageIndex.value + 1;
+      const nextHistory = pageCursors.value.slice(0, nextPageIndex);
+      nextHistory[nextPageIndex] = cursor;
+      pageCursors.value = nextHistory;
+      pageIndex.value = nextPageIndex;
+      void load();
     }
 
     function taskStatusLabel(task) {
@@ -181,10 +173,6 @@ const TasksView = {
         default:
           return "default";
       }
-    }
-
-    function taskStatusTypeForValue(value) {
-      return taskStatusType({ status: value });
     }
 
     function taskSourceLabel(task) {
@@ -274,41 +262,37 @@ const TasksView = {
 
     onMounted(load);
     watch(
-      () => [endpointState.selectedRef, endpointState.items.length],
+      () => [taskFeedEndpointRef.value, endpointState.items.length],
       () => {
+        resetPagination();
         void load();
       }
     );
     return {
       t,
-      taskStatusItems,
-      statusItem,
-      hasStatusFilter,
-      limitText,
-      normalizedLimit,
+      pageIndex,
       items,
       err,
       loading,
       load,
-      onStatusChange,
+      prevPage,
+      nextPage,
       openTask,
       goChat,
       taskStatusLabel,
       taskStatusType,
-      taskStatusTypeForValue,
       taskSourceLabel,
       taskSourceType,
       taskRuntimeMeta,
       taskModelMeta,
       taskTitle,
       shortenTaskID,
-      activeEndpointScope,
-      tasksShowingText,
-      tasksScopeText,
-      tasksLimitText,
+      tasksPageText,
       formatTime,
       emptyTitle,
       emptyHint,
+      hasPrevPage: computed(() => pageIndex.value > 0),
+      hasNextPage: computed(() => String(nextCursor.value || "").trim() !== ""),
       rawDialogOpen,
       rawDialogJSON,
       closeRawDialog,
@@ -318,19 +302,8 @@ const TasksView = {
     <AppPage :title="t('tasks_title')">
       <section class="tasks-controls">
         <div class="toolbar wrap tasks-toolbar">
-          <div class="tool-item">
-            <QDropdownMenu
-              :items="taskStatusItems"
-              :initialItem="statusItem"
-              :placeholder="t('placeholder_status')"
-              @change="onStatusChange"
-            />
-          </div>
-          <div class="tool-item">
-            <QInput v-model="limitText" inputType="number" :placeholder="t('placeholder_limit')" />
-          </div>
           <QButton
-            class="outlined icon"
+            class="plain sm icon"
             :loading="loading"
             :title="t('action_refresh')"
             :aria-label="t('action_refresh')"
@@ -338,17 +311,26 @@ const TasksView = {
           >
             <QIconRefresh class="icon" />
           </QButton>
-        </div>
-        <div class="tasks-overview">
-          <div class="tasks-overview-copy">
-            <p class="tasks-overview-title">{{ tasksShowingText }}</p>
-            <p class="tasks-overview-meta">{{ tasksScopeText }}</p>
-          </div>
-          <div class="tasks-overview-badges">
-            <QBadge v-if="hasStatusFilter" :type="taskStatusTypeForValue(statusItem && statusItem.value)" size="sm">
-              {{ statusItem ? statusItem.title : t("status_all") }}
-            </QBadge>
-            <QBadge type="default" size="sm">{{ tasksLimitText }}</QBadge>
+          <div class="tasks-limit-control">
+            <QButton
+              class="plain sm icon"
+              :disabled="!hasPrevPage"
+              :title="t('audit_newer')"
+              :aria-label="t('audit_newer')"
+              @click="prevPage"
+            >
+              <QIconArrowLeft class="icon" />
+            </QButton>
+            <div class="tasks-limit-indicator">{{ tasksPageText }}</div>
+            <QButton
+              class="plain sm icon"
+              :disabled="!hasNextPage"
+              :title="t('audit_older')"
+              :aria-label="t('audit_older')"
+              @click="nextPage"
+            >
+              <QIconArrowRight class="icon" />
+            </QButton>
           </div>
         </div>
       </section>
@@ -374,12 +356,14 @@ const TasksView = {
               <div class="task-badges">
                 <QBadge :type="taskStatusType(item)" size="sm">{{ taskStatusLabel(item) }}</QBadge>
                 <QBadge :type="taskSourceType(item)" size="sm">{{ taskSourceLabel(item) }}</QBadge>
-                <time class="task-time">{{ formatTime(item.created_at) }}</time>
               </div>
             </div>
-            <span class="task-row-arrow" aria-hidden="true">
-              <QIconArrowRight class="icon" />
-            </span>
+            <div class="task-row-side">
+              <time class="task-time">{{ formatTime(item.created_at) }}</time>
+              <span class="task-row-arrow" aria-hidden="true">
+                <QIconArrowRight class="icon" />
+              </span>
+            </div>
           </div>
           <div class="task-meta-grid">
             <div class="task-meta-item">

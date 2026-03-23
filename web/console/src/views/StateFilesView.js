@@ -232,6 +232,9 @@ const StateFilesView = {
         return;
       }
       if (String(item.name) === selectedFileName.value) {
+        if (isMobile.value) {
+          mobileEditorVisible.value = true;
+        }
         return;
       }
       selectedFile.value = item;

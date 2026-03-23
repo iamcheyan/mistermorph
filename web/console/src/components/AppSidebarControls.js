@@ -25,12 +25,9 @@ const AppSidebarControls = {
   },
   emits: ["endpoint-change", "go-overview", "go-settings"],
   methods: {
-    shortcutClass() {
+    shortcutType() {
       const value = typeof this.currentPath === "string" ? this.currentPath.trim() : "";
-      if (value === "/overview") {
-        return "sidebar-shortcut-link is-active";
-      }
-      return "sidebar-shortcut-link";
+      return value === "/overview" ? "primary" : "default";
     },
   },
   template: `
@@ -46,18 +43,17 @@ const AppSidebarControls = {
               <path d="M10 17h4" />
             </svg>
           </span>
-          <span class="sidebar-brand-name">mistermorph</span>
         </div>
         <div class="sidebar-shortcuts">
-          <a
-            :class="shortcutClass()"
-            href="/overview"
+          <QButton
+            class="stripe xs icon"
+            :type="shortcutType()"
             :title="t('nav_overview')"
             :aria-label="t('nav_overview')"
-            @click.prevent="$emit('go-overview')"
+            @click="$emit('go-overview')"
           >
-            <QIconGrid class="icon" />
-          </a>
+            <QIconEcosystem class="icon" />
+          </QButton>
         </div>
       </div>
     </section>

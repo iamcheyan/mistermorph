@@ -1,4 +1,3 @@
-import { computed } from "vue";
 import { translate } from "../core/context";
 import "./RawJsonDialog.css";
 
@@ -13,14 +12,9 @@ const RawJsonDialog = {
       type: String,
       default: "",
     },
-    title: {
-      type: String,
-      default: "",
-    },
   },
   setup(props, { emit }) {
     const t = translate;
-    const resolvedTitle = computed(() => props.title || "RAW JSON");
 
     function close() {
       emit("close");
@@ -56,24 +50,30 @@ const RawJsonDialog = {
       t,
       close,
       copy,
-      resolvedTitle,
     };
   },
   template: `
-    <div v-if="open" class="raw-json-overlay" @click.self="close">
-      <section class="raw-json-dialog frame">
+    <QDialog
+      :modelValue="open"
+      width="860px"
+      @update:modelValue="!$event && close()"
+      @close="close"
+    >
+      <template #header>
         <header class="raw-json-head">
-          <div class="raw-json-copy">
-            <h3 class="raw-json-title">{{ resolvedTitle }}</h3>
-          </div>
-          <div class="raw-json-actions">
-            <QButton class="plain sm" @click="close">{{ t("action_close") }}</QButton>
-            <QButton class="plain sm" @click="copy">{{ t("action_copy") }}</QButton>
-          </div>
+          <h3 class="raw-json-title">RAW JSON</h3>
         </header>
-        <pre class="raw-json-body">{{ json }}</pre>
+      </template>
+
+      <section class="raw-json-dialog">
+        <div class="raw-json-codebox">
+          <div class="raw-json-codebox-tools">
+            <QButton class="plain xs" @click="copy">{{ t("action_copy") }}</QButton>
+          </div>
+          <pre class="raw-json-body">{{ json }}</pre>
+        </div>
       </section>
-    </div>
+    </QDialog>
   `,
 };
 

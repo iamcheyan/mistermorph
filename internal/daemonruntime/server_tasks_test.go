@@ -70,9 +70,7 @@ func TestTasksRouteFiltersByTopicID(t *testing.T) {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var payload struct {
-		Items []TaskInfo `json:"items"`
-	}
+	var payload TaskListResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
@@ -81,6 +79,110 @@ func TestTasksRouteFiltersByTopicID(t *testing.T) {
 	}
 	if payload.Items[0].ID != "task_b" {
 		t.Fatalf("items[0].ID = %q, want task_b", payload.Items[0].ID)
+	}
+}
+
+func TestTasksRouteCursorPagination(t *testing.T) {
+	store := NewMemoryStore(10)
+	for _, item := range []TaskInfo{
+		{
+			ID:        "task_3",
+			Status:    TaskDone,
+			Task:      "three",
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: time.Date(2026, 3, 15, 10, 2, 0, 0, time.UTC),
+		},
+		{
+			ID:        "task_2",
+			Status:    TaskDone,
+			Task:      "two",
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: time.Date(2026, 3, 15, 10, 1, 0, 0, time.UTC),
+		},
+		{
+			ID:        "task_1",
+			Status:    TaskDone,
+			Task:      "one",
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: time.Date(2026, 3, 15, 10, 0, 0, 0, time.UTC),
+		},
+	} {
+		store.Upsert(item)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:       "console",
+		AuthToken:  "token",
+		TaskReader: store,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks?limit=2", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first page status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var first TaskListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("json.Unmarshal(first) error = %v", err)
+	}
+	if len(first.Items) != 2 {
+		t.Fatalf("len(first.Items) = %d, want 2", len(first.Items))
+	}
+	if !first.HasNext || strings.TrimSpace(first.NextCursor) == "" {
+		t.Fatalf("first page missing next cursor: %+v", first)
+	}
+	if first.Items[0].ID != "task_3" || first.Items[1].ID != "task_2" {
+		t.Fatalf("first.Items = %+v, want [task_3 task_2]", first.Items)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/tasks?limit=2&cursor="+first.NextCursor, nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second page status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var second TaskListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("json.Unmarshal(second) error = %v", err)
+	}
+	if len(second.Items) != 1 {
+		t.Fatalf("len(second.Items) = %d, want 1", len(second.Items))
+	}
+	if second.Items[0].ID != "task_1" {
+		t.Fatalf("second.Items[0].ID = %q, want task_1", second.Items[0].ID)
+	}
+	if second.HasNext {
+		t.Fatalf("second.HasNext = true, want false")
+	}
+}
+
+func TestTasksRouteRejectsInvalidCursor(t *testing.T) {
+	store := NewMemoryStore(10)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:       "console",
+		AuthToken:  "token",
+		TaskReader: store,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks?cursor=not-a-cursor", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 
