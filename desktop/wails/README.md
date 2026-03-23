@@ -27,8 +27,20 @@ Build console assets first:
 ```bash
 pnpm --dir web/console build
 ./scripts/stage-console-assets.sh
-go build -o ./bin/mistermorph ./cmd/mistermorph
+CGO_ENABLED=0 go build -o ./bin/mistermorph ./cmd/mistermorph
 ```
+
+The bundled `mistermorph` backend should stay `CGO_ENABLED=0`.
+The desktop shell itself can still use cgo through Wails/WebKit, but the child backend is more stable as a pure-Go binary, especially inside AppImage where inherited loader state can otherwise trigger early native crashes.
+
+If a future Go dependency requires cgo, do not immediately let that leak into the bundled backend binary.
+Handle it in this order:
+
+1. Keep `./cmd/mistermorph` pure-Go if possible, and isolate the cgo dependency behind build tags, an optional package, or a separate code path that the desktop backend does not import.
+2. If the feature truly needs native code, prefer a separate helper binary or a desktop-only component over making the main backend child process depend on cgo.
+3. Only let the bundled backend require cgo if there is no practical isolation strategy left. In that case, update the desktop packaging docs and CI together, and re-verify AppImage/DMG/Windows bundle startup before merging.
+
+The working rule is: the desktop shell may depend on cgo; the bundled `mistermorph console serve` backend should remain `CGO_ENABLED=0` unless there is a deliberate packaging plan for changing that constraint.
 
 Run desktop app from source:
 
@@ -74,6 +86,7 @@ Tag releases now build desktop release assets in GitHub Actions:
 - Windows: `mistermorph-desktop-windows-amd64.zip`
 
 The macOS DMG and Linux AppImage bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.
+That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
 The Windows release bundle now includes both `MisterMorph.exe` and `mistermorph.exe`; keep them in the same directory after unzip.
 The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published desktop executable carries the app icon.
 
