@@ -18,14 +18,6 @@ func main() {
 	cfgPath, explicit := resolveDesktopConfigPath(os.Args[1:])
 	printDesktopConfigPath("desktop app", cfgPath, explicit)
 
-	if handled, err := maybeRunDesktopConsoleServe(os.Args[1:]); handled {
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "desktop console host failed: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	host := NewDesktopHost(DesktopHostConfig{
 		ConsoleBasePath: defaultConsoleBasePath,
 		ConfigPath:      cfgPath,

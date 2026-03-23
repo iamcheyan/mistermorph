@@ -79,6 +79,11 @@ if [[ "${BUILD_FRONTEND}" == "1" ]]; then
 fi
 
 if [[ "${BUILD_BACKEND}" == "1" ]]; then
+  echo "==> Staging console assets"
+  ./scripts/stage-console-assets.sh
+fi
+
+if [[ "${BUILD_BACKEND}" == "1" ]]; then
   echo "==> Building backend ${BACKEND_OUTPUT}"
   go build -o "${BACKEND_OUTPUT}" ./cmd/mistermorph
 fi

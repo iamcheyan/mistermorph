@@ -15,12 +15,12 @@ func TestBuildConsoleServeArgs(t *testing.T) {
 		ConsoleBasePath: "console",
 		ConfigPath:      "/tmp/morph.yaml",
 	}
-	args := buildConsoleServeArgs([]string{desktopConsoleServeArgV1}, cfg, "127.0.0.1:12345", "/tmp/dist")
+	args := buildConsoleServeArgs([]string{"console", "serve"}, cfg, "127.0.0.1:12345")
 	want := []string{
-		desktopConsoleServeArgV1,
+		"console",
+		"serve",
 		"--console-listen", "127.0.0.1:12345",
 		"--console-base-path", "/console",
-		"--console-static-dir", "/tmp/dist",
 		"--allow-empty-password",
 		"--config", "/tmp/morph.yaml",
 	}
@@ -59,21 +59,6 @@ func TestExtractConfigPathFromArgs(t *testing.T) {
 				t.Fatalf("extractConfigPathFromArgs() = %q, want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestResolveConsoleStaticDir_Explicit(t *testing.T) {
-	dir := t.TempDir()
-	if err := writeTestFile(filepath.Join(dir, "index.html"), "<html></html>\n"); err != nil {
-		t.Fatalf("prepare index: %v", err)
-	}
-
-	got, err := resolveConsoleStaticDir(dir)
-	if err != nil {
-		t.Fatalf("resolveConsoleStaticDir() error = %v", err)
-	}
-	if got != dir {
-		t.Fatalf("resolveConsoleStaticDir() = %q, want %q", got, dir)
 	}
 }
 
@@ -121,8 +106,4 @@ func TestSameExecutablePath(t *testing.T) {
 	if sameExecutablePath(a, filepath.Join(dir, "other")) {
 		t.Fatalf("different path should be false")
 	}
-}
-
-func writeTestFile(path string, content string) error {
-	return os.WriteFile(path, []byte(content), 0o600)
 }

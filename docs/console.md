@@ -190,13 +190,20 @@ pnpm install
 pnpm build
 ```
 
-2. Start console backend + static hosting:
+2. Stage embedded console assets for the CLI/backend binary:
+
+```bash
+cd ../..
+./scripts/stage-console-assets.sh
+```
+
+3. Start console backend + static hosting:
 
 ```bash
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN=dev-token \
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
-go run ./cmd/mistermorph console serve --console-static-dir ./web/console/dist
+go run ./cmd/mistermorph console serve
 ```
 
 Example `config.yaml` snippet (`console.endpoints` is optional now):
@@ -212,13 +219,23 @@ console:
       auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
 ```
 
-3. Open:
+4. Open:
 
 `http://127.0.0.1:9080/`
 
 ## Dev (hot reload)
 
-1. Start console backend:
+1. Build and stage console assets once before running the CLI from source:
+
+```bash
+cd web/console
+pnpm install
+pnpm build
+cd ../..
+./scripts/stage-console-assets.sh
+```
+
+2. Start console backend:
 
 ```bash
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
@@ -226,7 +243,7 @@ MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 go run ./cmd/mistermorph console serve
 ```
 
-2. Start Vite dev server:
+3. Start Vite dev server:
 
 ```bash
 cd web/console
@@ -234,12 +251,13 @@ pnpm install
 pnpm dev
 ```
 
-3. Open:
+4. Open:
 
 `http://127.0.0.1:5173/`
 
 Notes:
 - Vite proxies `/api` to `http://127.0.0.1:9080`.
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
-- `--console-static-dir` is optional in dev. If you omit it, `console serve` exposes only `/api` and does not serve the SPA itself.
+- If you omit `--console-static-dir`, `console serve` falls back to its embedded SPA assets.
+- `./scripts/stage-console-assets.sh` is required before `go run ./cmd/mistermorph ...`, because the CLI validates embedded Console assets at startup.
 - Optional external endpoints should point to an existing channel runtime such as `mistermorph telegram`, `mistermorph slack`, `mistermorph line`, or `mistermorph lark`.

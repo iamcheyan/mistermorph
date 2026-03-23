@@ -53,12 +53,11 @@ The desktop wrapper is intentionally thin: lifecycle + process hosting + proxy o
 
 ```text
 Desktop main
-  -> resolve console static assets dir
+  -> resolve backend binary path
   -> reserve random loopback port
   -> spawn child: mistermorph console serve
        --console-listen 127.0.0.1:<port>
        --console-base-path /console
-       --console-static-dir <web/console/dist>
        --allow-empty-password
   -> poll GET /health until ready
   -> start Wails window
@@ -88,9 +87,10 @@ This is used after successful setup apply.
 
 ## 7. Paths and Configuration
 
-- frontend static assets default: `web/console/dist`
-- override static assets path:
-  - `MISTERMORPH_DESKTOP_CONSOLE_STATIC_DIR=/abs/path/to/dist`
+- frontend static assets default: embedded in the `mistermorph` backend binary
+- override static assets path with existing backend settings:
+  - `console.static_dir`
+  - `--console-static-dir /abs/path/to/dist`
 - `--config <path>` passed to desktop app is forwarded to child `console serve`.
 
 ## 8. Build and Run
@@ -99,6 +99,8 @@ Build console assets first:
 
 ```bash
 pnpm --dir web/console build
+./scripts/stage-console-assets.sh
+go build -o ./bin/mistermorph ./cmd/mistermorph
 ```
 
 On Ubuntu/Debian with WebKitGTK 4.1, install the native Linux desktop deps first:

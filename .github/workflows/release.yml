@@ -24,6 +24,27 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/console/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir web/console install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --dir web/console build
+
+      - name: Stage console assets
+        run: ./scripts/stage-console-assets.sh
+
       - name: Run tests
         run: go test ./...
 
@@ -69,6 +90,7 @@ jobs:
             goarch: amd64
             desktop_asset: mistermorph-desktop-linux-amd64.AppImage
             raw_desktop_binary: dist/mistermorph-desktop
+            bundled_backend_binary: dist/mistermorph
             package_kind: appimage
             go_build_tags: "wailsdesktop production"
           - label: macos-arm64
@@ -77,15 +99,17 @@ jobs:
             goarch: arm64
             desktop_asset: mistermorph-desktop-darwin-arm64.dmg
             raw_desktop_binary: dist/mistermorph-desktop
+            bundled_backend_binary: dist/mistermorph
             package_kind: dmg
             go_build_tags: "wailsdesktop production"
           - label: windows-amd64
             os: windows-2022
             goos: windows
             goarch: amd64
-            desktop_asset: mistermorph-desktop-windows-amd64.exe
-            raw_desktop_binary: dist/mistermorph-desktop-windows-amd64.exe
-            package_kind: raw
+            desktop_asset: mistermorph-desktop-windows-amd64.zip
+            raw_desktop_binary: dist/MisterMorph.exe
+            bundled_backend_binary: dist/mistermorph.exe
+            package_kind: zip
             go_build_tags: "wailsdesktop production"
 
     steps:
@@ -115,6 +139,9 @@ jobs:
       - name: Build frontend
         run: pnpm --dir web/console build
 
+      - name: Stage console assets
+        run: ./scripts/stage-console-assets.sh
+
       - name: Install Linux desktop build deps
         if: runner.os == 'Linux'
         run: |
@@ -139,11 +166,10 @@ jobs:
             go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "-s -w" -o "${{ matrix.raw_desktop_binary }}" ./desktop/wails
 
       - name: Build bundled backend binary
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
-            go build -trimpath -ldflags "-s -w" -o dist/mistermorph ./cmd/mistermorph
+            go build -trimpath -ldflags "-s -w" -o "${{ matrix.bundled_backend_binary }}" ./cmd/mistermorph
 
       - name: Package macOS DMG
         if: matrix.package_kind == 'dmg'
@@ -155,7 +181,7 @@ jobs:
           VERSION="${VERSION#v}" \
           ARCH="${ARCH}" \
           DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
-          BACKEND_BIN="dist/mistermorph" \
+          BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
           ./desktop/wails/packaging/package-darwin.sh
 
@@ -169,10 +195,33 @@ jobs:
           VERSION="${VERSION#v}" \
           ARCH="${ARCH}" \
           DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
-          BACKEND_BIN="dist/mistermorph" \
+          BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
           APPIMAGE_NAME="${{ matrix.desktop_asset }}" \
           ./desktop/wails/packaging/package-linux-appimage.sh
+
+      - name: Package Windows bundle
+        if: matrix.package_kind == 'zip'
+        shell: pwsh
+        run: |
+          $bundle = "dist/windows-bundle"
+          if (Test-Path $bundle) {
+            Remove-Item -Recurse -Force $bundle
+          }
+          New-Item -ItemType Directory -Path $bundle | Out-Null
+          Copy-Item "${{ matrix.raw_desktop_binary }}" "$bundle/MisterMorph.exe"
+          Copy-Item "${{ matrix.bundled_backend_binary }}" "$bundle/mistermorph.exe"
+          Copy-Item "LICENSE" "$bundle/LICENSE"
+          @"
+          MisterMorph Desktop for Windows.
+
+          Keep MisterMorph.exe and mistermorph.exe in the same directory.
+          Launch the app with MisterMorph.exe.
+          "@ | Set-Content "$bundle/README-desktop.txt"
+          if (Test-Path "dist/${{ matrix.desktop_asset }}") {
+            Remove-Item -Force "dist/${{ matrix.desktop_asset }}"
+          }
+          Compress-Archive -Path "$bundle/*" -DestinationPath "dist/${{ matrix.desktop_asset }}"
 
       - name: Generate checksum
         if: runner.os != 'Windows'

@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,6 +33,7 @@ type serveConfig struct {
 	listen           string
 	basePath         string
 	staticDir        string
+	staticFS         fs.FS
 	sessionTTL       time.Duration
 	passwordOptional bool
 	password         string
@@ -163,6 +166,7 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		listen:           listen,
 		basePath:         basePath,
 		staticDir:        staticDir,
+		staticFS:         consoleStaticFS,
 		sessionTTL:       sessionTTL,
 		passwordOptional: passwordOptional,
 		password:         viper.GetString("console.password"),
@@ -176,6 +180,10 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 
 func (c serveConfig) authDisabled() bool {
 	return c.passwordOptional && !consolePasswordConfigured(c.password, c.passwordHash)
+}
+
+func (c serveConfig) staticAssetsEnabled() bool {
+	return strings.TrimSpace(c.staticDir) != "" || c.staticFS != nil
 }
 
 func normalizeBasePath(raw string) (string, error) {
@@ -360,7 +368,7 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 
-	if s.cfg.staticDir != "" {
+	if s.cfg.staticAssetsEnabled() {
 		if s.cfg.basePath == "/" {
 			mux.HandleFunc("/", s.handleSPA)
 		} else {
@@ -396,7 +404,7 @@ func (s *server) run() error {
 		}
 	}
 	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
-	if s.cfg.staticDir == "" {
+	if !s.cfg.staticAssetsEnabled() {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
 	err = httpSrv.Serve(ln)
@@ -707,9 +715,7 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clean := path.Clean("/" + rel)
-	target := filepath.Join(s.cfg.staticDir, filepath.FromSlash(strings.TrimPrefix(clean, "/")))
-	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
-		http.ServeFile(w, r, target)
+	if s.serveStaticAsset(w, r, strings.TrimPrefix(clean, "/")) {
 		return
 	}
 	s.serveSPAIndex(w, r)
@@ -720,14 +726,97 @@ func (s *server) serveSPAIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	indexPath := filepath.Join(s.cfg.staticDir, "index.html")
-	raw, err := os.ReadFile(indexPath)
+	raw, err := s.readStaticAsset("index.html")
 	if err != nil {
-		http.ServeFile(w, r, indexPath)
+		http.NotFound(w, r)
 		return
 	}
 	body := bytes.ReplaceAll(raw, []byte("__MISTERMORPH_BASE_PATH__"), []byte(displayBasePath(s.cfg.basePath)))
 	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(body))
+}
+
+func (s *server) serveStaticAsset(w http.ResponseWriter, r *http.Request, rel string) bool {
+	if s == nil {
+		return false
+	}
+	rel = strings.TrimPrefix(strings.TrimSpace(rel), "/")
+	if rel == "" {
+		return false
+	}
+	if strings.TrimSpace(s.cfg.staticDir) != "" {
+		target := filepath.Join(s.cfg.staticDir, filepath.FromSlash(rel))
+		if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+			http.ServeFile(w, r, target)
+			return true
+		}
+		return false
+	}
+	if s.cfg.staticFS == nil {
+		return false
+	}
+
+	file, info, err := openStaticFSFile(s.cfg.staticFS, rel)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	serveStaticFSFile(w, r, rel, file, info)
+	return true
+}
+
+func (s *server) readStaticAsset(rel string) ([]byte, error) {
+	if s == nil {
+		return nil, fs.ErrNotExist
+	}
+	rel = strings.TrimPrefix(strings.TrimSpace(rel), "/")
+	if rel == "" {
+		return nil, fs.ErrNotExist
+	}
+	if strings.TrimSpace(s.cfg.staticDir) != "" {
+		return os.ReadFile(filepath.Join(s.cfg.staticDir, filepath.FromSlash(rel)))
+	}
+	if s.cfg.staticFS == nil {
+		return nil, fs.ErrNotExist
+	}
+	return fs.ReadFile(s.cfg.staticFS, rel)
+}
+
+func openStaticFSFile(staticFS fs.FS, rel string) (fs.File, fs.FileInfo, error) {
+	clean := strings.TrimPrefix(path.Clean("/"+strings.TrimSpace(rel)), "/")
+	if clean == "" {
+		return nil, nil, fs.ErrNotExist
+	}
+	file, err := staticFS.Open(clean)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if info.IsDir() {
+		_ = file.Close()
+		return nil, nil, fs.ErrNotExist
+	}
+	return file, info, nil
+}
+
+func serveStaticFSFile(w http.ResponseWriter, r *http.Request, name string, file fs.File, info fs.FileInfo) {
+	if ctype := mime.TypeByExtension(path.Ext(name)); ctype != "" {
+		w.Header().Set("Content-Type", ctype)
+	}
+	if rs, ok := file.(io.ReadSeeker); ok {
+		http.ServeContent(w, r, path.Base(name), info.ModTime(), rs)
+		return
+	}
+	body, err := io.ReadAll(file)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeContent(w, r, path.Base(name), info.ModTime(), bytes.NewReader(body))
 }
 
 func joinBasePath(basePath, suffix string) string {

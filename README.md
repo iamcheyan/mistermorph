@@ -253,7 +253,7 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 **console serve**
 - `--console-listen`
 - `--console-base-path`
-- `--console-static-dir` (optional; omit it when using `pnpm dev` and Vite will serve the SPA)
+- `--console-static-dir` (optional; overrides the embedded Console SPA/static root)
 - `--console-session-ttl`
 
 **telegram**

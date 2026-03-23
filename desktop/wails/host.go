@@ -16,20 +16,16 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 const (
-	defaultConsoleBasePath   = "/"
-	defaultStartupTimeout    = 25 * time.Second
-	defaultHealthInterval    = 350 * time.Millisecond
-	desktopConsoleServeArgV1 = "--desktop-console-serve"
+	defaultConsoleBasePath = "/"
+	defaultStartupTimeout  = 25 * time.Second
+	defaultHealthInterval  = 350 * time.Millisecond
 )
 
 type DesktopHostConfig struct {
 	ConsoleBasePath    string
-	ConsoleStaticDir   string
 	ConsoleBinaryPath  string
 	ConfigPath         string
 	StartupTimeout     time.Duration
@@ -49,7 +45,6 @@ type DesktopHost struct {
 type consoleLauncher struct {
 	execPath string
 	argsHead []string
-	source   string
 }
 
 func NewDesktopHost(cfg DesktopHostConfig) *DesktopHost {
@@ -75,10 +70,6 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 	}
 	h.mu.Unlock()
 
-	staticDir, err := resolveConsoleStaticDir(h.cfg.ConsoleStaticDir)
-	if err != nil {
-		return err
-	}
 	listenAddr, err := reserveLoopbackAddr()
 	if err != nil {
 		return err
@@ -93,7 +84,7 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 		return err
 	}
 
-	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr, staticDir)
+	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr)
 	cmd := exec.Command(launcher.execPath, args...)
 	cmd.Env = os.Environ()
 	cmd.Stdout = os.Stdout
@@ -150,7 +141,6 @@ func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath st
 		return consoleLauncher{
 			execPath: candidate,
 			argsHead: []string{"console", "serve"},
-			source:   "local_binary",
 		}, nil
 	}
 
@@ -161,7 +151,6 @@ func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath st
 			return consoleLauncher{
 				execPath: path,
 				argsHead: []string{"console", "serve"},
-				source:   "downloaded_binary",
 			}, nil
 		}
 		if err != nil {
@@ -169,14 +158,7 @@ func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath st
 		}
 	}
 
-	if !isExecutableFile(selfExePath) {
-		return consoleLauncher{}, fmt.Errorf("desktop executable is not runnable: %s", selfExePath)
-	}
-	return consoleLauncher{
-		execPath: selfExePath,
-		argsHead: []string{desktopConsoleServeArgV1},
-		source:   "embedded_mode",
-	}, nil
+	return consoleLauncher{}, fmt.Errorf("cannot find runnable mistermorph backend binary; set %s or place %s next to the desktop app", desktopBackendBinEnv, desktopBackendBinaryBaseName())
 }
 
 func sameExecutablePath(a, b string) bool {
@@ -299,78 +281,18 @@ func (h *DesktopHost) waitUntilReady(ctx context.Context, listenAddr string, pro
 	}
 }
 
-func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr, staticDir string) []string {
-	args := make([]string, 0, len(argsHead)+9)
+func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr string) []string {
+	args := make([]string, 0, len(argsHead)+7)
 	args = append(args, argsHead...)
 	args = append(args,
 		"--console-listen", listenAddr,
 		"--console-base-path", normalizeConsoleBasePath(cfg.ConsoleBasePath),
-		"--console-static-dir", staticDir,
 		"--allow-empty-password",
 	)
 	if cfg.ConfigPath != "" {
 		args = append(args, "--config", cfg.ConfigPath)
 	}
 	return args
-}
-
-func resolveConsoleStaticDir(explicit string) (string, error) {
-	candidates := make([]string, 0, 8)
-	if v := strings.TrimSpace(pathutil.ExpandHomePath(explicit)); v != "" {
-		candidates = append(candidates, v)
-	}
-	if v := strings.TrimSpace(pathutil.ExpandHomePath(os.Getenv("MISTERMORPH_DESKTOP_CONSOLE_STATIC_DIR"))); v != "" {
-		candidates = append(candidates, v)
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates,
-			filepath.Join(wd, "web", "console", "dist"),
-			filepath.Join(wd, "..", "web", "console", "dist"),
-		)
-	}
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "web", "console", "dist"),
-			filepath.Join(exeDir, "..", "web", "console", "dist"),
-			filepath.Join(exeDir, "resources", "web", "console", "dist"),
-			filepath.Join(exeDir, "..", "Resources", "web", "console", "dist"),
-		)
-	}
-
-	seen := map[string]struct{}{}
-	for _, item := range candidates {
-		clean := filepath.Clean(strings.TrimSpace(item))
-		if clean == "" {
-			continue
-		}
-		if _, ok := seen[clean]; ok {
-			continue
-		}
-		seen[clean] = struct{}{}
-		if isValidConsoleStaticDir(clean) {
-			return clean, nil
-		}
-	}
-
-	return "", fmt.Errorf("cannot find console static assets directory; set --console-static-dir in DesktopHostConfig or MISTERMORPH_DESKTOP_CONSOLE_STATIC_DIR")
-}
-
-func isValidConsoleStaticDir(dir string) bool {
-	if strings.TrimSpace(dir) == "" {
-		return false
-	}
-	fi, err := os.Stat(dir)
-	if err != nil || !fi.IsDir() {
-		return false
-	}
-	indexPath := filepath.Join(dir, "index.html")
-	info, err := os.Stat(indexPath)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return true
 }
 
 func reserveLoopbackAddr() (string, error) {
@@ -436,23 +358,4 @@ func normalizeConsoleBasePath(raw string) string {
 		return defaultConsoleBasePath
 	}
 	return base
-}
-
-func extractConfigPathFromArgs(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-	for i := 0; i < len(args); i++ {
-		item := strings.TrimSpace(args[i])
-		if item == "" {
-			continue
-		}
-		if item == "--config" && i+1 < len(args) {
-			return strings.TrimSpace(pathutil.ExpandHomePath(args[i+1]))
-		}
-		if strings.HasPrefix(item, "--config=") {
-			return strings.TrimSpace(pathutil.ExpandHomePath(strings.TrimPrefix(item, "--config=")))
-		}
-	}
-	return ""
 }

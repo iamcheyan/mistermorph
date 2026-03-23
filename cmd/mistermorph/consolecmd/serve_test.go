@@ -3,6 +3,7 @@ package consolecmd
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/spf13/viper"
 )
@@ -108,6 +110,70 @@ func TestHandleSPAInjectsConfiguredBasePathIntoIndex(t *testing.T) {
 	}
 }
 
+func TestHandleSPAServesEmbeddedStaticAssets(t *testing.T) {
+	embedded := fstest.MapFS{
+		"index.html": {
+			Data: []byte(`<meta name="mistermorph-base-path" content="__MISTERMORPH_BASE_PATH__">`),
+		},
+		"assets/app.js": {
+			Data: []byte(`console.log("embedded");`),
+		},
+	}
+
+	srv := &server{cfg: serveConfig{basePath: "/console", staticFS: fs.FS(embedded)}}
+
+	assetReq := httptest.NewRequest(http.MethodGet, "/console/assets/app.js", nil)
+	assetRec := httptest.NewRecorder()
+	srv.handleSPA(assetRec, assetReq)
+	if assetRec.Code != http.StatusOK {
+		t.Fatalf("handleSPA(/console/assets/app.js) status = %d, want %d", assetRec.Code, http.StatusOK)
+	}
+	if body := assetRec.Body.String(); !strings.Contains(body, `console.log("embedded")`) {
+		t.Fatalf("embedded asset body = %q, want JS payload", body)
+	}
+
+	indexReq := httptest.NewRequest(http.MethodGet, "/console/login", nil)
+	indexRec := httptest.NewRecorder()
+	srv.handleSPA(indexRec, indexReq)
+	if indexRec.Code != http.StatusOK {
+		t.Fatalf("handleSPA(/console/login) status = %d, want %d", indexRec.Code, http.StatusOK)
+	}
+	if body := indexRec.Body.String(); !strings.Contains(body, `content="/console"`) {
+		t.Fatalf("embedded index missing injected base path: %s", body)
+	}
+}
+
+func TestStaticDirOverridesEmbeddedStaticFS(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("dir"), 0o600); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "app.js"), []byte("dir-js"), 0o600); err != nil {
+		t.Fatalf("write app.js: %v", err)
+	}
+
+	embedded := fstest.MapFS{
+		"index.html": {Data: []byte("embedded")},
+		"app.js":     {Data: []byte("embedded-js")},
+	}
+
+	srv := &server{cfg: serveConfig{
+		basePath:  "/",
+		staticDir: staticDir,
+		staticFS:  fs.FS(embedded),
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/app.js", nil)
+	rec := httptest.NewRecorder()
+	srv.handleSPA(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("handleSPA(/app.js) status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "dir-js" {
+		t.Fatalf("handleSPA(/app.js) body = %q, want %q", body, "dir-js")
+	}
+}
+
 func TestResolveStaticDir(t *testing.T) {
 	staticDir := t.TempDir()
 	indexPath := filepath.Join(staticDir, "index.html")
@@ -164,6 +230,9 @@ func TestLoadServeConfigAllowsEmptyStaticDir(t *testing.T) {
 	}
 	if cfg.staticDir != "" {
 		t.Fatalf("cfg.staticDir = %q, want empty", cfg.staticDir)
+	}
+	if cfg.staticFS == nil {
+		t.Fatalf("cfg.staticFS is nil, want embedded assets")
 	}
 }
 
