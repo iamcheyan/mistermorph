@@ -156,6 +156,23 @@ func TestBuildChatOptionsDisablesOnStreamForGeminiProvider(t *testing.T) {
 		t.Fatalf("expected on_stream callback to be disabled for gemini provider")
 	}
 }
+
+func TestBuildChatOptionsDisablesOnStreamForCloudflareProvider(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		OnStream: func(llm.StreamEvent) error { return nil },
+	}
+	opts := buildChatOptions(req, "cloudflare", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OnStream != nil {
+		t.Fatalf("expected on_stream callback to be disabled for cloudflare provider")
+	}
+}
+
 func TestBuildChatOptionsMapsDebugFn(t *testing.T) {
 	var gotLabel, gotPayload string
 	req := llm.Request{

@@ -275,7 +275,12 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 }
 
 func supportsStreaming(provider string) bool {
-	return !strings.EqualFold(strings.TrimSpace(provider), "gemini")
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gemini", "cloudflare":
+		return false
+	default:
+		return true
+	}
 }
 
 func cloneFloat64(v *float64) *float64 {
