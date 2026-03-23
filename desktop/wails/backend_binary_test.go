@@ -49,8 +49,8 @@ func TestResolveDesktopBackendCandidates(t *testing.T) {
 	if len(candidates) == 0 {
 		t.Fatalf("expected non-empty candidates")
 	}
-	if candidates[0] != filepath.Clean(explicit) {
-		t.Fatalf("first candidate = %q, want %q", candidates[0], filepath.Clean(explicit))
+	if got, want := candidates[0], filepath.Clean(explicit); !sameCleanPath(got, want) {
+		t.Fatalf("first candidate = %q, want path-equivalent to %q", got, want)
 	}
 }
 
@@ -60,13 +60,13 @@ func TestResolveDesktopBackendCandidates_EnvBinary(t *testing.T) {
 	candidates := resolveDesktopBackendCandidates("", "")
 	found := false
 	for _, c := range candidates {
-		if c == filepath.Clean(envPath) {
+		if sameCleanPath(c, envPath) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected env candidate %q in list: %#v", envPath, candidates)
+		t.Fatalf("expected env candidate path-equivalent to %q in list: %#v", envPath, candidates)
 	}
 }
 
