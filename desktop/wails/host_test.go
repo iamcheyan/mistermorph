@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -105,5 +106,50 @@ func TestSameExecutablePath(t *testing.T) {
 	}
 	if sameExecutablePath(a, filepath.Join(dir, "other")) {
 		t.Fatalf("different path should be false")
+	}
+}
+
+func TestBuildDesktopChildEnvLeavesNormalEnvUntouched(t *testing.T) {
+	base := []string{
+		"HOME=/tmp/home",
+		"PATH=/usr/bin",
+	}
+	got := buildDesktopChildEnv(base)
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("buildDesktopChildEnv() = %#v, want %#v", got, base)
+	}
+}
+
+func TestBuildDesktopChildEnvSanitizesAppImageEnv(t *testing.T) {
+	base := []string{
+		"HOME=/tmp/home",
+		"APPIMAGE=/tmp/MisterMorph.AppImage",
+		"APPDIR=/tmp/.mount_MisterMorph",
+		"ARGV0=/tmp/MisterMorph.AppImage",
+		"OWD=/tmp",
+		"LD_LIBRARY_PATH=/tmp/.mount_MisterMorph/usr/lib",
+		"LD_PRELOAD=/tmp/libhack.so",
+		"PATH=/usr/bin",
+	}
+	got := buildDesktopChildEnv(base)
+
+	for _, blocked := range []string{"APPIMAGE=", "APPDIR=", "ARGV0=", "OWD=", "LD_LIBRARY_PATH=", "LD_PRELOAD="} {
+		for _, item := range got {
+			if strings.HasPrefix(item, blocked) {
+				t.Fatalf("buildDesktopChildEnv() leaked %q in %#v", blocked, got)
+			}
+		}
+	}
+	for _, want := range []string{"HOME=/tmp/home", "PATH=/usr/bin"} {
+		found := false
+		for _, item := range got {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("buildDesktopChildEnv() missing %q in %#v", want, got)
+		}
 	}
 }

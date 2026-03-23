@@ -86,7 +86,7 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 
 	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr)
 	cmd := exec.Command(launcher.execPath, args...)
-	cmd.Env = os.Environ()
+	cmd.Env = buildDesktopChildEnv(os.Environ())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if wd, wdErr := os.Getwd(); wdErr == nil {
@@ -293,6 +293,47 @@ func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr 
 		args = append(args, "--config", cfg.ConfigPath)
 	}
 	return args
+}
+
+func buildDesktopChildEnv(base []string) []string {
+	if !desktopChildNeedsSanitizedEnv(base) {
+		return append([]string(nil), base...)
+	}
+
+	blocked := map[string]struct{}{
+		"APPDIR":           {},
+		"APPIMAGE":         {},
+		"APPDIR_EXEC_PATH": {},
+		"ARGV0":            {},
+		"OWD":              {},
+		"LD_LIBRARY_PATH":  {},
+		"LD_PRELOAD":       {},
+	}
+	out := make([]string, 0, len(base))
+	for _, item := range base {
+		key, _, ok := strings.Cut(item, "=")
+		if ok {
+			if _, drop := blocked[key]; drop {
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func desktopChildNeedsSanitizedEnv(base []string) bool {
+	for _, item := range base {
+		key, _, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "APPDIR", "APPIMAGE":
+			return true
+		}
+	}
+	return false
 }
 
 func reserveLoopbackAddr() (string, error) {
