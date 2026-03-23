@@ -177,10 +177,6 @@ router.beforeEach(async (to) => {
     }
     return true;
   }
-  const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
-  if (isChatPath(to.path) && targetRef && !selectedEndpointCanChat()) {
-    setSelectedEndpointRef(targetRef);
-  }
   return true;
 });
 
