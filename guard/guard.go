@@ -249,14 +249,17 @@ func (g *Guard) evalToolCallPost(a Action) Result {
 	if g.redactor == nil {
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
 	}
-	red, changed := g.redactor.RedactString(obs)
+	red, changed, reasons := g.redactor.RedactStringDetailed(obs)
 	if !changed {
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
+	}
+	if len(reasons) == 0 {
+		reasons = []string{"sensitive_content_redacted"}
 	}
 	return Result{
 		RiskLevel:       RiskHigh,
 		Decision:        DecisionAllowWithRedact,
-		Reasons:         []string{"sensitive_content_redacted"},
+		Reasons:         reasons,
 		RedactedContent: red,
 	}
 }
@@ -266,14 +269,17 @@ func (g *Guard) evalOutputPublish(a Action) Result {
 	if strings.TrimSpace(out) == "" || g.redactor == nil {
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
 	}
-	red, changed := g.redactor.RedactString(out)
+	red, changed, reasons := g.redactor.RedactStringDetailed(out)
 	if !changed {
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
+	}
+	if len(reasons) == 0 {
+		reasons = []string{"sensitive_content_redacted"}
 	}
 	return Result{
 		RiskLevel:       RiskHigh,
 		Decision:        DecisionAllowWithRedact,
-		Reasons:         []string{"sensitive_content_redacted"},
+		Reasons:         reasons,
 		RedactedContent: red,
 	}
 }

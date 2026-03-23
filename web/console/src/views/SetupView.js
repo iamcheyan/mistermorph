@@ -1,8 +1,9 @@
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./SetupView.css";
 
 import MarkdownEditor from "../components/MarkdownEditor";
+import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import {
   apiFetch,
@@ -27,6 +28,7 @@ import {
   SETUP_PROVIDER_OPTIONS,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
+import { pickRandomPersonaSeed } from "../core/persona-seeds";
 import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
 import { endpointState } from "../stores";
 
@@ -37,7 +39,17 @@ const PREVIOUS_STAGE = {
   persona: "llm",
   soul: "persona",
 };
-const TEST_CONNECTION_BENCHMARK_IDS = ["text_reply", "json_response", "tool_calling"];
+const NEXT_STAGE = {
+  llm: "persona",
+  persona: "soul",
+  soul: "done",
+};
+const SETUP_STAGE_ORDER = {
+  llm: 1,
+  persona: 2,
+  soul: 3,
+  done: 4,
+};
 
 const STAGE_META = {
   llm: {
@@ -256,6 +268,10 @@ function normalizeStage(value) {
   return "llm";
 }
 
+function setupStageIndex(stage) {
+  return SETUP_STAGE_ORDER[normalizeStage(stage)] || SETUP_STAGE_ORDER.llm;
+}
+
 function resolveDoneGreetingKey(date = new Date()) {
   const hour = date.getHours();
   if (hour >= 5 && hour < 10) {
@@ -273,6 +289,7 @@ function resolveDoneGreetingKey(date = new Date()) {
 const SetupView = {
   components: {
     MarkdownEditor,
+    SetupConnectionTestDialog,
     SetupPickerDialog,
   },
   setup() {
@@ -307,6 +324,7 @@ const SetupView = {
     const modelPickerLoading = ref(false);
     const modelPickerError = ref("");
     const modelPickerItems = ref([]);
+    const personaNameInput = ref(null);
     const apiBasePickerOpen = ref(false);
     const testConnectionOpen = ref(false);
     const testConnectionLoading = ref(false);
@@ -403,34 +421,11 @@ const SetupView = {
         (showCloudflareAccountField.value && String(llmForm.cloudflare_account_id || "").trim() === "")
     );
     const testConnectionDisabled = computed(() => llmSaveDisabled.value || testConnectionLoading.value);
-    const testConnectionHasBenchmarks = computed(() => testConnectionBenchmarks.value.length > 0);
-    const visibleTestConnectionBenchmarks = computed(() => {
-      if (testConnectionLoading.value && testConnectionBenchmarks.value.length === 0) {
-        return TEST_CONNECTION_BENCHMARK_IDS.map((id) => ({
-          id,
-          ok: false,
-          running: true,
-          duration_ms: 0,
-          detail: "",
-          error: "",
-        }));
-      }
-      return testConnectionBenchmarks.value.map((item) => ({
-        ...item,
-        running: false,
-      }));
-    });
-    const showTestConnectionBenchmarks = computed(
-      () => testConnectionLoading.value || testConnectionHasBenchmarks.value
-    );
     const personaSaveDisabled = computed(
       () =>
         loading.value ||
         saving.value ||
-        String(personaForm.name || "").trim() === "" ||
-        String(personaForm.creature || "").trim() === "" ||
-        String(personaForm.vibe || "").trim() === "" ||
-        String(personaForm.emoji || "").trim() === ""
+        String(personaForm.name || "").trim() === ""
     );
     const soulSaveDisabled = computed(
       () =>
@@ -527,19 +522,6 @@ const SetupView = {
       },
     ]);
     const soulUsesCustomContent = computed(() => soulDocumentExists.value);
-
-    function formatBenchmarkSeconds(durationMS) {
-      const ms = Number(durationMS || 0);
-      if (!Number.isFinite(ms) || ms <= 0) {
-        return "0s";
-      }
-      const seconds = ms / 1000;
-      const digits = seconds >= 10 ? 1 : 2;
-      return `${seconds
-        .toFixed(digits)
-        .replace(/\.0+$/, "")
-        .replace(/(\.\d*[1-9])0+$/, "$1")}s`;
-    }
 
     async function enterChat() {
       const setupState = await resolveConsoleSetupStage(endpointState.items);
@@ -677,7 +659,12 @@ const SetupView = {
       }
       if (setupState.stage !== "ready") {
         const targetPath = setupStagePath(setupState.stage);
-        if (route.path !== targetPath) {
+        const canStayOnCurrentSetupPath =
+          options.allowPrevious === true &&
+          route.path !== "/setup" &&
+          route.path.startsWith("/setup/") &&
+          setupStageIndex(routeStage.value) <= setupStageIndex(setupState.stage);
+        if (!canStayOnCurrentSetupPath && route.path !== targetPath) {
           await router.replace({ path: targetPath, query: route.query });
           return false;
         }
@@ -697,6 +684,11 @@ const SetupView = {
     async function finishStep() {
       if (inRepairMode.value) {
         await router.replace({ path: "/setup", query: {} });
+        return;
+      }
+      const nextStage = NEXT_STAGE[routeStage.value];
+      if (nextStage) {
+        await router.replace({ path: setupStagePath(nextStage), query: route.query });
         return;
       }
       await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
@@ -758,6 +750,18 @@ const SetupView = {
       } finally {
         saving.value = false;
       }
+    }
+
+    async function fillRandomPersona() {
+      if (loading.value || saving.value) {
+        return;
+      }
+      const seed = pickRandomPersonaSeed();
+      personaForm.name = seed.name;
+      personaForm.emoji = seed.emoji;
+      personaForm.creature = seed.creature;
+      personaForm.vibe = seed.vibe;
+      await focusPersonaNameField();
     }
 
     async function saveSoul() {
@@ -933,10 +937,40 @@ const SetupView = {
       }
     }
 
+    async function focusPersonaNameField() {
+      if (routeStage.value !== "persona") {
+        return;
+      }
+      await nextTick();
+      const target = personaNameInput.value;
+      if (!target) {
+        return;
+      }
+      if (typeof target.focus === "function") {
+        target.focus();
+        return;
+      }
+      const el = target?.$el || target;
+      const input = el?.querySelector?.("input, textarea");
+      if (typeof input?.focus === "function") {
+        input.focus();
+      }
+    }
+
     watch(
       () => route.fullPath,
       () => {
-        void syncRoute({ refreshEndpoints: true, loadStage: true });
+        void syncRoute({ refreshEndpoints: true, loadStage: true, allowPrevious: true });
+      },
+      { immediate: true }
+    );
+
+    watch(
+      routeStage,
+      (stage) => {
+        if (stage === "persona") {
+          void focusPersonaNameField();
+        }
       },
       { immediate: true }
     );
@@ -994,9 +1028,6 @@ const SetupView = {
       showPrevious,
       llmSaveDisabled,
       testConnectionDisabled,
-      testConnectionHasBenchmarks,
-      visibleTestConnectionBenchmarks,
-      showTestConnectionBenchmarks,
       personaSaveDisabled,
       soulSaveDisabled,
       onProviderChange,
@@ -1010,6 +1041,7 @@ const SetupView = {
       saveLLM,
       savePersona,
       saveSoul,
+      fillRandomPersona,
       openExternal,
       openAPIBasePicker,
       applyAPIBaseOption,
@@ -1017,7 +1049,6 @@ const SetupView = {
       applyModelOption,
       openTestConnection,
       runConnectionTest,
-      formatBenchmarkSeconds,
       testConnectionOpen,
       testConnectionLoading,
       testConnectionError,
@@ -1028,6 +1059,7 @@ const SetupView = {
       modelPickerError,
       modelPickerItems,
       apiBasePickerOpen,
+      personaNameInput,
     };
   },
   template: `
@@ -1072,6 +1104,7 @@ const SetupView = {
                 :disabled="loading || saving"
               />
               <QButton
+                type="button"
                 class="outlined icon setup-field-action"
                 :title="t('setup_llm_api_base_picker_title')"
                 :aria-label="t('setup_llm_api_base_picker_title')"
@@ -1113,6 +1146,7 @@ const SetupView = {
                 :disabled="loading || saving"
               />
               <QButton
+                type="button"
                 class="outlined icon setup-field-action"
                 :title="t('setup_llm_model_picker_title')"
                 :aria-label="t('setup_llm_model_picker_title')"
@@ -1137,7 +1171,7 @@ const SetupView = {
 
           <div class="setup-footer is-wide">
             <div class="setup-footer-side">
-              <QButton class="outlined setup-aux-action" :disabled="testConnectionDisabled" @click="openTestConnection">
+              <QButton type="button" class="outlined setup-aux-action" :disabled="testConnectionDisabled" @click="openTestConnection">
                 {{ t("setup_llm_test_button") }}
               </QButton>
             </div>
@@ -1157,6 +1191,7 @@ const SetupView = {
           <label class="setup-field is-wide">
             <span class="setup-field-label">{{ t("setup_identity_name_label") }}</span>
             <QInput
+              ref="personaNameInput"
               v-model="personaForm.name"
               :placeholder="t('setup_identity_name_placeholder')"
               :disabled="saving"
@@ -1193,9 +1228,21 @@ const SetupView = {
 
           <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
 
-          <div class="setup-footer is-wide">
+          <div class="setup-footer setup-footer-persona is-wide">
             <div class="setup-footer-side">
-              <QButton v-if="showPrevious" class="outlined" @click="goPrevious">{{ t("setup_action_previous") }}</QButton>
+              <QButton v-if="showPrevious" type="button" class="outlined" @click="goPrevious">{{ t("setup_action_previous") }}</QButton>
+            </div>
+            <div class="setup-footer-side setup-footer-center">
+              <QButton
+                type="button"
+                class="outlined icon setup-persona-random-button"
+                :title="t('setup_persona_randomize')"
+                :aria-label="t('setup_persona_randomize')"
+                :disabled="loading || saving"
+                @click="fillRandomPersona"
+              >
+                <QIconDice class="icon" />
+              </QButton>
             </div>
             <div class="setup-footer-side is-end">
               <QButton class="primary setup-submit" :loading="saving" :disabled="personaSaveDisabled" @click="savePersona">
@@ -1221,7 +1268,7 @@ const SetupView = {
                 </span>
                 <h3 v-if="selectedSoulCard" class="setup-soul-spotlight-title">{{ selectedSoulCard.title }}</h3>
                 <p v-if="selectedSoulCard && selectedSoulCard.note" class="setup-soul-spotlight-note">{{ selectedSoulCard.note }}</p>
-                <QButton v-if="isCustomSoulSelected" class="outlined xs" @click="openSoulEditor">
+                <QButton v-if="isCustomSoulSelected" type="button" class="outlined xs" @click="openSoulEditor">
                   {{ t("setup_action_edit_soul") }}
                 </QButton>
               </section>
@@ -1262,7 +1309,7 @@ const SetupView = {
           <section v-else class="setup-soul-editor is-wide">
             <div class="setup-soul-editor-head">
               <p class="setup-field-label">{{ t("setup_soul_editor_label") }}</p>
-              <QButton class="plain" @click="cancelSoulEditor">{{ t("action_cancel") }}</QButton>
+              <QButton type="button" class="plain" @click="cancelSoulEditor">{{ t("action_cancel") }}</QButton>
             </div>
             <MarkdownEditor
               v-model="soulEditorDraft"
@@ -1277,7 +1324,7 @@ const SetupView = {
 
           <div class="setup-footer is-wide">
             <div class="setup-footer-side">
-              <QButton v-if="showPrevious" class="outlined" @click="goPrevious">{{ t("setup_action_previous") }}</QButton>
+              <QButton v-if="showPrevious" type="button" class="outlined" @click="goPrevious">{{ t("setup_action_previous") }}</QButton>
             </div>
             <div class="setup-footer-side is-end">
               <QButton v-if="soulSaveVisible" class="primary setup-submit" :loading="saving" :disabled="soulSaveDisabled" @click="saveSoul">
@@ -1334,62 +1381,16 @@ const SetupView = {
           @select="applyModelOption"
         />
 
-        <QDialog
-          :modelValue="testConnectionOpen"
-          width="560px"
-          @update:modelValue="testConnectionOpen = $event"
-        >
-          <section class="setup-test-dialog">
-            <header class="setup-test-head">
-              <div class="setup-test-copy">
-                <h3 class="setup-test-title">{{ t("setup_llm_test_title") }}</h3>
-              </div>
-            </header>
-
-            <QFence
-              v-if="testConnectionError"
-              type="danger"
-              icon="QIconCloseCircle"
-              :text="testConnectionError"
-            />
-
-            <div v-if="showTestConnectionBenchmarks" class="setup-test-result">
-              <p class="setup-test-result-label">
-                {{ t("setup_llm_test_success", { provider: testConnectionMeta.provider || t('ttl_unknown'), model: testConnectionMeta.model || t('ttl_unknown') }) }}
-              </p>
-              <div class="setup-test-benchmark-list">
-                <article
-                  v-for="item in visibleTestConnectionBenchmarks"
-                  :key="item.id"
-                  :class="['setup-test-benchmark', { 'is-ok': item.ok, 'is-failed': !item.ok, 'is-loading': item.running }]"
-                >
-                  <div class="setup-test-benchmark-main">
-                    <p class="setup-test-benchmark-title">{{ t('setup_llm_test_benchmark_' + item.id) }}</p>
-                    <p v-if="item.running" class="setup-test-benchmark-detail">{{ t("setup_llm_test_running") }}</p>
-                    <p v-else-if="item.ok && item.detail" class="setup-test-benchmark-detail">{{ item.detail }}</p>
-                    <p v-else-if="item.error" class="setup-test-benchmark-error">{{ item.error }}</p>
-                  </div>
-                  <div class="setup-test-benchmark-side">
-                    <div class="setup-test-benchmark-status-row">
-                      <span v-if="item.running" class="setup-test-benchmark-spinner" aria-hidden="true"></span>
-                      <strong v-else class="setup-test-benchmark-status">
-                        {{ item.ok ? t("setup_llm_test_status_ok") : t("setup_llm_test_status_failed") }}
-                      </strong>
-                    </div>
-                    <span v-if="!item.running" class="setup-test-benchmark-time">{{ formatBenchmarkSeconds(item.duration_ms) }}</span>
-                  </div>
-                </article>
-              </div>
-            </div>
-
-            <div class="setup-test-actions">
-              <QButton class="outlined" @click="testConnectionOpen = false">{{ t("action_close") }}</QButton>
-              <QButton class="primary" :loading="testConnectionLoading" @click="runConnectionTest">
-                {{ testConnectionLoading ? t("setup_llm_test_running") : t("setup_llm_test_retry") }}
-              </QButton>
-            </div>
-          </section>
-        </QDialog>
+        <SetupConnectionTestDialog
+          v-model="testConnectionOpen"
+          :loading="testConnectionLoading"
+          :error="testConnectionError"
+          :benchmarks="testConnectionBenchmarks"
+          :provider="testConnectionMeta.provider"
+          :model="testConnectionMeta.model"
+          :showIntro="false"
+          @retry="runConnectionTest"
+        />
       </section>
     </section>
   `,

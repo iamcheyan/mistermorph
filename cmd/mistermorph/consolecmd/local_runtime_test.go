@@ -1,11 +1,15 @@
 package consolecmd
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
 
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
@@ -18,6 +22,99 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	if got := rt.routesOptions("token").Poke; got == nil {
 		t.Fatal("Poke = nil, want non-nil when heartbeat loop is available")
 	}
+}
+
+func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
+	rt := &consoleLocalRuntime{
+		heartbeatState:        &heartbeatutil.State{},
+		heartbeatPokeRequests: make(chan heartbeatloop.PokeRequest),
+	}
+	if ok := rt.heartbeatState.Start(); !ok {
+		t.Fatal("Start() = false, want true")
+	}
+
+	payload, err := rt.routesOptions("token").Overview(context.Background())
+	if err != nil {
+		t.Fatalf("Overview() error = %v", err)
+	}
+	if got, _ := payload["heartbeat_running"].(bool); !got {
+		t.Fatalf("heartbeat_running = %v, want true", payload["heartbeat_running"])
+	}
+}
+
+func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
+	t.Run("success clears running and records timestamp", func(t *testing.T) {
+		now := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
+		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
+		if ok := rt.heartbeatState.Start(); !ok {
+			t.Fatal("Start() = false, want true")
+		}
+
+		rt.completeHeartbeatTask(consoleLocalTaskJob{
+			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
+		}, heartbeatTaskResultSuccess, nil, now)
+
+		failures, lastSuccess, lastError, running := rt.heartbeatState.Snapshot()
+		if running {
+			t.Fatal("running = true, want false")
+		}
+		if failures != 0 {
+			t.Fatalf("failures = %d, want 0", failures)
+		}
+		if lastError != "" {
+			t.Fatalf("lastError = %q, want empty", lastError)
+		}
+		if !lastSuccess.Equal(now) {
+			t.Fatalf("lastSuccess = %v, want %v", lastSuccess, now)
+		}
+	})
+
+	t.Run("failure clears running and records error", func(t *testing.T) {
+		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
+		if ok := rt.heartbeatState.Start(); !ok {
+			t.Fatal("Start() = false, want true")
+		}
+
+		rt.completeHeartbeatTask(consoleLocalTaskJob{
+			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
+		}, heartbeatTaskResultFailure, errors.New("boom"), time.Time{})
+
+		failures, _, lastError, running := rt.heartbeatState.Snapshot()
+		if running {
+			t.Fatal("running = true, want false")
+		}
+		if failures != 1 {
+			t.Fatalf("failures = %d, want 1", failures)
+		}
+		if lastError != "boom" {
+			t.Fatalf("lastError = %q, want %q", lastError, "boom")
+		}
+	})
+
+	t.Run("skipped clears running without failure", func(t *testing.T) {
+		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
+		if ok := rt.heartbeatState.Start(); !ok {
+			t.Fatal("Start() = false, want true")
+		}
+
+		rt.completeHeartbeatTask(consoleLocalTaskJob{
+			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
+		}, heartbeatTaskResultSkipped, nil, time.Time{})
+
+		failures, lastSuccess, lastError, running := rt.heartbeatState.Snapshot()
+		if running {
+			t.Fatal("running = true, want false")
+		}
+		if failures != 0 {
+			t.Fatalf("failures = %d, want 0", failures)
+		}
+		if !lastSuccess.IsZero() {
+			t.Fatalf("lastSuccess = %v, want zero", lastSuccess)
+		}
+		if lastError != "" {
+			t.Fatalf("lastError = %q, want empty", lastError)
+		}
+	})
 }
 
 func TestConsoleTopicTitleFromOutput(t *testing.T) {

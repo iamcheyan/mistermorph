@@ -1,3 +1,4 @@
+import { useToast } from "quail-ui";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import "./RuntimeView.css";
 
@@ -94,7 +95,7 @@ function channelStatusType(configured, running) {
   return "default";
 }
 
-function metricTiles(t, overview) {
+function runtimeRows(t, overview) {
   return [
     { key: "go", label: t("stat_go_version"), value: stringValue(overview.runtime_go_version) },
     { key: "goroutines", label: t("stat_goroutines"), value: String(overview.runtime_goroutines || 0) },
@@ -111,8 +112,8 @@ const RuntimeView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const err = ref("");
-    const ok = ref("");
     const loading = ref(false);
     const poking = ref(false);
     let refreshTimer = null;
@@ -126,6 +127,7 @@ const RuntimeView = {
       agent_name: "",
       submit_enabled: false,
       poke_enabled: false,
+      heartbeat_running: false,
       instance_id: "",
       last_poke_at: "",
       llm_provider: "-",
@@ -157,7 +159,6 @@ const RuntimeView = {
       }
       return endpointMeta.value?.title || t("runtime_title");
     });
-    const heroSubtitle = computed(() => endpointMeta.value?.title || "-");
     const heroMeta = computed(() => {
       const parts = [];
       if (selectedEndpoint.value?.endpoint_ref) {
@@ -223,13 +224,14 @@ const RuntimeView = {
         running: overview.channel_running_slack,
       },
     ]);
-    const runtimeTiles = computed(() => metricTiles(t, overview));
+    const runtimeMetrics = computed(() => runtimeRows(t, overview));
     const canPoke = computed(() => toBool(overview.poke_enabled, false));
+    const heartbeatRunning = computed(() => toBool(overview.heartbeat_running, false));
+    const pokeDisabled = computed(() => poking.value || heartbeatRunning.value);
 
     async function load() {
       loading.value = true;
       err.value = "";
-      ok.value = "";
       try {
         await loadEndpoints();
         if (!endpointState.selectedRef) {
@@ -244,6 +246,7 @@ const RuntimeView = {
         overview.agent_name = data.agent_name || "";
         overview.submit_enabled = toBool(data.submit_enabled, false);
         overview.poke_enabled = toBool(data.poke_enabled, false);
+        overview.heartbeat_running = toBool(data.heartbeat_running, false);
         overview.instance_id = data.instance_id || "";
         overview.last_poke_at = data.last_poke_at || "";
         const llm = data && typeof data.llm === "object" ? data.llm : {};
@@ -270,14 +273,16 @@ const RuntimeView = {
 
     async function poke() {
       poking.value = true;
-      err.value = "";
-      ok.value = "";
       try {
         const data = await runtimeApiFetch("/poke", { method: "POST", body: {} });
+        overview.heartbeat_running = true;
         overview.last_poke_at = typeof data?.poked_at === "string" ? data.poked_at : overview.last_poke_at;
-        ok.value = t("runtime_poke_ok");
+        toast.success(t("runtime_poke_ok"));
       } catch (e) {
-        err.value = e.message || t("msg_load_failed");
+        if (e?.status === 409) {
+          overview.heartbeat_running = true;
+        }
+        toast.error(e.message || t("msg_load_failed"));
       } finally {
         poking.value = false;
       }
@@ -307,20 +312,19 @@ const RuntimeView = {
     return {
       t,
       err,
-      ok,
       loading,
       poking,
       overview,
       heroTitle,
-      heroSubtitle,
       heroMeta,
       modeLabel,
       glanceItems,
       basicRows,
       routeRows,
       channelRows,
-      runtimeTiles,
+      runtimeMetrics,
       canPoke,
+      pokeDisabled,
       load,
       poke,
       healthBadgeType,
@@ -331,14 +335,12 @@ const RuntimeView = {
     <AppPage :title="t('runtime_title')">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <QFence v-else-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
 
       <section class="runtime-page">
         <header class="runtime-hero">
           <div class="runtime-hero-copy">
             <p class="ui-kicker">{{ modeLabel }}</p>
             <h2 class="runtime-hero-title workspace-document-title">{{ heroTitle }}</h2>
-            <p class="runtime-hero-subtitle">{{ heroSubtitle }}</p>
             <p v-if="heroMeta" class="runtime-hero-meta">{{ heroMeta }}</p>
             <div class="runtime-hero-status">
               <div class="runtime-hero-badges">
@@ -347,68 +349,84 @@ const RuntimeView = {
                   {{ overview.submit_enabled ? t("runtime_submit_ready") : t("runtime_submit_blocked") }}
                 </QBadge>
               </div>
-              <QButton v-if="canPoke" class="outlined sm runtime-poke-button" :loading="poking" @click="poke">
-                {{ t("runtime_action_poke") }}
-              </QButton>
             </div>
           </div>
 
-          <div class="runtime-hero-rail">
-            <article v-for="item in glanceItems" :key="item.key" class="runtime-glance-item">
-              <span class="runtime-glance-label">{{ item.label }}</span>
-              <span class="runtime-glance-value">{{ item.value }}</span>
-            </article>
+          <div class="runtime-hero-aside">
+            <div v-if="canPoke" class="runtime-hero-actions">
+              <QButton class="plain sm runtime-poke-button" :loading="poking" :disabled="pokeDisabled" @click="poke">
+                {{ t("runtime_action_poke") }}
+              </QButton>
+            </div>
+            <div class="runtime-hero-rail">
+              <article v-for="item in glanceItems" :key="item.key" class="runtime-glance-item">
+                <span class="runtime-glance-label">{{ item.label }}</span>
+                <span class="runtime-glance-value">{{ item.value }}</span>
+              </article>
+            </div>
           </div>
         </header>
 
         <div class="runtime-grid">
-          <QCard class="runtime-dossier-card" variant="default">
-            <template #header>
-              <div class="runtime-card-head">
-                <h3 class="ui-kicker">{{ t("group_basic") }}</h3>
-              </div>
-            </template>
-
-            <section class="runtime-ledger-section">
-              <div v-for="item in basicRows" :key="item.key" class="runtime-ledger-row">
-                <span class="runtime-ledger-label">{{ item.label }}</span>
-                <div class="runtime-ledger-value">
-                  <QBadge v-if="item.tone" :type="item.tone" size="sm">{{ item.value }}</QBadge>
-                  <span v-else>{{ item.value }}</span>
+          <div class="runtime-dossier-stack">
+            <QCard class="runtime-dossier-card" variant="default">
+              <template #header>
+                <div class="runtime-card-head">
+                  <h3 class="ui-kicker">{{ t("group_basic") }}</h3>
                 </div>
-              </div>
-            </section>
+              </template>
 
-            <section class="runtime-ledger-section">
-              <div class="runtime-section-head">
-                <h3 class="ui-kicker">{{ t("group_model") }}</h3>
-              </div>
-              <div v-for="item in routeRows" :key="item.key" class="runtime-ledger-row">
-                <span class="runtime-ledger-label">{{ item.label }}</span>
-                <div class="runtime-ledger-value">
-                  <QBadge v-if="item.tone" :type="item.tone" size="sm">{{ item.value }}</QBadge>
-                  <span v-else>{{ item.value }}</span>
+              <section class="runtime-ledger-section">
+                <div v-for="item in basicRows" :key="item.key" class="runtime-ledger-row">
+                  <span class="runtime-ledger-label">{{ item.label }}</span>
+                  <div class="runtime-ledger-value">
+                    <QBadge v-if="item.tone" :type="item.tone" size="sm">{{ item.value }}</QBadge>
+                    <span v-else>{{ item.value }}</span>
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            </QCard>
 
-            <section class="runtime-ledger-section">
-              <div class="runtime-section-head">
-                <h3 class="ui-kicker">{{ t("group_channels") }}</h3>
-              </div>
-              <div v-for="item in channelRows" :key="item.key" class="runtime-channel-row">
-                <span class="runtime-ledger-label">{{ item.title }}</span>
-                <div class="runtime-channel-badges">
-                  <QBadge :type="item.configured ? 'primary' : 'default'" size="sm">
-                    {{ item.configured ? t("runtime_status_configured") : t("runtime_status_not_configured") }}
-                  </QBadge>
-                  <QBadge :type="channelStatusType(item.configured, item.running)" size="sm">
-                    {{ item.running ? t("runtime_status_running") : t("runtime_status_idle") }}
-                  </QBadge>
+            <QCard class="runtime-dossier-card" variant="default">
+              <template #header>
+                <div class="runtime-card-head">
+                  <h3 class="ui-kicker">{{ t("group_model") }}</h3>
                 </div>
-              </div>
-            </section>
-          </QCard>
+              </template>
+
+              <section class="runtime-ledger-section">
+                <div v-for="item in routeRows" :key="item.key" class="runtime-ledger-row">
+                  <span class="runtime-ledger-label">{{ item.label }}</span>
+                  <div class="runtime-ledger-value">
+                    <QBadge v-if="item.tone" :type="item.tone" size="sm">{{ item.value }}</QBadge>
+                    <span v-else>{{ item.value }}</span>
+                  </div>
+                </div>
+              </section>
+            </QCard>
+
+            <QCard class="runtime-dossier-card" variant="default">
+              <template #header>
+                <div class="runtime-card-head">
+                  <h3 class="ui-kicker">{{ t("group_channels") }}</h3>
+                </div>
+              </template>
+
+              <section class="runtime-ledger-section">
+                <div v-for="item in channelRows" :key="item.key" class="runtime-channel-row">
+                  <span class="runtime-ledger-label">{{ item.title }}</span>
+                  <div class="runtime-channel-badges">
+                    <QBadge :type="item.configured ? 'primary' : 'default'" size="sm">
+                      {{ item.configured ? t("runtime_status_configured") : t("runtime_status_not_configured") }}
+                    </QBadge>
+                    <QBadge :type="channelStatusType(item.configured, item.running)" size="sm">
+                      {{ item.running ? t("runtime_status_running") : t("runtime_status_idle") }}
+                    </QBadge>
+                  </div>
+                </div>
+              </section>
+            </QCard>
+          </div>
 
           <QCard class="runtime-metrics-card" variant="default">
             <template #header>
@@ -416,14 +434,14 @@ const RuntimeView = {
                 <h3 class="ui-kicker">{{ t("group_runtime") }}</h3>
               </div>
             </template>
-            <div class="runtime-metric-grid">
-              <QCard v-for="item in runtimeTiles" :key="item.key" class="runtime-metric-tile" variant="tile">
-                <div class="runtime-metric-copy">
-                  <span class="runtime-metric-label">{{ item.label }}</span>
-                  <span class="runtime-metric-value">{{ item.value }}</span>
+            <section class="runtime-ledger-section">
+              <div v-for="item in runtimeMetrics" :key="item.key" class="runtime-ledger-row">
+                <span class="runtime-ledger-label">{{ item.label }}</span>
+                <div class="runtime-ledger-value">
+                  <span>{{ item.value }}</span>
                 </div>
-              </QCard>
-            </div>
+              </div>
+            </section>
           </QCard>
         </div>
       </section>

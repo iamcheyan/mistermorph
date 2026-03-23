@@ -190,6 +190,16 @@
   margin-top: 6px;
 }
 
+.setup-footer-persona {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.setup-footer-persona .setup-footer-side.is-end {
+  margin-left: 0;
+}
+
 .setup-footer-side {
   display: flex;
   align-items: center;
@@ -270,6 +280,13 @@
 .setup-footer-center {
   justify-content: center;
   align-items: center;
+}
+
+.setup-persona-random-button {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
 }
 
 .setup-soul-presets {
@@ -517,163 +534,6 @@
   gap: 12px;
 }
 
-.setup-test-dialog {
-  width: min(560px, 100%);
-  display: grid;
-  gap: 12px;
-  padding: 16px 0 0;
-}
-
-.setup-test-head {
-  display: grid;
-  gap: 6px;
-}
-
-.setup-test-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.setup-test-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: var(--text-0);
-}
-
-.setup-test-result {
-  display: grid;
-  gap: 8px;
-}
-
-.setup-test-result-label {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.setup-test-benchmark-list {
-  display: grid;
-  gap: 8px;
-}
-
-.setup-test-benchmark {
-  box-sizing: border-box;
-  display: flex;
-  height: 68px;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid rgba(77, 85, 99, 0.12);
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.setup-test-benchmark.is-loading {
-  opacity: 0.8;
-}
-
-.setup-test-benchmark-main {
-  align-content: space-between;
-  height: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto auto;
-  gap: 0;
-}
-
-.setup-test-benchmark-title {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-0);
-}
-
-.setup-test-benchmark-detail,
-.setup-test-benchmark-error {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.setup-test-benchmark-detail {
-  color: var(--text-2);
-  font-family: var(--font-mono);
-}
-
-.setup-test-benchmark-error {
-  color: rgb(158, 63, 34);
-}
-
-.setup-test-benchmark-side {
-  flex: 0 0 auto;
-  min-width: 72px;
-  display: grid;
-  grid-template-rows: auto auto;
-  justify-items: end;
-  align-content: space-between;
-  height: 100%;
-  gap: 0;
-}
-
-.setup-test-benchmark-status-row {
-  min-height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.setup-test-benchmark-spinner {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  border: 2px solid color-mix(in srgb, var(--setup-accent) 18%, transparent);
-  border-top-color: var(--setup-accent);
-  animation: setup-test-spin 0.8s linear infinite;
-}
-
-.setup-test-benchmark-status {
-  font-size: 12px;
-}
-
-.setup-test-benchmark.is-ok .setup-test-benchmark-status {
-  color: rgb(63, 120, 86);
-}
-
-.setup-test-benchmark.is-failed .setup-test-benchmark-status {
-  color: rgb(158, 63, 34);
-}
-
-.setup-test-benchmark.is-loading .setup-test-benchmark-status {
-  color: var(--setup-accent);
-}
-
-.setup-test-benchmark-time {
-  align-self: end;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-2);
-}
-
-.setup-test-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-@keyframes setup-test-spin {
-  from {
-    transform: translateY(2px) rotate(0deg);
-  }
-
-  to {
-    transform: translateY(2px) rotate(360deg);
-  }
-}
-
 @media (max-width: 620px) {
   .setup-screen {
     padding: 0;
@@ -740,6 +600,10 @@
     width: auto;
   }
 
+  .setup-footer-center .setup-persona-random-button {
+    width: 40px;
+  }
+
   .setup-aux-action {
     width: 100%;
   }
@@ -784,27 +648,4 @@
     justify-content: space-between;
   }
 
-  .setup-test-actions {
-    flex-wrap: wrap;
-  }
-
-  .setup-test-actions .q-button {
-    width: 100%;
-  }
-
-  .setup-test-benchmark {
-    height: auto;
-    min-height: 68px;
-    flex-direction: column;
-  }
-
-  .setup-test-benchmark-side {
-    width: 100%;
-    height: auto;
-    justify-items: start;
-  }
-
-  .setup-test-benchmark-status-row {
-    justify-content: flex-start;
-  }
 }

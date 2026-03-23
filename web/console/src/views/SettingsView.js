@@ -1,8 +1,10 @@
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import "./SettingsView.css";
 
 import AppPage from "../components/AppPage";
+import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
+import SetupPickerDialog from "../components/SetupPickerDialog";
 import {
   apiFetch,
   applyLanguageChange,
@@ -14,11 +16,14 @@ import {
   translate,
 } from "../core/context";
 import {
+  OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   defaultEndpointForSetupProvider,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
+  resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPTIONS,
+  setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 
 function tuiKicker(left, right) {
@@ -57,7 +62,6 @@ const MANAGED_RUNTIME_ITEMS = [
 ];
 
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
-
 function buildAgentSnapshot(state) {
   return JSON.stringify({
     llm: {
@@ -99,6 +103,8 @@ function buildConsoleSnapshot(state) {
 const SettingsView = {
   components: {
     AppPage,
+    SetupConnectionTestDialog,
+    SetupPickerDialog,
   },
   setup() {
     const t = translate;
@@ -118,6 +124,21 @@ const SettingsView = {
     const consoleConfigPath = ref("");
     const loadedConsoleSnapshot = ref("");
     const selectedSectionID = ref("agent");
+    const isMobile = ref(false);
+    const mobilePanelVisible = ref(false);
+    const apiBasePickerOpen = ref(false);
+    const modelPickerOpen = ref(false);
+    const modelPickerLoading = ref(false);
+    const modelPickerError = ref("");
+    const modelPickerItems = ref([]);
+    const testConnectionOpen = ref(false);
+    const testConnectionLoading = ref(false);
+    const testConnectionError = ref("");
+    const testConnectionBenchmarks = ref([]);
+    const testConnectionMeta = reactive({
+      provider: "",
+      model: "",
+    });
 
     const state = reactive({
       llm: {
@@ -157,6 +178,46 @@ const SettingsView = {
     const showCloudflareAccountField = computed(
       () => String(state.llm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
     );
+    const showOpenAICompatibleHelpers = computed(() => setupProviderSupportsModelLookup(state.llm.provider));
+    const modelLookupDisabled = computed(
+      () =>
+        agentLoading.value ||
+        agentSaving.value ||
+        !showOpenAICompatibleHelpers.value ||
+        String(state.llm.api_key || "").trim() === ""
+    );
+    const apiBasePickerItems = computed(() =>
+      OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
+        id: item.id,
+        title: item.title,
+        value: item.baseURL,
+        note: "",
+      }))
+    );
+    const apiKeyHelp = computed(() => {
+      if (String(state.llm.provider || "").trim() === "") {
+        return null;
+      }
+      return resolveSetupAPIKeyHelp(state.llm.provider, state.llm.endpoint);
+    });
+    const apiKeyHelpParts = computed(() => {
+      if (!apiKeyHelp.value) {
+        return null;
+      }
+      const marker = "__PROVIDER__";
+      const template = String(t("setup_llm_api_key_hint", { provider: marker }) || "");
+      const index = template.indexOf(marker);
+      if (index === -1) {
+        return {
+          before: template.trim(),
+          after: "",
+        };
+      }
+      return {
+        before: template.slice(0, index),
+        after: template.slice(index + marker.length),
+      };
+    });
     const reasoningEffortItems = computed(() => [
       { title: t("settings_llm_reasoning_none"), value: "" },
       { title: t("settings_llm_reasoning_minimal"), value: "minimal" },
@@ -256,7 +317,23 @@ const SettingsView = {
           return "";
       }
     });
-
+    const showIndexPane = computed(() => !isMobile.value || !mobilePanelVisible.value);
+    const showPanelPane = computed(() => !isMobile.value || mobilePanelVisible.value);
+    const mobileShowBack = computed(() => isMobile.value && mobilePanelVisible.value);
+    const mobileBarTitle = computed(() =>
+      mobileShowBack.value ? selectedSection.value?.title || t("settings_title") : t("settings_title")
+    );
+    const pageClass = computed(() => (isMobile.value ? "settings-page settings-page-mobile-split" : "settings-page"));
+    const testConnectionDisabled = computed(
+      () =>
+        testConnectionLoading.value ||
+        agentLoading.value ||
+        agentSaving.value ||
+        String(state.llm.provider || "").trim() === "" ||
+        String(state.llm.model || "").trim() === "" ||
+        String(state.llm.api_key || "").trim() === "" ||
+        (showCloudflareAccountField.value && String(state.llm.cloudflare_account_id || "").trim() === "")
+    );
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
       () =>
@@ -344,15 +421,7 @@ const SettingsView = {
 
     function buildSavePayload() {
       return {
-        llm: {
-          provider: normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint),
-          endpoint: state.llm.endpoint,
-          model: state.llm.model,
-          api_key: state.llm.api_key,
-          cloudflare_account_id: state.llm.cloudflare_account_id,
-          reasoning_effort: state.llm.reasoning_effort,
-          tools_emulation_mode: state.llm.tools_emulation_mode,
-        },
+        llm: buildLLMSettingsPayload(),
         multimodal: {
           image_sources: MULTIMODAL_SOURCES.filter((item) => state.multimodal[item.id]).map((item) => item.id),
         },
@@ -365,6 +434,18 @@ const SettingsView = {
           web_search_enabled: state.tools.web_search,
           bash_enabled: state.tools.bash,
         },
+      };
+    }
+
+    function buildLLMSettingsPayload() {
+      return {
+        provider: normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint),
+        endpoint: String(state.llm.endpoint || "").trim(),
+        model: String(state.llm.model || "").trim(),
+        api_key: String(state.llm.api_key || "").trim(),
+        cloudflare_account_id: String(state.llm.cloudflare_account_id || "").trim(),
+        reasoning_effort: String(state.llm.reasoning_effort || "").trim(),
+        tools_emulation_mode: String(state.llm.tools_emulation_mode || "").trim(),
       };
     }
 
@@ -445,6 +526,101 @@ const SettingsView = {
       }
     }
 
+    function openExternal(url) {
+      const target = String(url || "").trim();
+      if (!target) {
+        return;
+      }
+      window.open(target, "_blank", "noopener,noreferrer");
+    }
+
+    function openAPIBasePicker() {
+      if (!showOpenAICompatibleHelpers.value || agentLoading.value || agentSaving.value) {
+        return;
+      }
+      apiBasePickerOpen.value = true;
+    }
+
+    function applyAPIBaseOption(item) {
+      state.llm.endpoint = String(item?.value || "").trim();
+    }
+
+    async function openModelPicker() {
+      if (modelLookupDisabled.value) {
+        return;
+      }
+      modelPickerOpen.value = true;
+      modelPickerLoading.value = true;
+      modelPickerError.value = "";
+      modelPickerItems.value = [];
+      try {
+        const payload = await apiFetch("/settings/agent/models", {
+          method: "POST",
+          body: {
+            endpoint: String(state.llm.endpoint || "").trim(),
+            api_key: String(state.llm.api_key || "").trim(),
+          },
+        });
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        modelPickerItems.value = items.map((value) => ({
+          id: value,
+          title: value,
+          value,
+          note: "",
+        }));
+      } catch (e) {
+        modelPickerError.value = e.message || t("msg_load_failed");
+      } finally {
+        modelPickerLoading.value = false;
+      }
+    }
+
+    function applyModelOption(item) {
+      state.llm.model = String(item?.value || "").trim();
+    }
+
+    async function openTestConnection() {
+      if (testConnectionDisabled.value) {
+        return;
+      }
+      testConnectionOpen.value = true;
+      await runConnectionTest();
+    }
+
+    async function runConnectionTest() {
+      if (testConnectionLoading.value) {
+        return;
+      }
+      const nextPayload = buildLLMSettingsPayload();
+      testConnectionLoading.value = true;
+      testConnectionError.value = "";
+      testConnectionBenchmarks.value = [];
+      testConnectionMeta.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
+      testConnectionMeta.model = String(nextPayload.model || "").trim();
+      try {
+        const payload = await apiFetch("/settings/agent/test", {
+          method: "POST",
+          body: {
+            llm: nextPayload,
+          },
+        });
+        testConnectionMeta.provider = String(payload?.provider || "").trim();
+        testConnectionMeta.model = String(payload?.model || "").trim();
+        const items = Array.isArray(payload?.benchmarks) ? payload.benchmarks : [];
+        testConnectionBenchmarks.value = items.map((item) => ({
+          id: String(item?.id || "").trim(),
+          ok: item?.ok === true,
+          duration_ms: Number(item?.duration_ms || 0),
+          detail: String(item?.detail || "").trim(),
+          error: String(item?.error || "").trim(),
+        }));
+      } catch (e) {
+        testConnectionError.value = e.message || t("msg_load_failed");
+      } finally {
+        testConnectionLoading.value = false;
+      }
+    }
+
     function onReasoningEffortChange(item) {
       if (!item || typeof item !== "object") {
         return;
@@ -480,8 +656,19 @@ const SettingsView = {
       state.managedRuntimes[id] = !!value;
     }
 
+    function refreshMobileMode() {
+      isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
+    }
+
+    function showIndexView() {
+      mobilePanelVisible.value = false;
+    }
+
     function selectSection(id) {
       selectedSectionID.value = String(id || "").trim();
+      if (isMobile.value) {
+        mobilePanelVisible.value = true;
+      }
     }
 
     function isSelectedSection(item) {
@@ -497,7 +684,13 @@ const SettingsView = {
     }
 
     onMounted(() => {
+      window.addEventListener("resize", refreshMobileMode);
+      refreshMobileMode();
       void loadAgentSettings();
+    });
+
+    onUnmounted(() => {
+      window.removeEventListener("resize", refreshMobileMode);
     });
 
     watch(
@@ -546,6 +739,11 @@ const SettingsView = {
       reasoningEffortItem,
       toolsEmulationItems,
       toolsEmulationItem,
+      showOpenAICompatibleHelpers,
+      modelLookupDisabled,
+      apiBasePickerItems,
+      apiKeyHelp,
+      apiKeyHelpParts,
       multimodalItems,
       toolItems,
       managedRuntimeItems,
@@ -554,28 +752,66 @@ const SettingsView = {
       panelKicker,
       panelHint,
       activeSaveKind,
+      showIndexPane,
+      showPanelPane,
+      mobileShowBack,
+      mobileBarTitle,
+      pageClass,
       agentSaveDisabled,
       consoleSaveDisabled,
+      testConnectionDisabled,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
       onProviderChange,
       onReasoningEffortChange,
       onToolsEmulationChange,
+      openExternal,
+      openAPIBasePicker,
+      applyAPIBaseOption,
+      openModelPicker,
+      applyModelOption,
+      openTestConnection,
+      runConnectionTest,
       setMultimodalSource,
       setToolEnabled,
       setManagedRuntimeEnabled,
       selectSection,
       isSelectedSection,
       sectionClass,
+      showIndexView,
       tuiKicker,
+      apiBasePickerOpen,
+      modelPickerOpen,
+      modelPickerLoading,
+      modelPickerError,
+      modelPickerItems,
+      testConnectionOpen,
+      testConnectionLoading,
+      testConnectionError,
+      testConnectionBenchmarks,
+      testConnectionMeta,
       onLanguageChange: applyLanguageChange,
     };
   },
   template: `
-    <AppPage :title="t('settings_title')" class="settings-page">
+    <AppPage :title="t('settings_title')" :class="pageClass" :showMobileNavTrigger="!mobileShowBack">
+      <template #leading>
+        <div class="settings-page-bar">
+          <QButton
+            v-if="mobileShowBack"
+            class="outlined xs icon settings-page-bar-back"
+            :title="t('settings_title')"
+            :aria-label="t('settings_title')"
+            @click="showIndexView"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
+        </div>
+      </template>
       <div class="settings-workbench">
-        <aside class="settings-index workspace-sidebar-section">
+        <aside v-if="showIndexPane" class="settings-index workspace-sidebar-section">
           <div class="settings-index-items workspace-sidebar-list">
             <button
               v-for="item in settingsSections"
@@ -596,7 +832,7 @@ const SettingsView = {
           </div>
         </aside>
 
-        <QCard v-if="selectedSection" class="settings-panel-card" variant="default">
+        <QCard v-if="showPanelPane && selectedSection" class="settings-panel-card" variant="default">
           <div class="settings-panel-shell">
             <header class="settings-panel-head">
               <div class="settings-panel-copy">
@@ -645,7 +881,7 @@ const SettingsView = {
 
             <div class="settings-panel-body">
               <div v-if="selectedSection.id === 'agent'" class="settings-form-grid">
-                <label class="settings-field">
+                <label class="settings-field is-wide">
                   <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
                   <QDropdownMenu
                     :key="state.llm.provider || 'provider'"
@@ -655,23 +891,27 @@ const SettingsView = {
                     @change="onProviderChange"
                   />
                 </label>
-                <label class="settings-field">
+                <label class="settings-field is-wide">
                   <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
-                  <QInput
-                    v-model="state.llm.endpoint"
-                    :placeholder="t('settings_agent_endpoint_placeholder')"
-                    :disabled="agentLoading || agentSaving"
-                  />
+                  <div class="settings-field-control">
+                    <QInput
+                      v-model="state.llm.endpoint"
+                      :placeholder="t('settings_agent_endpoint_placeholder')"
+                      :disabled="agentLoading || agentSaving"
+                    />
+                    <QButton
+                      type="button"
+                      class="outlined icon settings-field-action"
+                      :title="t('setup_llm_api_base_picker_title')"
+                      :aria-label="t('setup_llm_api_base_picker_title')"
+                      :disabled="!showOpenAICompatibleHelpers || agentLoading || agentSaving"
+                      @click.prevent="openAPIBasePicker"
+                    >
+                      <QIconLink class="icon" />
+                    </QButton>
+                  </div>
                 </label>
-                <label class="settings-field">
-                  <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
-                  <QInput
-                    v-model="state.llm.model"
-                    :placeholder="t('settings_agent_model_placeholder')"
-                    :disabled="agentLoading || agentSaving"
-                  />
-                </label>
-                <label class="settings-field">
+                <label class="settings-field is-wide">
                   <span class="settings-field-label">{{ t("settings_agent_api_key_label") }}</span>
                   <QInput
                     v-model="state.llm.api_key"
@@ -679,6 +919,37 @@ const SettingsView = {
                     :placeholder="t('settings_agent_api_key_placeholder')"
                     :disabled="agentLoading || agentSaving"
                   />
+                  <p v-if="apiKeyHelp" class="settings-field-hint">
+                    <button v-if="apiKeyHelp.url" type="button" class="settings-field-link" @click="openExternal(apiKeyHelp.url)">
+                      <span>{{ apiKeyHelpParts?.before }}</span>
+                      <span class="settings-field-link-provider">{{ apiKeyHelp.title }}</span>
+                      <span>{{ apiKeyHelpParts?.after }}</span>
+                      <QIconArrowUpRight class="icon settings-field-link-icon" />
+                    </button>
+                    <span v-else class="settings-field-link is-static">
+                      {{ t("setup_llm_api_key_hint_plain", { provider: apiKeyHelp.title }) }}
+                    </span>
+                  </p>
+                </label>
+                <label class="settings-field is-wide">
+                  <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
+                  <div class="settings-field-control">
+                    <QInput
+                      v-model="state.llm.model"
+                      :placeholder="t('settings_agent_model_placeholder')"
+                      :disabled="agentLoading || agentSaving"
+                    />
+                    <QButton
+                      type="button"
+                      class="outlined icon settings-field-action"
+                      :title="t('setup_llm_model_picker_title')"
+                      :aria-label="t('setup_llm_model_picker_title')"
+                      :disabled="modelLookupDisabled"
+                      @click.prevent="openModelPicker"
+                    >
+                      <QIconSearch class="icon" />
+                    </QButton>
+                  </div>
                 </label>
                 <label v-if="showCloudflareAccountField" class="settings-field">
                   <span class="settings-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
@@ -708,6 +979,11 @@ const SettingsView = {
                     @change="onToolsEmulationChange"
                   />
                 </label>
+                <div class="settings-agent-actions">
+                  <QButton type="button" class="outlined settings-aux-action" :disabled="testConnectionDisabled" @click="openTestConnection">
+                    {{ t("setup_llm_test_button") }}
+                  </QButton>
+                </div>
               </div>
 
               <div v-else-if="selectedSection.id === 'inputs'" class="settings-toggle-list">
@@ -774,6 +1050,37 @@ const SettingsView = {
           </div>
         </QCard>
       </div>
+
+      <SetupPickerDialog
+        v-model="apiBasePickerOpen"
+        :items="apiBasePickerItems"
+        :loading="false"
+        :error="''"
+        :filterPlaceholder="t('setup_llm_api_base_picker_filter_placeholder')"
+        :emptyText="t('setup_llm_api_base_picker_empty')"
+        @select="applyAPIBaseOption"
+      />
+
+      <SetupPickerDialog
+        v-model="modelPickerOpen"
+        :items="modelPickerItems"
+        :loading="modelPickerLoading"
+        :error="modelPickerError"
+        :filterPlaceholder="t('setup_llm_model_picker_filter_placeholder')"
+        :emptyText="t('setup_llm_model_picker_empty')"
+        :showValue="false"
+        @select="applyModelOption"
+      />
+
+      <SetupConnectionTestDialog
+        v-model="testConnectionOpen"
+        :loading="testConnectionLoading"
+        :error="testConnectionError"
+        :benchmarks="testConnectionBenchmarks"
+        :provider="testConnectionMeta.provider"
+        :model="testConnectionMeta.model"
+        @retry="runConnectionTest"
+      />
     </AppPage>
   `,
 };

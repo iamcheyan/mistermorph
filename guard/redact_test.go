@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -39,5 +40,58 @@ func TestRedactor_RedactsStandaloneMisterMorphEnvNames(t *testing.T) {
 	}
 	if !strings.Contains(got, "[redacted_env]") {
 		t.Fatalf("redacted output missing placeholder: %q", got)
+	}
+}
+
+func TestRedactor_RedactStringDetailedReasons(t *testing.T) {
+	r := NewRedactor(RedactionConfig{})
+	raw := strings.Join([]string{
+		"Authorization: Bearer abcdefghijklmnop",
+		"token=abcdefghijklmnop",
+		"jwt=aaaaaaaaaa.bbbbbbbbbb.cccccccccc",
+		"-----BEGIN PRIVATE KEY-----",
+		"abc",
+		"-----END PRIVATE KEY-----",
+	}, "\n")
+
+	got, changed, reasons := r.RedactStringDetailed(raw)
+	if !changed {
+		t.Fatal("RedactStringDetailed() changed = false, want true")
+	}
+	wantReasons := []string{
+		"redacted_private_key_block",
+		"redacted_jwt",
+		"redacted_bearer_token",
+		"redacted_secret_value",
+	}
+	if !reflect.DeepEqual(reasons, wantReasons) {
+		t.Fatalf("RedactStringDetailed() reasons = %v, want %v", reasons, wantReasons)
+	}
+	for _, needle := range []string{"token=abcdefghijklmnop", "aaaaaaaaaa.bbbbbbbbbb.cccccccccc", "\nabc\n"} {
+		if strings.Contains(got, needle) {
+			t.Fatalf("redacted output leaked %q: %q", needle, got)
+		}
+	}
+}
+
+func TestRedactor_RedactStringDetailedCustomPatternReason(t *testing.T) {
+	r := NewRedactor(RedactionConfig{
+		Enabled: true,
+		Patterns: []RegexPattern{
+			{Name: "slack webhook", Re: `https://hooks\.slack\.com/services/\S+`},
+		},
+	})
+	raw := "post https://hooks.slack.com/services/T123/B456/SECRET"
+
+	got, changed, reasons := r.RedactStringDetailed(raw)
+	if !changed {
+		t.Fatal("RedactStringDetailed() changed = false, want true")
+	}
+	wantReasons := []string{"redacted_custom_pattern_slack_webhook"}
+	if !reflect.DeepEqual(reasons, wantReasons) {
+		t.Fatalf("RedactStringDetailed() reasons = %v, want %v", reasons, wantReasons)
+	}
+	if strings.Contains(got, "hooks.slack.com/services") {
+		t.Fatalf("redacted output leaked custom pattern match: %q", got)
 	}
 }

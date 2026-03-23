@@ -16,15 +16,6 @@ import {
 
 const AUDIT_ITEMS_PER_PAGE = 50;
 
-function tuiKicker(left, right) {
-  const lhs = String(left || "").trim();
-  const rhs = String(right || "").trim();
-  if (lhs && rhs) {
-    return `[ ${lhs.toUpperCase()} // ${rhs.toUpperCase()} ]`;
-  }
-  return `[ ${(lhs || rhs).toUpperCase()} ]`;
-}
-
 function formatAuditStamp(raw) {
   const text = String(raw || "").trim();
   if (!text) {
@@ -138,6 +129,40 @@ function riskLabel(t, raw) {
   }
 }
 
+function auditReasonLabel(t, raw) {
+  const text = String(raw || "").trim().toLowerCase();
+  switch (text) {
+    case "sensitive_content_redacted":
+      return t("audit_reason_sensitive_content_redacted");
+    case "redacted_private_key_block":
+      return t("audit_reason_redacted_private_key_block");
+    case "redacted_jwt":
+      return t("audit_reason_redacted_jwt");
+    case "redacted_bearer_token":
+      return t("audit_reason_redacted_bearer_token");
+    case "redacted_mister_morph_env":
+      return t("audit_reason_redacted_mister_morph_env");
+    case "redacted_secret_value":
+      return t("audit_reason_redacted_secret_value");
+    case "redacted_custom_pattern":
+      return t("audit_reason_redacted_custom_pattern");
+    default:
+      if (text.startsWith("redacted_custom_pattern_")) {
+        return t("audit_reason_redacted_custom_pattern_named", {
+          name: humanizeAuditToken(text.slice("redacted_custom_pattern_".length)),
+        });
+      }
+      return humanizeAuditToken(raw);
+  }
+}
+
+function isOutputPublishSummaryPlaceholder(actionTypeRaw, summary) {
+  return (
+    String(actionTypeRaw || "").trim().toLowerCase() === "outputpublish" &&
+    String(summary || "").trim() === "OutputPublish content=[redacted_summary]"
+  );
+}
+
 function toAuditFileItem(t, item) {
   const name = String(item?.name || "").trim();
   const sizeBytes = toInt(item?.size_bytes, 0);
@@ -204,17 +229,6 @@ const AuditView = {
         value: item.value,
       };
     });
-    const lineWindowText = computed(() => {
-      const total = Number(meta.total_lines || 0);
-      const page = Number(meta.current_page || 0);
-      const size = Number(meta.limit || AUDIT_ITEMS_PER_PAGE);
-      if (total <= 0 || page <= 0 || size <= 0) {
-        return "-";
-      }
-      const end = Math.max(total - (page - 1) * size, 0);
-      const start = Math.max(end - size + 1, 1);
-      return `${start}-${end} / ${total}`;
-    });
     const pageText = computed(() => {
       if (meta.total_pages <= 0) {
         return "-";
@@ -223,28 +237,6 @@ const AuditView = {
     });
     const selectedFileTitle = computed(() => String(selectedFileItem.value?.name || "").trim() || t("audit_title"));
     const showFilePicker = computed(() => fileItems.value.length > 1);
-    const selectedFileMeta = computed(() => {
-      const parts = [];
-      if (meta.path) {
-        parts.push(meta.path);
-      } else if (selectedFileItem.value?.modTime) {
-        parts.push(t("audit_updated", { value: formatAuditStamp(selectedFileItem.value.modTime) }));
-      }
-      if (meta.exists && lineWindowText.value !== "-") {
-        parts.push(t("audit_window_meta", { range: lineWindowText.value }));
-      }
-      return parts.join(" · ");
-    });
-    const auditSummaryItems = computed(() => {
-      if (!meta.exists) {
-        return [];
-      }
-      return [
-        { key: "size", label: t("audit_size"), value: formatBytes(meta.size_bytes) },
-        { key: "lines", label: t("audit_lines"), value: lineWindowText.value },
-        { key: "page", label: t("audit_page"), value: pageText.value },
-      ];
-    });
 
     function parseAuditLine(line, idx) {
       const raw = typeof line === "string" ? line : String(line ?? "");
@@ -267,31 +259,28 @@ const AuditView = {
       const runID = normalizeAuditText(parsed.run_id);
       const actor = normalizeAuditText(parsed.actor);
       const approvalStatus = normalizeAuditText(parsed.approval_status);
-      const summary = normalizeAuditText(parsed.action_summary_redacted);
+      const summaryRaw = normalizeAuditText(parsed.action_summary_redacted);
       const reasons = normalizeAuditList(parsed.reasons);
-      const reasonsText = reasons.length > 0 ? reasons.join(" | ") : "-";
       const decisionRaw = normalizeAuditText(parsed.decision, "");
       const riskRaw = normalizeAuditText(parsed.risk_level, "");
+      const summaryPlaceholder = isOutputPublishSummaryPlaceholder(actionTypeRaw, summaryRaw);
+      const summary = summaryPlaceholder ? t("audit_output_publish_summary") : summaryRaw;
+      let reasonsText = reasons.length > 0 ? reasons.map((reason) => auditReasonLabel(t, reason)).join(" | ") : "-";
+      if (summaryPlaceholder && reasonsText === "-") {
+        reasonsText = t("audit_output_publish_reason");
+      }
       const hasTool = toolName !== "-";
       const primaryTitle = hasTool ? toolName : actionType;
       const subtitleParts = [];
       if (hasTool && actionType !== "-") {
         subtitleParts.push(actionType);
       }
-      if (stepText !== "-") {
-        subtitleParts.push(`${t("audit_step")} ${stepText}`);
-      }
       if (actor !== "-") {
         subtitleParts.push(`${t("audit_actor")} ${actor}`);
       }
       const subtitle = subtitleParts.join(" · ");
+      const stepMarker = stepText === "-" ? "" : `${primaryTitle} / ${stepText}`;
       const metaTrail = [];
-      if (eventID !== "-") {
-        metaTrail.push(eventID);
-      }
-      if (tsRaw !== "-") {
-        metaTrail.push(formatTime(tsRaw));
-      }
       if (approvalStatus !== "-") {
         metaTrail.push(`${t("audit_approval")} ${humanizeAuditToken(approvalStatus)}`);
       }
@@ -313,6 +302,7 @@ const AuditView = {
         reasonsText,
         primaryTitle,
         subtitle,
+        stepMarker,
         metaTrail,
         decisionLabel: decisionLabel(t, decisionRaw),
         decisionType: decisionBadgeType(decisionRaw),
@@ -482,8 +472,6 @@ const AuditView = {
         selectedFileDropdownItem,
         auditGroups,
         selectedFileTitle,
-        selectedFileMeta,
-        auditSummaryItems,
         meta,
         pageValue,
         pageText,
@@ -492,7 +480,6 @@ const AuditView = {
         goPrev,
         goNext,
         onFileChange,
-        tuiKicker,
         rawDialogOpen,
         rawDialogJSON,
         openRawDialog,
@@ -504,14 +491,9 @@ const AuditView = {
       <section class="audit-ledger">
         <header class="audit-ledger-head">
           <div class="audit-ledger-copy">
-            <p class="ui-kicker">{{ tuiKicker(t("audit_title"), selectedFileTitle) }}</p>
             <div class="audit-ledger-title-row">
               <h2 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h2>
-              <QBadge v-if="selectedFileItem && selectedFileItem.current" size="sm" type="primary">
-                {{ t("audit_current_file") }}
-              </QBadge>
             </div>
-            <p v-if="selectedFileMeta" class="audit-ledger-meta">{{ selectedFileMeta }}</p>
           </div>
           <div class="audit-ledger-actions">
             <div v-if="showFilePicker" class="audit-file-picker">
@@ -555,13 +537,6 @@ const AuditView = {
           </div>
         </header>
 
-        <div v-if="auditSummaryItems.length > 0" class="audit-summary-strip">
-          <div v-for="item in auditSummaryItems" :key="item.key" class="audit-summary-item">
-            <span class="audit-summary-strip-label">{{ item.label }}</span>
-            <strong class="audit-summary-strip-value">{{ item.value }}</strong>
-          </div>
-        </div>
-
         <QProgress v-if="loading" :infinite="true" />
         <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
 
@@ -582,7 +557,9 @@ const AuditView = {
               v-for="item in group.items"
               :key="item.key"
               class="audit-row audit-item-card clickable"
-              variant="default"
+              :variant="item.parsed ? 'annotated' : 'default'"
+              :marker="item.parsed ? item.stepMarker : ''"
+              marker-style="plate"
               :hoverable="true"
               tabindex="0"
               role="button"
@@ -591,24 +568,39 @@ const AuditView = {
               @keydown.enter.prevent="openRawDialog(item)"
               @keydown.space.prevent="openRawDialog(item)"
             >
-              <template v-if="item.parsed">
-                <div class="audit-item-head">
-                  <div class="audit-item-primary">
-                    <h3 class="audit-item-title">{{ item.primaryTitle }}</h3>
-                    <p v-if="item.subtitle" class="audit-item-subtitle">{{ item.subtitle }}</p>
+              <template #header>
+                <div class="audit-item-head" v-if="item.parsed">
+                  <div v-if="item.subtitle" class="audit-item-primary">
+                    <p class="audit-item-subtitle">{{ item.subtitle }}</p>
                   </div>
-                  <div class="audit-item-badges">
-                    <QBadge :type="item.decisionType">{{ item.decisionLabel }}</QBadge>
-                    <QBadge :type="item.riskType">{{ item.riskLabel }}</QBadge>
+                  <div class="audit-item-side">
+                    <div v-if="item.eventID !== '-' || item.tsText !== '-'" class="audit-item-meta-row">
+                      <code v-if="item.eventID !== '-'" class="audit-item-event-id">{{ item.eventID }}</code>
+                      <span v-if="item.tsText !== '-'" class="audit-item-time">{{ item.tsText }}</span>
+                    </div>
+                    <div class="audit-item-badges">
+                      <QBadge :type="item.decisionType">{{ item.decisionLabel }}</QBadge>
+                      <QBadge :type="item.riskType">{{ item.riskLabel }}</QBadge>
+                    </div>
                   </div>
                 </div>
 
-                <p v-if="item.summary !== '-'" class="audit-item-summary">{{ item.summary }}</p>
+                <div class="audit-item-head" v-else>
+                  <div class="audit-item-side">
+                    <div class="audit-item-badges">
+                      <QBadge type="default" size="sm">{{ t("audit_raw") }}</QBadge>
+                    </div>
+                  </div>
+                </div>
+              </template>
 
+              <template v-if="item.parsed">
                 <div v-if="item.reasonsText !== '-'" class="audit-detail-block audit-detail-block-note">
                   <span class="audit-detail-label">{{ t("audit_reasons") }}</span>
                   <p class="audit-detail-copy">{{ item.reasonsText }}</p>
                 </div>
+
+                <p v-if="item.summary !== '-'" class="audit-item-summary">{{ item.summary }}</p>
 
                 <div v-if="item.metaTrail.length > 0" class="audit-item-meta-trail">
                   <template v-for="(metaItem, index) in item.metaTrail" :key="metaItem">
@@ -619,9 +611,6 @@ const AuditView = {
               </template>
 
               <template v-else>
-                <div class="audit-item-head">
-                  <QBadge type="default" size="sm">{{ t("audit_raw") }}</QBadge>
-                </div>
                 <pre class="audit-line">{{ item.raw }}</pre>
               </template>
             </QCard>

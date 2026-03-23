@@ -91,6 +91,7 @@ type consoleLocalRuntime struct {
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
 	streamHub               *consoleStreamHub
+	heartbeatState          *heartbeatutil.State
 	heartbeatPokeRequests   chan heartbeatloop.PokeRequest
 	handler                 http.Handler
 	authToken               string
@@ -422,7 +423,8 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"telegram_running": r.isManagedRuntimeRunning("telegram"),
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
-				"poke_enabled": r.canPokeHeartbeat(),
+				"poke_enabled":      r.canPokeHeartbeat(),
+				"heartbeat_running": r.heartbeatRunning(),
 			}, nil
 		},
 		Poke: poke,
@@ -541,6 +543,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		}
 		_ = replySink.Abort(context.Background(), errors.New(displayErr))
 		streamTracker.LogSummary("failed")
+		r.completeHeartbeatTask(job, heartbeatTaskResultFailure, errors.New(displayErr), time.Time{})
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
@@ -557,6 +560,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.Result = buildConsoleTaskResult(final, agentCtx)
 		})
 		streamTracker.LogSummary("pending")
+		r.completeHeartbeatTask(job, heartbeatTaskResultSkipped, nil, time.Time{})
 		return
 	}
 
@@ -564,6 +568,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 	_ = replySink.Finalize(context.Background(), output)
 	streamTracker.LogSummary("done")
+	r.completeHeartbeatTask(job, heartbeatTaskResultSuccess, nil, finishedAt)
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
@@ -868,6 +873,51 @@ func consoleTriggerSource(trigger daemonruntime.TaskTrigger) string {
 	return "console"
 }
 
+type heartbeatTaskResult int
+
+const (
+	heartbeatTaskResultSuccess heartbeatTaskResult = iota
+	heartbeatTaskResultFailure
+	heartbeatTaskResultSkipped
+)
+
+func isHeartbeatTaskJob(job consoleLocalTaskJob) bool {
+	return strings.EqualFold(strings.TrimSpace(job.Trigger.Source), "heartbeat")
+}
+
+func (r *consoleLocalRuntime) heartbeatRunning() bool {
+	if r == nil || r.heartbeatState == nil {
+		return false
+	}
+	_, _, _, running := r.heartbeatState.Snapshot()
+	return running
+}
+
+func (r *consoleLocalRuntime) completeHeartbeatTask(
+	job consoleLocalTaskJob,
+	result heartbeatTaskResult,
+	runErr error,
+	now time.Time,
+) {
+	if r == nil || r.heartbeatState == nil || !isHeartbeatTaskJob(job) {
+		return
+	}
+	switch result {
+	case heartbeatTaskResultSuccess:
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		r.heartbeatState.EndSuccess(now)
+	case heartbeatTaskResultSkipped:
+		r.heartbeatState.EndSkipped()
+	default:
+		if runErr == nil {
+			runErr = errors.New("heartbeat task failed")
+		}
+		r.heartbeatState.EndFailure(runErr)
+	}
+}
+
 func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task string, _ bool, wakeSignal daemonruntime.PokeInput) string {
 	if r == nil {
 		return "runtime_unavailable"
@@ -917,6 +967,7 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 		return
 	}
 	hbState := &heartbeatutil.State{}
+	r.heartbeatState = hbState
 	hbChecklist := statepaths.HeartbeatChecklistPath()
 	r.heartbeatPokeRequests = make(chan heartbeatloop.PokeRequest)
 
