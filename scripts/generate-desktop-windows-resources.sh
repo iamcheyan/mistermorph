@@ -22,13 +22,19 @@ fi
 mkdir -p "${WINDOWS_PACKAGING_DIR}"
 rm -f "${ICON_ICO}" "${SYSO_OUT}"
 
+wails_version="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+if [[ -z "${wails_version}" ]]; then
+  echo "failed to resolve github.com/wailsapp/wails/v3 version from go.mod" >&2
+  exit 1
+fi
+
 echo "==> Generating Windows .ico from ${ICON_PNG}"
-go run github.com/wailsapp/wails/v3/cmd/wails3 generate icons \
+go run "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}" generate icons \
   -input "${ICON_PNG}" \
-  -windowsFilename "${ICON_ICO}"
+  -windowsfilename "${ICON_ICO}"
 
 echo "==> Generating Windows .syso for ${ARCH}"
-go run github.com/wailsapp/wails/v3/cmd/wails3 generate syso \
+go run "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}" generate syso \
   -arch "${ARCH}" \
   -icon "${ICON_ICO}" \
   -manifest "${MANIFEST_PATH}" \

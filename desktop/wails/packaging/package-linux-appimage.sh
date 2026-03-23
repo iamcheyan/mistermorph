@@ -75,8 +75,7 @@ rm -rf "${WORK_ROOT}" "${OUTPUT_PATH}"
 mkdir -p "${OUT_DIR}" "${TOOLS_DIR}" "${APPDIR}/usr/bin"
 
 cp "${DESKTOP_BIN}" "${APPDIR}/usr/bin/${APP_BINARY_NAME}"
-cp "${BACKEND_BIN}" "${APPDIR}/usr/bin/mistermorph"
-chmod +x "${APPDIR}/usr/bin/${APP_BINARY_NAME}" "${APPDIR}/usr/bin/mistermorph"
+chmod +x "${APPDIR}/usr/bin/${APP_BINARY_NAME}"
 
 cp "${ICON_PNG}" "${APPDIR}/.DirIcon"
 ln -sf ".DirIcon" "${APPDIR}/${APP_BINARY_NAME}.png"
@@ -154,7 +153,21 @@ PATH="${TOOLS_DIR}:${PATH}" \
 LINUXDEPLOY="${LINUXDEPLOY}" \
 DEPLOY_GTK_VERSION="${gtk_version}" \
 NO_STRIP="${no_strip}" \
-  "${LINUXDEPLOY}" --appimage-extract-and-run --appdir "${APPDIR}" --output appimage --plugin gtk
+  "${LINUXDEPLOY}" --appimage-extract-and-run --appdir "${APPDIR}" --plugin gtk
+
+cp "${BACKEND_BIN}" "${APPDIR}/usr/bin/mistermorph"
+chmod +x "${APPDIR}/usr/bin/mistermorph"
+
+PATH="${TOOLS_DIR}:${PATH}" \
+  "${LINUXDEPLOY}" --appimage-extract-and-run --appdir "${APPDIR}" --output appimage
 popd >/dev/null
 
-mv "${BUILD_DIR}/${APP_BINARY_NAME}-${APPIMAGE_ARCH}.AppImage" "${OUTPUT_PATH}"
+shopt -s nullglob
+generated_appimages=("${BUILD_DIR}"/*.AppImage)
+shopt -u nullglob
+if [[ "${#generated_appimages[@]}" -ne 1 ]]; then
+  echo "expected exactly one generated AppImage in ${BUILD_DIR}, found ${#generated_appimages[@]}" >&2
+  exit 1
+fi
+
+mv "${generated_appimages[0]}" "${OUTPUT_PATH}"
