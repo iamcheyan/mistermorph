@@ -3,6 +3,7 @@ import { useRoute, useRouter } from "vue-router";
 import "./SetupView.css";
 
 import MarkdownEditor from "../components/MarkdownEditor";
+import SetupPickerDialog from "../components/SetupPickerDialog";
 import {
   apiFetch,
   loadEndpoints,
@@ -17,11 +18,14 @@ import {
   setupStagePath,
 } from "../core/setup";
 import {
-  defaultEndpointForSetupProvider,
+  OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
+  resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPTIONS,
+  setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
 import { endpointState } from "../stores";
@@ -33,6 +37,7 @@ const PREVIOUS_STAGE = {
   persona: "llm",
   soul: "persona",
 };
+const TEST_CONNECTION_BENCHMARK_IDS = ["text_reply", "json_response", "tool_calling"];
 
 const STAGE_META = {
   llm: {
@@ -96,7 +101,7 @@ function buildCustomSoulDocument() {
 function buildDefaultPayload() {
   return {
     llm: {
-      provider: SETUP_PROVIDER_OPTIONS[0].value,
+      provider: SETUP_PROVIDER_OPENAI_COMPATIBLE,
       endpoint: "",
       model: "",
       api_key: "",
@@ -268,6 +273,7 @@ function resolveDoneGreetingKey(date = new Date()) {
 const SetupView = {
   components: {
     MarkdownEditor,
+    SetupPickerDialog,
   },
   setup() {
     const t = translate;
@@ -281,10 +287,11 @@ const SetupView = {
     let spriteTimer = 0;
 
     const loadedPayload = ref(buildDefaultPayload());
+    const loadedConfigSource = ref("defaults");
     const loadedIdentityRaw = ref("");
     const loadedSoulRaw = ref("");
     const llmForm = reactive({
-      provider: SETUP_PROVIDER_OPTIONS[0].value,
+      provider: SETUP_PROVIDER_OPENAI_COMPATIBLE,
       endpoint: "",
       model: "",
       api_key: "",
@@ -296,6 +303,19 @@ const SetupView = {
     const soulPresetId = ref("");
     const soulSelectionKind = ref("");
     const soulEditMode = ref(false);
+    const modelPickerOpen = ref(false);
+    const modelPickerLoading = ref(false);
+    const modelPickerError = ref("");
+    const modelPickerItems = ref([]);
+    const apiBasePickerOpen = ref(false);
+    const testConnectionOpen = ref(false);
+    const testConnectionLoading = ref(false);
+    const testConnectionError = ref("");
+    const testConnectionBenchmarks = ref([]);
+    const testConnectionMeta = reactive({
+      provider: "",
+      model: "",
+    });
 
     const routeStage = computed(() => normalizeStage(route.meta?.setupStage));
     const repairKey = computed(() => String(route.query?.repair || "").trim());
@@ -317,11 +337,51 @@ const SetupView = {
     );
     const providerItems = computed(() => SETUP_PROVIDER_OPTIONS);
     const providerItem = computed(
-      () => providerItems.value.find((item) => item.value === llmForm.provider) || providerItems.value[0]
+      () => providerItems.value.find((item) => item.value === llmForm.provider) || null
     );
     const showCloudflareAccountField = computed(
       () => String(llmForm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
     );
+    const showOpenAICompatibleHelpers = computed(() => setupProviderSupportsModelLookup(llmForm.provider));
+    const modelLookupDisabled = computed(
+      () =>
+        loading.value ||
+        saving.value ||
+        !showOpenAICompatibleHelpers.value ||
+        String(llmForm.api_key || "").trim() === ""
+    );
+    const apiBasePickerItems = computed(() =>
+      OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
+        id: item.id,
+        title: item.title,
+        value: item.baseURL,
+        note: "",
+      }))
+    );
+    const apiKeyHelp = computed(() => {
+      if (String(llmForm.provider || "").trim() === "") {
+        return null;
+      }
+      return resolveSetupAPIKeyHelp(llmForm.provider, llmForm.endpoint);
+    });
+    const apiKeyHelpParts = computed(() => {
+      if (!apiKeyHelp.value) {
+        return null;
+      }
+      const marker = "__PROVIDER__";
+      const template = String(t("setup_llm_api_key_hint", { provider: marker }) || "");
+      const index = template.indexOf(marker);
+      if (index === -1) {
+        return {
+          before: template.trim(),
+          after: "",
+        };
+      }
+      return {
+        before: template.slice(0, index),
+        after: template.slice(index + marker.length),
+      };
+    });
     const previousStage = computed(() => PREVIOUS_STAGE[routeStage.value] || "");
     const showPrevious = computed(() => !inRepairMode.value && previousStage.value !== "");
     const stageKicker = computed(
@@ -341,6 +401,27 @@ const SetupView = {
         String(llmForm.model || "").trim() === "" ||
         String(llmForm.api_key || "").trim() === "" ||
         (showCloudflareAccountField.value && String(llmForm.cloudflare_account_id || "").trim() === "")
+    );
+    const testConnectionDisabled = computed(() => llmSaveDisabled.value || testConnectionLoading.value);
+    const testConnectionHasBenchmarks = computed(() => testConnectionBenchmarks.value.length > 0);
+    const visibleTestConnectionBenchmarks = computed(() => {
+      if (testConnectionLoading.value && testConnectionBenchmarks.value.length === 0) {
+        return TEST_CONNECTION_BENCHMARK_IDS.map((id) => ({
+          id,
+          ok: false,
+          running: true,
+          duration_ms: 0,
+          detail: "",
+          error: "",
+        }));
+      }
+      return testConnectionBenchmarks.value.map((item) => ({
+        ...item,
+        running: false,
+      }));
+    });
+    const showTestConnectionBenchmarks = computed(
+      () => testConnectionLoading.value || testConnectionHasBenchmarks.value
     );
     const personaSaveDisabled = computed(
       () =>
@@ -447,6 +528,19 @@ const SetupView = {
     ]);
     const soulUsesCustomContent = computed(() => soulDocumentExists.value);
 
+    function formatBenchmarkSeconds(durationMS) {
+      const ms = Number(durationMS || 0);
+      if (!Number.isFinite(ms) || ms <= 0) {
+        return "0s";
+      }
+      const seconds = ms / 1000;
+      const digits = seconds >= 10 ? 1 : 2;
+      return `${seconds
+        .toFixed(digits)
+        .replace(/\.0+$/, "")
+        .replace(/(\.\d*[1-9])0+$/, "$1")}s`;
+    }
+
     async function enterChat() {
       const setupState = await resolveConsoleSetupStage(endpointState.items);
       const targetRef = consoleSetupTargetEndpointRef(setupState.setup) || CONSOLE_LOCAL_ENDPOINT_REF;
@@ -478,9 +572,17 @@ const SetupView = {
     function applyLLMPayload(data) {
       const normalized = normalizePayload(data);
       loadedPayload.value = normalized;
-      llmForm.provider = normalizeSetupProviderChoice(normalized.llm.provider);
-      llmForm.endpoint =
-        String(normalized.llm.endpoint || "").trim() || defaultEndpointForSetupProvider(llmForm.provider);
+      loadedConfigSource.value = String(data?.config_source || "defaults").trim() || "defaults";
+      if (loadedConfigSource.value !== "config") {
+        llmForm.provider = SETUP_PROVIDER_OPENAI_COMPATIBLE;
+        llmForm.endpoint = "";
+        llmForm.model = "";
+        llmForm.api_key = "";
+        llmForm.cloudflare_account_id = "";
+        return;
+      }
+      llmForm.provider = normalizeSetupProviderChoice(normalized.llm.provider, { allowEmpty: true });
+      llmForm.endpoint = String(normalized.llm.endpoint || "").trim();
       llmForm.model = String(normalized.llm.model || "").trim();
       llmForm.api_key = String(normalized.llm.api_key || "").trim();
       llmForm.cloudflare_account_id = String(normalized.llm.cloudflare_account_id || "").trim();
@@ -610,14 +712,7 @@ const SetupView = {
         const payload = await apiFetch("/settings/agent", {
           method: "PUT",
           body: {
-            llm: {
-              ...loadedPayload.value.llm,
-              provider: normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint),
-              endpoint: String(llmForm.endpoint || "").trim(),
-              model: String(llmForm.model || "").trim(),
-              api_key: String(llmForm.api_key || "").trim(),
-              cloudflare_account_id: String(llmForm.cloudflare_account_id || "").trim(),
-            },
+            llm: buildLLMSettingsPayload(),
             multimodal: loadedPayload.value.multimodal,
             tools: loadedPayload.value.tools,
           },
@@ -629,6 +724,17 @@ const SetupView = {
       } finally {
         saving.value = false;
       }
+    }
+
+    function buildLLMSettingsPayload() {
+      return {
+        ...loadedPayload.value.llm,
+        provider: normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint),
+        endpoint: String(llmForm.endpoint || "").trim(),
+        model: String(llmForm.model || "").trim(),
+        api_key: String(llmForm.api_key || "").trim(),
+        cloudflare_account_id: String(llmForm.cloudflare_account_id || "").trim(),
+      };
     }
 
     async function savePersona() {
@@ -685,10 +791,101 @@ const SetupView = {
 
     function onProviderChange(item) {
       const nextProvider = String(item?.value || "").trim() || providerItems.value[0].value;
-      const previousDefault = defaultEndpointForSetupProvider(llmForm.provider);
       llmForm.provider = nextProvider;
-      if (String(llmForm.endpoint || "").trim() === "" || String(llmForm.endpoint || "").trim() === previousDefault) {
-        llmForm.endpoint = defaultEndpointForSetupProvider(nextProvider);
+    }
+
+    function openExternal(url) {
+      const target = String(url || "").trim();
+      if (!target) {
+        return;
+      }
+      window.open(target, "_blank", "noopener,noreferrer");
+    }
+
+    function openAPIBasePicker() {
+      if (!showOpenAICompatibleHelpers.value || loading.value || saving.value) {
+        return;
+      }
+      apiBasePickerOpen.value = true;
+    }
+
+    function applyAPIBaseOption(item) {
+      llmForm.endpoint = String(item?.value || "").trim();
+    }
+
+    async function openModelPicker() {
+      if (modelLookupDisabled.value) {
+        return;
+      }
+      modelPickerOpen.value = true;
+      modelPickerLoading.value = true;
+      modelPickerError.value = "";
+      modelPickerItems.value = [];
+      try {
+        const payload = await apiFetch("/settings/agent/models", {
+          method: "POST",
+          body: {
+            endpoint: String(llmForm.endpoint || "").trim(),
+            api_key: String(llmForm.api_key || "").trim(),
+          },
+        });
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        modelPickerItems.value = items.map((value) => ({
+          id: value,
+          title: value,
+          value,
+          note: "",
+        }));
+      } catch (e) {
+        modelPickerError.value = e.message || t("msg_load_failed");
+      } finally {
+        modelPickerLoading.value = false;
+      }
+    }
+
+    function applyModelOption(item) {
+      llmForm.model = String(item?.value || "").trim();
+    }
+
+    async function openTestConnection() {
+      if (testConnectionDisabled.value) {
+        return;
+      }
+      testConnectionOpen.value = true;
+      await runConnectionTest();
+    }
+
+    async function runConnectionTest() {
+      if (testConnectionLoading.value) {
+        return;
+      }
+      const nextPayload = buildLLMSettingsPayload();
+      testConnectionLoading.value = true;
+      testConnectionError.value = "";
+      testConnectionBenchmarks.value = [];
+      testConnectionMeta.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
+      testConnectionMeta.model = String(nextPayload.model || "").trim();
+      try {
+        const payload = await apiFetch("/settings/agent/test", {
+          method: "POST",
+          body: {
+            llm: nextPayload,
+          },
+        });
+        testConnectionMeta.provider = String(payload?.provider || "").trim();
+        testConnectionMeta.model = String(payload?.model || "").trim();
+        const items = Array.isArray(payload?.benchmarks) ? payload.benchmarks : [];
+        testConnectionBenchmarks.value = items.map((item) => ({
+          id: String(item?.id || "").trim(),
+          ok: item?.ok === true,
+          duration_ms: Number(item?.duration_ms || 0),
+          detail: String(item?.detail || "").trim(),
+          error: String(item?.error || "").trim(),
+        }));
+      } catch (e) {
+        testConnectionError.value = e.message || t("msg_load_failed");
+      } finally {
+        testConnectionLoading.value = false;
       }
     }
 
@@ -788,9 +985,18 @@ const SetupView = {
       providerItems,
       providerItem,
       showCloudflareAccountField,
+      showOpenAICompatibleHelpers,
+      modelLookupDisabled,
+      apiBasePickerItems,
+      apiKeyHelp,
+      apiKeyHelpParts,
       previousStage,
       showPrevious,
       llmSaveDisabled,
+      testConnectionDisabled,
+      testConnectionHasBenchmarks,
+      visibleTestConnectionBenchmarks,
+      showTestConnectionBenchmarks,
       personaSaveDisabled,
       soulSaveDisabled,
       onProviderChange,
@@ -804,6 +1010,24 @@ const SetupView = {
       saveLLM,
       savePersona,
       saveSoul,
+      openExternal,
+      openAPIBasePicker,
+      applyAPIBaseOption,
+      openModelPicker,
+      applyModelOption,
+      openTestConnection,
+      runConnectionTest,
+      formatBenchmarkSeconds,
+      testConnectionOpen,
+      testConnectionLoading,
+      testConnectionError,
+      testConnectionBenchmarks,
+      testConnectionMeta,
+      modelPickerOpen,
+      modelPickerLoading,
+      modelPickerError,
+      modelPickerItems,
+      apiBasePickerOpen,
     };
   },
   template: `
@@ -841,20 +1065,22 @@ const SetupView = {
 
           <label class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_endpoint_label") }}</span>
-            <QInput
-              v-model="llmForm.endpoint"
-              :placeholder="t('settings_agent_endpoint_placeholder')"
-              :disabled="loading || saving"
-            />
-          </label>
-
-          <label class="setup-field is-wide">
-            <span class="setup-field-label">{{ t("settings_agent_model_label") }}</span>
-            <QInput
-              v-model="llmForm.model"
-              :placeholder="t('settings_agent_model_placeholder')"
-              :disabled="loading || saving"
-            />
+            <div class="setup-field-control">
+              <QInput
+                v-model="llmForm.endpoint"
+                :placeholder="t('settings_agent_endpoint_placeholder')"
+                :disabled="loading || saving"
+              />
+              <QButton
+                class="outlined icon setup-field-action"
+                :title="t('setup_llm_api_base_picker_title')"
+                :aria-label="t('setup_llm_api_base_picker_title')"
+                :disabled="!showOpenAICompatibleHelpers || loading || saving"
+                @click.prevent="openAPIBasePicker"
+              >
+                <QIconLink class="icon" />
+              </QButton>
+            </div>
           </label>
 
           <label class="setup-field is-wide">
@@ -865,6 +1091,37 @@ const SetupView = {
               :placeholder="t('settings_agent_api_key_placeholder')"
               :disabled="loading || saving"
             />
+            <p v-if="apiKeyHelp" class="setup-field-hint">
+              <button v-if="apiKeyHelp.url" type="button" class="setup-field-link" @click="openExternal(apiKeyHelp.url)">
+                <span>{{ apiKeyHelpParts?.before }}</span>
+                <span class="setup-field-link-provider">{{ apiKeyHelp.title }}</span>
+                <span>{{ apiKeyHelpParts?.after }}</span>
+                <QIconArrowUpRight class="icon setup-field-link-icon" />
+              </button>
+              <span v-else class="setup-field-link is-static">
+                {{ t("setup_llm_api_key_hint_plain", { provider: apiKeyHelp.title }) }}
+              </span>
+            </p>
+          </label>
+
+          <label class="setup-field is-wide">
+            <span class="setup-field-label">{{ t("settings_agent_model_label") }}</span>
+            <div class="setup-field-control">
+              <QInput
+                v-model="llmForm.model"
+                :placeholder="t('settings_agent_model_placeholder')"
+                :disabled="loading || saving"
+              />
+              <QButton
+                class="outlined icon setup-field-action"
+                :title="t('setup_llm_model_picker_title')"
+                :aria-label="t('setup_llm_model_picker_title')"
+                :disabled="modelLookupDisabled"
+                @click.prevent="openModelPicker"
+              >
+                <QIconSearch class="icon" />
+              </QButton>
+            </div>
           </label>
 
           <label v-if="showCloudflareAccountField" class="setup-field is-wide">
@@ -879,7 +1136,11 @@ const SetupView = {
           <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
 
           <div class="setup-footer is-wide">
-            <div class="setup-footer-side"></div>
+            <div class="setup-footer-side">
+              <QButton class="outlined setup-aux-action" :disabled="testConnectionDisabled" @click="openTestConnection">
+                {{ t("setup_llm_test_button") }}
+              </QButton>
+            </div>
             <div class="setup-footer-side is-end">
               <QButton class="primary setup-submit" :loading="saving" :disabled="llmSaveDisabled" @click="saveLLM">
                 {{ t(stageMeta.submitKey) }}
@@ -1051,6 +1312,84 @@ const SetupView = {
             </QButton>
           </div>
         </section>
+
+        <SetupPickerDialog
+          v-model="apiBasePickerOpen"
+          :items="apiBasePickerItems"
+          :loading="false"
+          :error="''"
+          :filterPlaceholder="t('setup_llm_api_base_picker_filter_placeholder')"
+          :emptyText="t('setup_llm_api_base_picker_empty')"
+          @select="applyAPIBaseOption"
+        />
+
+        <SetupPickerDialog
+          v-model="modelPickerOpen"
+          :items="modelPickerItems"
+          :loading="modelPickerLoading"
+          :error="modelPickerError"
+          :filterPlaceholder="t('setup_llm_model_picker_filter_placeholder')"
+          :emptyText="t('setup_llm_model_picker_empty')"
+          :showValue="false"
+          @select="applyModelOption"
+        />
+
+        <QDialog
+          :modelValue="testConnectionOpen"
+          width="560px"
+          @update:modelValue="testConnectionOpen = $event"
+        >
+          <section class="setup-test-dialog">
+            <header class="setup-test-head">
+              <div class="setup-test-copy">
+                <h3 class="setup-test-title">{{ t("setup_llm_test_title") }}</h3>
+              </div>
+            </header>
+
+            <QFence
+              v-if="testConnectionError"
+              type="danger"
+              icon="QIconCloseCircle"
+              :text="testConnectionError"
+            />
+
+            <div v-if="showTestConnectionBenchmarks" class="setup-test-result">
+              <p class="setup-test-result-label">
+                {{ t("setup_llm_test_success", { provider: testConnectionMeta.provider || t('ttl_unknown'), model: testConnectionMeta.model || t('ttl_unknown') }) }}
+              </p>
+              <div class="setup-test-benchmark-list">
+                <article
+                  v-for="item in visibleTestConnectionBenchmarks"
+                  :key="item.id"
+                  :class="['setup-test-benchmark', { 'is-ok': item.ok, 'is-failed': !item.ok, 'is-loading': item.running }]"
+                >
+                  <div class="setup-test-benchmark-main">
+                    <p class="setup-test-benchmark-title">{{ t('setup_llm_test_benchmark_' + item.id) }}</p>
+                    <p v-if="item.running" class="setup-test-benchmark-detail">{{ t("setup_llm_test_running") }}</p>
+                    <p v-else-if="item.ok && item.detail" class="setup-test-benchmark-detail">{{ item.detail }}</p>
+                    <p v-else-if="item.error" class="setup-test-benchmark-error">{{ item.error }}</p>
+                  </div>
+                  <div class="setup-test-benchmark-side">
+                    <div class="setup-test-benchmark-status-row">
+                      <span v-if="item.running" class="setup-test-benchmark-spinner" aria-hidden="true"></span>
+                      <strong v-else class="setup-test-benchmark-status">
+                        {{ item.ok ? t("setup_llm_test_status_ok") : t("setup_llm_test_status_failed") }}
+                      </strong>
+                    </div>
+                    <span v-if="!item.running" class="setup-test-benchmark-time">{{ formatBenchmarkSeconds(item.duration_ms) }}</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="setup-test-actions">
+              <QButton class="outlined" @click="testConnectionOpen = false">{{ t("action_close") }}</QButton>
+              <QButton class="primary" :loading="testConnectionLoading" @click="runConnectionTest">
+                {{ testConnectionLoading ? t("setup_llm_test_running") : t("setup_llm_test_retry") }}
+              </QButton>
+            </div>
+          </section>
+        </QDialog>
       </section>
     </section>
   `,

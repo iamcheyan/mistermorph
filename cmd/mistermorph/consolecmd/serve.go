@@ -353,6 +353,8 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
 	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
 	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
+	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
+	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))

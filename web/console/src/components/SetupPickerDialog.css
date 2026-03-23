@@ -1,0 +1,66 @@
+.setup-picker-dialog {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.setup-picker-filter {
+  width: 100%;
+}
+
+.setup-picker-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(60vh, 420px);
+  overflow: auto;
+}
+
+.setup-picker-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 80%, transparent);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.setup-picker-item:hover,
+.setup-picker-item:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--line-soft) 45%, var(--text-0) 20%);
+  background: color-mix(in srgb, var(--line-soft) 22%, transparent);
+}
+
+.setup-picker-item-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.setup-picker-item-title {
+  font-size: 13px;
+  color: var(--text-0);
+}
+
+.setup-picker-item-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.setup-picker-item-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-1);
+  word-break: break-all;
+}
+
+.setup-picker-empty {
+  margin: 0;
+  padding: 8px 2px 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}

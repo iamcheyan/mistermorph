@@ -2,6 +2,7 @@ package consolecmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -280,6 +281,9 @@ func TestHandleAgentSettingsGetFallsBackWhenConfigIsMalformed(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "\"provider\":\"openai\"") {
 		t.Fatalf("response should fall back to current viper defaults: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"config_source":"defaults"`) || !strings.Contains(rec.Body.String(), `"config_valid":false`) {
+		t.Fatalf("response should expose config source metadata: %s", rec.Body.String())
+	}
 }
 
 func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
@@ -304,5 +308,91 @@ func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "model: gpt-5.2") {
 		t.Fatalf("serialized config missing repaired llm block: %s", out)
+	}
+}
+
+func TestHandleAgentSettingsModels(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/v1/models" {
+			t.Fatalf("path = %q, want /v1/models", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
+			t.Fatalf("authorization = %q, want Bearer sk-test", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5-mini"},{"id":"gpt-5"},{"id":"gpt-5-mini"}]}`))
+	}))
+	defer upstream.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/models", bytes.NewBufferString(
+		`{"endpoint":"`+upstream.URL+`","api_key":"sk-test"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsModels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"items":["gpt-5","gpt-5-mini"]`) {
+		t.Fatalf("response missing sorted model ids: %s", got)
+	}
+}
+
+func TestHandleAgentSettingsTest(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload) (agentSettingsTestResult, error) {
+		if settings.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", settings.Provider)
+		}
+		if settings.Model != "gpt-5" {
+			t.Fatalf("model = %q, want gpt-5", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: "openai",
+			Model:    "gpt-5",
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 912, Detail: "OK"},
+				{ID: "json_response", OK: true, DurationMS: 1044, Detail: "json ok"},
+				{ID: "tool_calling", OK: false, DurationMS: 1350, Error: "model replied without calling the tool"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"openai","model":"gpt-5","api_key":"sk-test"}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"benchmarks":[`) || !strings.Contains(got, `"id":"text_reply"`) || !strings.Contains(got, `"id":"json_response"`) || !strings.Contains(got, `"id":"tool_calling"`) {
+		t.Fatalf("response missing test result fields: %s", got)
+	}
+}
+
+func TestNormalizeAgentSettingsProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: "openai"},
+		{name: "openai compatible", in: "openai_compatible", want: "openai"},
+		{name: "cloudflare", in: "cloudflare", want: "cloudflare"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeAgentSettingsProvider(tc.in); got != tc.want {
+				t.Fatalf("normalizeAgentSettingsProvider(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

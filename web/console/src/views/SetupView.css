@@ -88,6 +88,21 @@
   gap: 7px;
 }
 
+.setup-field-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-field-control > .q-input {
+  min-width: 0;
+}
+
+.setup-field-action {
+  flex: 0 0 auto;
+}
+
 .setup-field.is-wide {
   grid-column: 1 / -1;
 }
@@ -116,6 +131,45 @@
 
 .setup-form .q-textarea {
   min-height: 96px;
+}
+
+.setup-field-hint {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 16px;
+}
+
+.setup-field-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.setup-field-link:hover,
+.setup-field-link:focus-visible {
+  color: var(--text-0);
+}
+
+.setup-field-link.is-static {
+  cursor: default;
+}
+
+.setup-field-link-provider {
+  color: var(--setup-accent);
+  font-weight: 600;
+}
+
+.setup-field-link-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .setup-error {
@@ -149,6 +203,10 @@
 
 .setup-submit {
   min-width: 132px;
+}
+
+.setup-aux-action {
+  min-width: 148px;
 }
 
 .setup-done-summary {
@@ -459,6 +517,163 @@
   gap: 12px;
 }
 
+.setup-test-dialog {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 16px 0 0;
+}
+
+.setup-test-head {
+  display: grid;
+  gap: 6px;
+}
+
+.setup-test-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.setup-test-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text-0);
+}
+
+.setup-test-result {
+  display: grid;
+  gap: 8px;
+}
+
+.setup-test-result-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.setup-test-benchmark-list {
+  display: grid;
+  gap: 8px;
+}
+
+.setup-test-benchmark {
+  box-sizing: border-box;
+  display: flex;
+  height: 68px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(77, 85, 99, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.setup-test-benchmark.is-loading {
+  opacity: 0.8;
+}
+
+.setup-test-benchmark-main {
+  align-content: space-between;
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 0;
+}
+
+.setup-test-benchmark-title {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-0);
+}
+
+.setup-test-benchmark-detail,
+.setup-test-benchmark-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.setup-test-benchmark-detail {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.setup-test-benchmark-error {
+  color: rgb(158, 63, 34);
+}
+
+.setup-test-benchmark-side {
+  flex: 0 0 auto;
+  min-width: 72px;
+  display: grid;
+  grid-template-rows: auto auto;
+  justify-items: end;
+  align-content: space-between;
+  height: 100%;
+  gap: 0;
+}
+
+.setup-test-benchmark-status-row {
+  min-height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.setup-test-benchmark-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--setup-accent) 18%, transparent);
+  border-top-color: var(--setup-accent);
+  animation: setup-test-spin 0.8s linear infinite;
+}
+
+.setup-test-benchmark-status {
+  font-size: 12px;
+}
+
+.setup-test-benchmark.is-ok .setup-test-benchmark-status {
+  color: rgb(63, 120, 86);
+}
+
+.setup-test-benchmark.is-failed .setup-test-benchmark-status {
+  color: rgb(158, 63, 34);
+}
+
+.setup-test-benchmark.is-loading .setup-test-benchmark-status {
+  color: var(--setup-accent);
+}
+
+.setup-test-benchmark-time {
+  align-self: end;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.setup-test-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@keyframes setup-test-spin {
+  from {
+    transform: translateY(2px) rotate(0deg);
+  }
+
+  to {
+    transform: translateY(2px) rotate(360deg);
+  }
+}
+
 @media (max-width: 620px) {
   .setup-screen {
     padding: 0;
@@ -525,6 +740,10 @@
     width: auto;
   }
 
+  .setup-aux-action {
+    width: 100%;
+  }
+
   .setup-soul-editor-head {
     flex-wrap: wrap;
     align-items: stretch;
@@ -563,5 +782,29 @@
   .setup-done-status-actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .setup-test-actions {
+    flex-wrap: wrap;
+  }
+
+  .setup-test-actions .q-button {
+    width: 100%;
+  }
+
+  .setup-test-benchmark {
+    height: auto;
+    min-height: 68px;
+    flex-direction: column;
+  }
+
+  .setup-test-benchmark-side {
+    width: 100%;
+    height: auto;
+    justify-items: start;
+  }
+
+  .setup-test-benchmark-status-row {
+    justify-content: flex-start;
   }
 }

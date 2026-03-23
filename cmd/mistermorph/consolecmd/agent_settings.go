@@ -2,17 +2,24 @@ package consolecmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -55,6 +62,31 @@ type agentSettingsPayload struct {
 	Tools      toolsSettingsPayload      `json:"tools"`
 }
 
+type agentSettingsModelsRequest struct {
+	Endpoint string `json:"endpoint"`
+	APIKey   string `json:"api_key"`
+}
+
+type agentSettingsTestRequest struct {
+	LLM llmSettingsPayload `json:"llm"`
+}
+
+type agentSettingsBenchmarkResult struct {
+	ID         string `json:"id"`
+	OK         bool   `json:"ok"`
+	DurationMS int64  `json:"duration_ms"`
+	Detail     string `json:"detail,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type agentSettingsTestResult struct {
+	Provider   string
+	Model      string
+	Benchmarks []agentSettingsBenchmarkResult
+}
+
+var runAgentSettingsConnectionTest = defaultAgentSettingsConnectionTest
+
 func (s *server) handleAgentSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -72,6 +104,12 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	configExists, configSource, err := inspectAgentSettingsConfigSource(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	configValid := true
 	settings, err := readAgentSettings(configPath)
 	if err != nil {
 		if !isInvalidConfigYAMLError(err) {
@@ -79,12 +117,17 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 			return
 		}
 		settings = readAgentSettingsFromReader(viper.GetViper())
+		configSource = "defaults"
+		configValid = false
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"llm":         settings.LLM,
-		"multimodal":  settings.Multimodal,
-		"tools":       settings.Tools,
-		"config_path": configPath,
+		"llm":           settings.LLM,
+		"multimodal":    settings.Multimodal,
+		"tools":         settings.Tools,
+		"config_path":   configPath,
+		"config_exists": configExists,
+		"config_valid":  configValid,
+		"config_source": configSource,
 	})
 }
 
@@ -137,11 +180,65 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 
 	next := readAgentSettingsFromReader(tmp)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"llm":         next.LLM,
-		"multimodal":  next.Multimodal,
-		"tools":       next.Tools,
-		"config_path": configPath,
+		"ok":            true,
+		"llm":           next.LLM,
+		"multimodal":    next.Multimodal,
+		"tools":         next.Tools,
+		"config_path":   configPath,
+		"config_exists": true,
+		"config_valid":  true,
+		"config_source": "config",
+	})
+}
+
+func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req agentSettingsModelsRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if strings.TrimSpace(req.APIKey) == "" {
+		writeError(w, http.StatusBadRequest, "api key is required")
+		return
+	}
+	models, err := fetchOpenAICompatibleModels(r.Context(), req.Endpoint, req.APIKey)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": models,
+	})
+}
+
+func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req agentSettingsTestRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	result, err := runAgentSettingsConnectionTest(r.Context(), req.LLM)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"provider":   result.Provider,
+		"model":      result.Model,
+		"benchmarks": result.Benchmarks,
 	})
 }
 
@@ -176,6 +273,20 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
 	return readAgentSettingsFromReader(tmp), nil
+}
+
+func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, "defaults", nil
+		}
+		return false, "", err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return true, "defaults", nil
+	}
+	return true, "config", nil
 }
 
 func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
@@ -237,6 +348,296 @@ func validateAgentConfigDocument(data []byte) (*viper.Viper, error) {
 		return nil, err
 	}
 	return tmp, nil
+}
+
+func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload) (agentSettingsTestResult, error) {
+	values := llmutil.RuntimeValues{
+		Provider:            normalizeAgentSettingsProvider(settings.Provider),
+		Endpoint:            strings.TrimSpace(settings.Endpoint),
+		APIKey:              strings.TrimSpace(settings.APIKey),
+		Model:               strings.TrimSpace(settings.Model),
+		RequestTimeoutRaw:   "20s",
+		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
+		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),
+		CloudflareAccountID: strings.TrimSpace(settings.CloudflareAccountID),
+	}
+
+	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return agentSettingsTestResult{}, err
+	}
+	client, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
+	if err != nil {
+		return agentSettingsTestResult{}, err
+	}
+
+	return agentSettingsTestResult{
+		Provider: route.ClientConfig.Provider,
+		Model:    route.ClientConfig.Model,
+		Benchmarks: []agentSettingsBenchmarkResult{
+			runAgentSettingsTextBenchmark(ctx, client, route.ClientConfig.Model),
+			runAgentSettingsJSONBenchmark(ctx, client, route.ClientConfig.Model),
+			runAgentSettingsToolCallingBenchmark(ctx, client, route.ClientConfig.Model),
+		},
+	}, nil
+}
+
+func runAgentSettingsTextBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model: model,
+		Messages: []llm.Message{
+			{Role: "system", Content: "You are a connection test. Reply briefly."},
+			{Role: "user", Content: "Reply with exactly: OK"},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 24,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:         "text_reply",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      strings.TrimSpace(err.Error()),
+		}
+	}
+
+	text := strings.TrimSpace(result.Text)
+	if text == "" {
+		return agentSettingsBenchmarkResult{
+			ID:         "text_reply",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      "received an empty text reply",
+		}
+	}
+
+	return agentSettingsBenchmarkResult{
+		ID:         "text_reply",
+		OK:         true,
+		DurationMS: durationMS,
+		Detail:     summarizeBenchmarkDetail(text),
+	}
+}
+
+func runAgentSettingsJSONBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model:     model,
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: "You are a JSON response test. Reply with a JSON object only."},
+			{Role: "user", Content: `Return exactly this JSON object: {"status":"ok","message":"json ok"}`},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 48,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:         "json_response",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      strings.TrimSpace(err.Error()),
+		}
+	}
+
+	var payload struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := jsonutil.DecodeWithFallback(result.Text, &payload); err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:         "json_response",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      "response was not valid json",
+		}
+	}
+	if strings.TrimSpace(payload.Status) != "ok" {
+		return agentSettingsBenchmarkResult{
+			ID:         "json_response",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      "json response missing status=ok",
+		}
+	}
+
+	detail := summarizeBenchmarkDetail(strings.TrimSpace(payload.Message))
+	if detail == "" {
+		detail = "status=ok"
+	}
+	return agentSettingsBenchmarkResult{
+		ID:         "json_response",
+		OK:         true,
+		DurationMS: durationMS,
+		Detail:     detail,
+	}
+}
+
+func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model: model,
+		Messages: []llm.Message{
+			{Role: "system", Content: "You are a tool calling test. Always call the ping tool exactly once."},
+			{Role: "user", Content: "Call the ping tool now."},
+		},
+		Tools: []llm.Tool{
+			{
+				Name:           "ping",
+				Description:    "Connectivity check tool.",
+				ParametersJSON: `{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`,
+			},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 96,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:         "tool_calling",
+			OK:         false,
+			DurationMS: durationMS,
+			Error:      strings.TrimSpace(err.Error()),
+		}
+	}
+
+	for _, call := range result.ToolCalls {
+		if strings.EqualFold(strings.TrimSpace(call.Name), "ping") {
+			return agentSettingsBenchmarkResult{
+				ID:         "tool_calling",
+				OK:         true,
+				DurationMS: durationMS,
+				Detail:     "called ping",
+			}
+		}
+	}
+
+	detail := summarizeBenchmarkDetail(strings.TrimSpace(result.Text))
+	if detail == "" {
+		detail = "model replied without calling the tool"
+	} else {
+		detail = "model replied without calling the tool: " + detail
+	}
+	return agentSettingsBenchmarkResult{
+		ID:         "tool_calling",
+		OK:         false,
+		DurationMS: durationMS,
+		Error:      detail,
+	}
+}
+
+func summarizeBenchmarkDetail(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	const maxLen = 140
+	runes := []rune(text)
+	if len(runes) <= maxLen {
+		return text
+	}
+	return string(runes[:maxLen-1]) + "…"
+}
+
+func normalizeAgentSettingsProvider(provider string) string {
+	value := strings.ToLower(strings.TrimSpace(provider))
+	switch value {
+	case "", "openai_compatible":
+		return "openai"
+	default:
+		return value
+	}
+}
+
+func fetchOpenAICompatibleModels(ctx context.Context, endpoint string, apiKey string) ([]string, error) {
+	modelsURL, err := normalizeOpenAICompatibleModelsURL(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("model lookup failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("model lookup failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return nil, fmt.Errorf("model lookup failed: %s", msg)
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("invalid models response")
+	}
+
+	seen := make(map[string]struct{}, len(payload.Data))
+	models := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
+func normalizeOpenAICompatibleModelsURL(endpoint string) (string, error) {
+	base := strings.TrimSpace(endpoint)
+	if base == "" {
+		base = "https://api.openai.com"
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid api base")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("invalid api base")
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("invalid api base")
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	switch {
+	case strings.HasSuffix(parsed.Path, "/models"):
+	case strings.HasSuffix(parsed.Path, "/v1"):
+		parsed.Path += "/models"
+	default:
+		parsed.Path += "/v1/models"
+	}
+	return parsed.String(), nil
 }
 
 func loadYAMLDocument(configPath string) (*yaml.Node, error) {
