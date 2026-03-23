@@ -91,7 +91,7 @@ func TestResolveDesktopBackendCandidates_AppDirPreferredOverWorkingDir(t *testin
 	if len(candidates) < 3 {
 		t.Fatalf("expected multiple candidates, got %#v", candidates)
 	}
-	if got, want := candidates[0], filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()); got != want {
+	if got, want := candidates[0], filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()); !sameCleanPath(got, want) {
 		t.Fatalf("first candidate = %q, want %q", got, want)
 	}
 	wdCandidate := filepath.Join(wd, "bin", desktopBackendBinaryBaseName())
@@ -99,10 +99,10 @@ func TestResolveDesktopBackendCandidates_AppDirPreferredOverWorkingDir(t *testin
 	appIdx := -1
 	wdIdx := -1
 	for i, c := range candidates {
-		if c == appDirCandidate {
+		if sameCleanPath(c, appDirCandidate) {
 			appIdx = i
 		}
-		if c == wdCandidate {
+		if sameCleanPath(c, wdCandidate) {
 			wdIdx = i
 		}
 	}
@@ -122,4 +122,16 @@ func TestIsExecutableFile(t *testing.T) {
 	if !isExecutableFile(file) {
 		t.Fatalf("expected file to be executable")
 	}
+}
+
+func sameCleanPath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if resolved, err := filepath.EvalSymlinks(a); err == nil {
+		a = filepath.Clean(resolved)
+	}
+	if resolved, err := filepath.EvalSymlinks(b); err == nil {
+		b = filepath.Clean(resolved)
+	}
+	return a == b
 }
