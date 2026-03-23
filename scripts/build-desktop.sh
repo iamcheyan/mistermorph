@@ -85,7 +85,7 @@ fi
 
 if [[ "${BUILD_BACKEND}" == "1" ]]; then
   echo "==> Building backend ${BACKEND_OUTPUT}"
-  go build -o "${BACKEND_OUTPUT}" ./cmd/mistermorph
+  CGO_ENABLED=0 go build -o "${BACKEND_OUTPUT}" ./cmd/mistermorph
 fi
 
 desktop_tags=(wailsdesktop)

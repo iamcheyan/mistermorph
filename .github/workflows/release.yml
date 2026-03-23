@@ -168,7 +168,7 @@ jobs:
       - name: Build bundled backend binary
         shell: bash
         run: |
-          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
             go build -trimpath -ldflags "-s -w" -o "${{ matrix.bundled_backend_binary }}" ./cmd/mistermorph
 
       - name: Package macOS DMG

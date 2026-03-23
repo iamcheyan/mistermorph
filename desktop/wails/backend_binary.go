@@ -25,6 +25,7 @@ const (
 	desktopBackendAutoDownloadEnv = "MISTERMORPH_DESKTOP_BACKEND_AUTO_DOWNLOAD"
 	desktopBackendVersionEnv      = "MISTERMORPH_DESKTOP_BACKEND_VERSION"
 	desktopBackendCacheDirEnv     = "MISTERMORPH_DESKTOP_BACKEND_CACHE_DIR"
+	desktopAppDirEnv              = "APPDIR"
 
 	desktopBackendRepoReleaseAPI = "https://api.github.com/repos/quailyquaily/mistermorph/releases"
 	desktopBackendHTTPUserAgent  = "mistermorph-desktop-host"
@@ -44,10 +45,11 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 	out := make([]string, 0, 8)
 	seen := map[string]struct{}{}
 	add := func(raw string) {
-		clean := filepath.Clean(strings.TrimSpace(raw))
-		if clean == "" {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
 			return
 		}
+		clean := filepath.Clean(raw)
 		if _, ok := seen[clean]; ok {
 			return
 		}
@@ -58,13 +60,17 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 	add(explicitPath)
 	add(os.Getenv(desktopBackendBinEnv))
 
-	if wd, err := os.Getwd(); err == nil {
-		add(filepath.Join(wd, "bin", desktopBackendBinaryBaseName()))
+	if appDir := strings.TrimSpace(os.Getenv(desktopAppDirEnv)); appDir != "" {
+		add(filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()))
+		add(filepath.Join(appDir, desktopBackendBinaryBaseName()))
 	}
 	if strings.TrimSpace(selfExePath) != "" {
 		exeDir := filepath.Dir(selfExePath)
 		add(filepath.Join(exeDir, desktopBackendBinaryBaseName()))
 		add(filepath.Join(exeDir, "bin", desktopBackendBinaryBaseName()))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		add(filepath.Join(wd, "bin", desktopBackendBinaryBaseName()))
 	}
 
 	if path, err := exec.LookPath(desktopBackendBinaryBaseName()); err == nil {

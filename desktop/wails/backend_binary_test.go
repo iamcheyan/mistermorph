@@ -70,6 +70,50 @@ func TestResolveDesktopBackendCandidates_EnvBinary(t *testing.T) {
 	}
 }
 
+func TestResolveDesktopBackendCandidates_AppDirPreferredOverWorkingDir(t *testing.T) {
+	appDir := t.TempDir()
+	wd := t.TempDir()
+	t.Setenv(desktopBackendBinEnv, "")
+	t.Setenv(desktopAppDirEnv, appDir)
+
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(wd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+
+	candidates := resolveDesktopBackendCandidates(filepath.Join(appDir, "usr", "bin", "mistermorph-desktop"), "")
+	if len(candidates) < 3 {
+		t.Fatalf("expected multiple candidates, got %#v", candidates)
+	}
+	if got, want := candidates[0], filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()); got != want {
+		t.Fatalf("first candidate = %q, want %q", got, want)
+	}
+	wdCandidate := filepath.Join(wd, "bin", desktopBackendBinaryBaseName())
+	appDirCandidate := filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName())
+	appIdx := -1
+	wdIdx := -1
+	for i, c := range candidates {
+		if c == appDirCandidate {
+			appIdx = i
+		}
+		if c == wdCandidate {
+			wdIdx = i
+		}
+	}
+	if appIdx == -1 || wdIdx == -1 {
+		t.Fatalf("expected both appdir and wd candidates in %#v", candidates)
+	}
+	if appIdx >= wdIdx {
+		t.Fatalf("appdir candidate index = %d, wd candidate index = %d, want appdir before wd in %#v", appIdx, wdIdx, candidates)
+	}
+}
+
 func TestIsExecutableFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "mistermorph")
 	if err := os.WriteFile(file, []byte("#!/bin/sh\n"), 0o755); err != nil {
