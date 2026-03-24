@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"os"
 	"sort"
@@ -156,7 +157,8 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		}
 	}
 
-	e.log.Info("engine_created", "spawn_enabled", cfg.SpawnEnabled)
+	// todo: remove this log after testing
+	log.Println("engine_created", "spawn_enabled", cfg.SpawnEnabled)
 	if cfg.SpawnEnabled {
 		e.registry.Register(&spawnTool{engine: e})
 	}
