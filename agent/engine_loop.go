@@ -348,6 +348,14 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				return pausedFinal, st.agentCtx, nil
 			}
 
+			if e.onToolStart != nil {
+				for i := range items {
+					if !items[i].skip {
+						e.onToolStart(st.agentCtx, items[i].tc.Name)
+					}
+				}
+			}
+
 			// --- Phase 2: concurrent execution ---
 			execCtx := ctx
 			var execCancel context.CancelFunc

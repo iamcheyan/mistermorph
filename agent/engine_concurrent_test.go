@@ -410,6 +410,82 @@ func TestSpawnTool_SubClientFactory_Called(t *testing.T) {
 	}
 }
 
+func TestOnToolStart_CalledBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reg.Register(&mockTool{name: "search", result: "found"})
+	reg.Register(&mockTool{name: "fetch", result: "fetched"})
+
+	client := newMockClient(
+		multiToolCallResponse("search", "fetch"),
+		finalResponse("done"),
+	)
+
+	var startedTools []string
+	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
+		WithOnToolStart(func(_ *Context, toolName string) {
+			startedTools = append(startedTools, toolName)
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(startedTools) != 2 {
+		t.Fatalf("onToolStart called %d times, want 2", len(startedTools))
+	}
+	if startedTools[0] != "search" {
+		t.Fatalf("startedTools[0] = %q, want search", startedTools[0])
+	}
+	if startedTools[1] != "fetch" {
+		t.Fatalf("startedTools[1] = %q, want fetch", startedTools[1])
+	}
+}
+
+func TestOnToolStart_NotCalledForSkippedTools(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reg.Register(&mockTool{name: "search", result: "found"})
+
+	client := newMockClient(
+		llm.Result{ToolCalls: []llm.ToolCall{
+			{ID: "c1", Name: "search", Arguments: map[string]any{"q": "same"}},
+		}},
+		llm.Result{ToolCalls: []llm.ToolCall{
+			{ID: "c2", Name: "search", Arguments: map[string]any{"q": "same"}},
+		}},
+		finalResponse("done"),
+	)
+
+	var startCount int
+	e := New(client, reg, Config{MaxSteps: 5, ToolRepeatLimit: 10}, DefaultPromptSpec(),
+		WithOnToolStart(func(_ *Context, toolName string) {
+			startCount++
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if startCount != 1 {
+		t.Fatalf("onToolStart called %d times, want 1 (second call is duplicate)", startCount)
+	}
+}
+
+func TestOnToolStart_NilIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(), WithOnToolStart(nil))
+	if e.onToolStart != nil {
+		t.Fatal("expected onToolStart to remain nil for nil input")
+	}
+}
+
 func TestSpawnTool_SubClientFactory_Nil_UsesEngineClient(t *testing.T) {
 	t.Parallel()
 

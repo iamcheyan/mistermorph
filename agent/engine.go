@@ -53,6 +53,14 @@ func WithParamsBuilder(fn func(RunOptions) map[string]any) Option {
 	}
 }
 
+func WithOnToolStart(fn func(*Context, string)) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.onToolStart = fn
+		}
+	}
+}
+
 func WithOnToolSuccess(fn func(*Context, string)) Option {
 	return func(e *Engine) {
 		if fn != nil {
@@ -111,6 +119,7 @@ type Engine struct {
 
 	promptBuilder    func(registry *tools.Registry, task string) string
 	paramsBuilder    func(opts RunOptions) map[string]any
+	onToolStart      func(ctx *Context, toolName string)
 	onToolSuccess    func(ctx *Context, toolName string)
 	onPlanStepUpdate func(ctx *Context, update PlanStepUpdate)
 	fallbackFinal    func() *Final

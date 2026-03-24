@@ -116,6 +116,7 @@ func runSlackTask(
 	}
 
 	var planUpdateHook func(*agent.Context, agent.PlanStepUpdate)
+	var toolStartHook func(*agent.Context, string)
 	if sendSlackText != nil {
 		planUpdateHook = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 			if runCtx == nil || runCtx.Plan == nil {
@@ -126,6 +127,16 @@ func runSlackTask(
 				return
 			}
 			correlationID := fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS)
+			if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
+				logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+			}
+		}
+		toolStartHook = func(_ *agent.Context, toolName string) {
+			msg := slackToolStartMessage(toolName)
+			if msg == "" {
+				return
+			}
+			correlationID := fmt.Sprintf("slack:tool_start:%s:%s", job.ChannelID, job.MessageTS)
 			if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
 				logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 			}
@@ -155,6 +166,7 @@ func runSlackTask(
 			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 		},
 		PlanStepUpdate: planUpdateHook,
+		OnToolStart:    toolStartHook,
 		Memory:         memoryHooks,
 	})
 	if err != nil {
@@ -506,4 +518,18 @@ func buildSlackRegistry(baseReg *tools.Registry, chatType string) *tools.Registr
 		reg.Register(t)
 	}
 	return reg
+}
+
+func slackToolStartMessage(toolName string) string {
+	toolName = strings.ToLower(strings.TrimSpace(toolName))
+	switch toolName {
+	case "spawn":
+		return ":jigsaw: sub-agent started"
+	case "web_search":
+		return ":mag: searching…"
+	case "url_fetch":
+		return ":compass: fetching…"
+	default:
+		return ""
+	}
 }
