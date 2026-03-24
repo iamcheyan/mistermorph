@@ -25,9 +25,13 @@ sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 Build console assets first:
 
 ```bash
-pnpm --dir web/console build
-./scripts/stage-console-assets.sh
-CGO_ENABLED=0 go build -o ./bin/mistermorph ./cmd/mistermorph
+./scripts/build-backend.sh --output ./bin/mistermorph
+```
+
+To build a backend binary without embedding the Console SPA, use:
+
+```bash
+./scripts/build-backend.sh --no-embed-frontend --output ./bin/mistermorph
 ```
 
 The bundled `mistermorph` backend should stay `CGO_ENABLED=0`.

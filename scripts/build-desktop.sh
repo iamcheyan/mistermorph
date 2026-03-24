@@ -79,13 +79,8 @@ if [[ "${BUILD_FRONTEND}" == "1" ]]; then
 fi
 
 if [[ "${BUILD_BACKEND}" == "1" ]]; then
-  echo "==> Staging console assets"
-  ./scripts/stage-console-assets.sh
-fi
-
-if [[ "${BUILD_BACKEND}" == "1" ]]; then
   echo "==> Building backend ${BACKEND_OUTPUT}"
-  CGO_ENABLED=0 go build -o "${BACKEND_OUTPUT}" ./cmd/mistermorph
+  ./scripts/build-backend.sh --skip-frontend-build --output "${BACKEND_OUTPUT}"
 fi
 
 desktop_tags=(wailsdesktop)
