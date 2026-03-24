@@ -156,8 +156,7 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 	baseRegistry, mcpHost = buildConsoleBaseRegistry(context.Background(), logger)
 	sharedGuard = buildConsoleGuardFromViper(logger)
 	taskRuntimeOpts := taskruntime.BootstrapOptions{
-		AgentConfig:          consoleAgentConfigFromViper(),
-		DefaultModelFallback: "gpt-5.2",
+		AgentConfig: consoleAgentConfigFromViper(),
 	}
 	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskRuntimeOpts)
 	if err != nil {
@@ -303,8 +302,7 @@ func (r *consoleLocalRuntime) ReloadAgentConfig() error {
 	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
 	deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
-		AgentConfig:          consoleAgentConfigFromViper(),
-		DefaultModelFallback: "gpt-5.2",
+		AgentConfig: consoleAgentConfigFromViper(),
 	})
 	if err != nil {
 		if mcpHost != nil {

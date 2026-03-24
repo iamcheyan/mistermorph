@@ -135,9 +135,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	agentCtx := NewContext(task, e.config.MaxSteps)
 
 	model := strings.TrimSpace(opts.Model)
-	if model == "" {
-		model = "gpt-5.2"
-	}
 
 	runID := llmstats.RunIDFromContext(ctx)
 	if runID == "" {

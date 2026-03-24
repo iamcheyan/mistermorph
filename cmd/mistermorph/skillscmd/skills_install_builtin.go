@@ -784,7 +784,7 @@ func llmClientForRemoteSkillReview() (llm.Client, string, error) {
 	}
 	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
-		model = "gpt-5.2"
+		return nil, "", fmt.Errorf("missing llm.model (required to review remote skills safely)")
 	}
 	cfg := route.ClientConfig
 	cfg.Model = model
@@ -846,8 +846,9 @@ func reviewRemoteSkill(ctx context.Context, client llm.Client, model string, sou
 	if client == nil {
 		return remoteSkillReview{}, fmt.Errorf("missing llm client")
 	}
-	if strings.TrimSpace(model) == "" {
-		model = "gpt-5.2"
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return remoteSkillReview{}, fmt.Errorf("missing llm.model (required to review remote skills safely)")
 	}
 
 	sys := strings.TrimSpace(`

@@ -52,8 +52,7 @@ func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {
 			return agent.DefaultPromptSpec(), nil, nil
 		},
 	}, BootstrapOptions{
-		AgentConfig:          agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
-		DefaultModelFallback: "gpt-5.2",
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
 	})
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
@@ -94,8 +93,7 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 			return agent.DefaultPromptSpec(), nil, nil
 		},
 	}, BootstrapOptions{
-		AgentConfig:          agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
-		DefaultModelFallback: "gpt-5.2",
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
 	})
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
@@ -176,5 +174,41 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	}
 	if !strings.Contains(systemPrompt, "memory snapshot") {
 		t.Fatalf("system prompt missing memory snapshot: %q", systemPrompt)
+	}
+}
+
+func TestBootstrapLeavesMainModelEmptyWhenRouteModelMissing(t *testing.T) {
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "openai",
+					Model:    "",
+				},
+			}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return &stubTaskRuntimeClient{}, nil
+		},
+		Registry: func() *tools.Registry {
+			return tools.NewRegistry()
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	if rt.MainModel != "" {
+		t.Fatalf("MainModel = %q, want empty", rt.MainModel)
 	}
 }

@@ -19,9 +19,8 @@ import (
 type ClientDecorator func(client llm.Client, route llmutil.ResolvedRoute) llm.Client
 
 type BootstrapOptions struct {
-	AgentConfig          agent.Config
-	ClientDecorator      ClientDecorator
-	DefaultModelFallback string
+	AgentConfig     agent.Config
+	ClientDecorator ClientDecorator
 }
 
 type Runtime struct {
@@ -100,9 +99,6 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 		mainClient = opts.ClientDecorator(mainClient, mainRoute)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	if mainModel == "" {
-		mainModel = strings.TrimSpace(opts.DefaultModelFallback)
-	}
 
 	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
 	if err != nil {
