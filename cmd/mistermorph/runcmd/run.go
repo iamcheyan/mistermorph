@@ -210,6 +210,48 @@ func New(deps Dependencies) *cobra.Command {
 				}
 			}
 
+			if promptInspector != nil || requestInspector != nil {
+				opts = append(opts, agent.WithSubClientFactory(func(prefix string) (llm.Client, func()) {
+					var pi *llminspect.PromptInspector
+					var ri *llminspect.RequestInspector
+					if promptInspector != nil {
+						var err error
+						pi, err = llminspect.NewPromptInspector(llminspect.Options{
+							Task:   task,
+							Prefix: prefix,
+						})
+						if err != nil {
+							logger.Warn("spawn_prompt_inspector_error", "error", err.Error())
+						}
+					}
+					if requestInspector != nil {
+						var err error
+						ri, err = llminspect.NewRequestInspector(llminspect.Options{
+							Task:   task,
+							Prefix: prefix,
+						})
+						if err != nil {
+							logger.Warn("spawn_request_inspector_error", "error", err.Error())
+						}
+					}
+					subClient := llminspect.WrapClient(client, llminspect.ClientOptions{
+						PromptInspector:  pi,
+						RequestInspector: ri,
+						APIBase:          mainCfg.Endpoint,
+						Model:            mainCfg.Model,
+					})
+					cleanup := func() {
+						if pi != nil {
+							_ = pi.Close()
+						}
+						if ri != nil {
+							_ = ri.Close()
+						}
+					}
+					return subClient, cleanup
+				}))
+			}
+
 			engine := agent.New(
 				client,
 				reg,
@@ -218,6 +260,8 @@ func New(deps Dependencies) *cobra.Command {
 					ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
 					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 					ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
+					SpawnEnabled:    configutil.FlagOrViperBool(cmd, "spawn-enabled", "spawn_enabled"),
+					DefaultModel:    strings.TrimSpace(mainCfg.Model),
 				},
 				promptSpec,
 				opts...,
@@ -272,6 +316,7 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Int("parse-retries", 2, "Max JSON parse retries.")
 	cmd.Flags().Int("max-token-budget", 0, "Max cumulative token budget (0 disables).")
 	cmd.Flags().Int("tool-repeat-limit", 3, "Force final when the same successful tool call repeats this many times.")
+	cmd.Flags().Bool("spawn-enabled", false, "Enable the spawn tool to start sub-agents.")
 
 	cmd.Flags().Duration("timeout", 10*time.Minute, "Overall timeout.")
 

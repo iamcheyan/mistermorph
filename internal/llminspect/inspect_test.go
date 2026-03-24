@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -131,6 +132,70 @@ func readSingleDumpFile(t *testing.T, dir string) string {
 		t.Fatalf("ReadFile(%q) error = %v", entries[0].Name(), err)
 	}
 	return string(data)
+}
+
+func TestBuildFilename_NoPrefix(t *testing.T) {
+	ts := time.Date(2026, 3, 21, 14, 30, 0, 0, time.UTC)
+	got := buildFilename("", "prompt", "", ts, "")
+	if got != "prompt_20260321_1430.md" {
+		t.Fatalf("got %q, want prompt_20260321_1430.md", got)
+	}
+}
+
+func TestBuildFilename_WithPrefix(t *testing.T) {
+	ts := time.Date(2026, 3, 21, 14, 30, 0, 0, time.UTC)
+	got := buildFilename("spawn", "prompt", "", ts, "")
+	if got != "spawn-prompt_20260321_1430.md" {
+		t.Fatalf("got %q, want spawn-prompt_20260321_1430.md", got)
+	}
+}
+
+func TestBuildFilename_WithPrefixAndMode(t *testing.T) {
+	ts := time.Date(2026, 3, 21, 14, 30, 0, 0, time.UTC)
+	got := buildFilename("spawn", "request", "telegram", ts, "")
+	if got != "spawn-request_telegram_20260321_1430.md" {
+		t.Fatalf("got %q, want spawn-request_telegram_20260321_1430.md", got)
+	}
+}
+
+func TestPromptInspector_PrefixedFilename(t *testing.T) {
+	dir := t.TempDir()
+	inspector, err := NewPromptInspector(Options{DumpDir: dir, Task: "demo", Prefix: "spawn"})
+	if err != nil {
+		t.Fatalf("NewPromptInspector() error = %v", err)
+	}
+	defer func() { _ = inspector.Close() }()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(entries))
+	}
+	if !strings.HasPrefix(entries[0].Name(), "spawn-prompt_") {
+		t.Fatalf("filename %q should start with spawn-prompt_", entries[0].Name())
+	}
+}
+
+func TestRequestInspector_PrefixedFilename(t *testing.T) {
+	dir := t.TempDir()
+	inspector, err := NewRequestInspector(Options{DumpDir: dir, Task: "demo", Prefix: "spawn"})
+	if err != nil {
+		t.Fatalf("NewRequestInspector() error = %v", err)
+	}
+	defer func() { _ = inspector.Close() }()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(entries))
+	}
+	if !strings.HasPrefix(entries[0].Name(), "spawn-request_") {
+		t.Fatalf("filename %q should start with spawn-request_", entries[0].Name())
+	}
 }
 
 func mustContainAll(t *testing.T, text string, parts ...string) {

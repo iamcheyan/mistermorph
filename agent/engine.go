@@ -53,6 +53,14 @@ func WithParamsBuilder(fn func(RunOptions) map[string]any) Option {
 	}
 }
 
+func WithOnToolStart(fn func(*Context, string)) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.onToolStart = fn
+		}
+	}
+}
+
 func WithOnToolSuccess(fn func(*Context, string)) Option {
 	return func(e *Engine) {
 		if fn != nil {
@@ -77,11 +85,27 @@ func WithFallbackFinal(fn func() *Final) Option {
 	}
 }
 
+// SubClientFactory creates an LLM client for a sub-agent with the given prefix
+// (used for inspection dump filenames). The returned cleanup function must be
+// called after the sub-agent completes to close any resources (e.g. dump files).
+type SubClientFactory func(prefix string) (client llm.Client, cleanup func())
+
+func WithSubClientFactory(fn SubClientFactory) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.subClientFactory = fn
+		}
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
 	ParseRetries    int
 	ToolRepeatLimit int
+	DefaultModel    string
+	ToolCallTimeout time.Duration
+	SpawnEnabled    bool
 }
 
 type Engine struct {
@@ -95,9 +119,12 @@ type Engine struct {
 
 	promptBuilder    func(registry *tools.Registry, task string) string
 	paramsBuilder    func(opts RunOptions) map[string]any
+	onToolStart      func(ctx *Context, toolName string)
 	onToolSuccess    func(ctx *Context, toolName string)
 	onPlanStepUpdate func(ctx *Context, update PlanStepUpdate)
 	fallbackFinal    func() *Final
+
+	subClientFactory SubClientFactory
 
 	guard *guard.Guard
 }
@@ -128,6 +155,10 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 			opt(e)
 		}
 	}
+
+	if cfg.SpawnEnabled {
+		e.registry.Register(&spawnTool{engine: e})
+	}
 	return e
 }
 
@@ -135,6 +166,9 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	agentCtx := NewContext(task, e.config.MaxSteps)
 
 	model := strings.TrimSpace(opts.Model)
+	if model == "" {
+		model = strings.TrimSpace(e.config.DefaultModel)
+	}
 
 	runID := llmstats.RunIDFromContext(ctx)
 	if runID == "" {

@@ -193,6 +193,9 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	agentCfg := rt.AgentConfig
+	agentCfg.DefaultModel = model
+
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(rt.LogOptions),
@@ -203,11 +206,10 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if req.PlanStepUpdate != nil {
 		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(req.PlanStepUpdate))
 	}
-
 	engine := agent.New(
 		rt.MainClient,
 		reg,
-		rt.AgentConfig,
+		agentCfg,
 		promptSpec,
 		engineOpts...,
 	)

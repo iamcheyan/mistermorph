@@ -482,6 +482,8 @@ parse_retries: 2
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
 tool_repeat_limit: 3
+# - spawn_enabled: enable the spawn tool to start sub-agents (default false).
+spawn_enabled: false
 # Overall run timeout.
 timeout: "10m"
 # Base directory for local state (memory/skills/heartbeat).
