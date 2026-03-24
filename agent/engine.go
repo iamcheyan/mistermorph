@@ -169,9 +169,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	if model == "" {
 		model = strings.TrimSpace(e.config.DefaultModel)
 	}
-	if model == "" {
-		model = "gpt-5.2"
-	}
 
 	runID := llmstats.RunIDFromContext(ctx)
 	if runID == "" {
