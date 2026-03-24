@@ -239,6 +239,27 @@ func TestLoadServeConfigAllowsEmptyStaticDir(t *testing.T) {
 	}
 }
 
+func TestLoadServeConfigCarriesInspectFlags(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	cmd := newServeCmd()
+	if err := cmd.Flags().Set("inspect-prompt", "true"); err != nil {
+		t.Fatalf("set inspect-prompt: %v", err)
+	}
+	if err := cmd.Flags().Set("inspect-request", "true"); err != nil {
+		t.Fatalf("set inspect-request: %v", err)
+	}
+
+	cfg, err := loadServeConfig(cmd)
+	if err != nil {
+		t.Fatalf("loadServeConfig() error = %v", err)
+	}
+	if !cfg.inspectPrompt || !cfg.inspectRequest {
+		t.Fatalf("inspect flags not loaded: %+v", cfg)
+	}
+}
+
 func TestLoadServeConfigSkipsIncompleteEndpoints(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

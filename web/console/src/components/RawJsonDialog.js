@@ -8,6 +8,10 @@ const RawJsonDialog = {
       type: Boolean,
       default: false,
     },
+    title: {
+      type: String,
+      default: "",
+    },
     json: {
       type: String,
       default: "",
@@ -61,7 +65,7 @@ const RawJsonDialog = {
     >
       <template #header>
         <header class="raw-json-head">
-          <h3 class="raw-json-title">RAW JSON</h3>
+          <h3 class="raw-json-title">{{ title || 'RAW JSON' }}</h3>
         </header>
       </template>
 

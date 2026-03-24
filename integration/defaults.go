@@ -12,8 +12,8 @@ func ApplyViperDefaults(v *viper.Viper) {
 	}
 	// Shared agent defaults.
 	v.SetDefault("llm.provider", "openai")
-	v.SetDefault("llm.endpoint", "https://api.openai.com")
-	v.SetDefault("llm.model", "gpt-5.2")
+	v.SetDefault("llm.endpoint", "")
+	v.SetDefault("llm.model", "")
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.request_timeout", 90*time.Second)
 	v.SetDefault("llm.tools_emulation_mode", "off")

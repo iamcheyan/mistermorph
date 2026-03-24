@@ -1,5 +1,5 @@
 .connection-test-dialog {
-  --connection-test-accent: var(--setup-accent, var(--q-c-blue));
+  --connection-test-accent: var(--setup-accent, var(--accent-1));
   width: min(560px, 100%);
   display: grid;
   gap: 12px;
@@ -51,11 +51,9 @@
 
 .connection-test-benchmark {
   box-sizing: border-box;
-  display: flex;
-  height: 68px;
-  justify-content: space-between;
+  display: grid;
+  min-height: 68px;
   gap: 12px;
-  padding: 12px;
   border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
   background: color-mix(in srgb, var(--surface-elevated, #fff) 92%, transparent);
 }
@@ -64,13 +62,20 @@
   opacity: 0.8;
 }
 
+.connection-test-benchmark-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 0;
+}
+
 .connection-test-benchmark-main {
-  align-content: space-between;
-  height: 100%;
+  align-content: start;
+  height: auto;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto;
-  gap: 0;
+  grid-template-rows: auto minmax(18px, auto);
+  gap: 4px;
 }
 
 .connection-test-benchmark-title {
@@ -80,8 +85,10 @@
 }
 
 .connection-test-benchmark-detail,
-.connection-test-benchmark-error {
+.connection-test-benchmark-error,
+.connection-test-benchmark-time {
   margin: 0;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   word-break: break-word;
@@ -89,22 +96,67 @@
 
 .connection-test-benchmark-detail {
   color: var(--text-2);
-  font-family: var(--font-mono);
 }
 
 .connection-test-benchmark-error {
-  color: var(--q-c-danger);
+  color: var(--danger);
+}
+
+.connection-test-benchmark-toggle {
+  width: 100%;
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.connection-test-benchmark-toggle.connection-test-benchmark-error {
+  color: var(--danger);
+}
+
+.connection-test-benchmark-toggle.connection-test-benchmark-detail {
+  color: var(--text-2);
+}
+
+.connection-test-benchmark-toggle:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent-1) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.connection-test-benchmark-toggle-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.connection-test-benchmark-toggle-icon {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin-top: 0;
+  color: currentColor;
+  transition: transform 120ms ease;
+}
+
+.connection-test-benchmark-toggle-icon.is-open {
+  transform: rotate(90deg);
 }
 
 .connection-test-benchmark-side {
   flex: 0 0 auto;
   min-width: 72px;
   display: grid;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto 18px;
   justify-items: end;
-  align-content: space-between;
-  height: 100%;
-  gap: 0;
+  align-content: start;
+  height: auto;
+  gap: 4px;
 }
 
 .connection-test-benchmark-status-row {
@@ -126,25 +178,42 @@
 
 .connection-test-benchmark-status {
   font-size: 12px;
+  color: var(--text-0);
 }
 
-.connection-test-benchmark.is-ok .connection-test-benchmark-status {
-  color: var(--q-c-success);
+.connection-test-benchmark-status.is-ok {
+  color: var(--ok);
 }
 
-.connection-test-benchmark.is-failed .connection-test-benchmark-status {
-  color: var(--q-c-danger);
+.connection-test-benchmark-status.is-failed {
+  color: var(--danger);
 }
 
-.connection-test-benchmark.is-loading .connection-test-benchmark-status {
+.connection-test-benchmark-status.is-loading {
   color: var(--connection-test-accent);
 }
 
 .connection-test-benchmark-time {
-  align-self: end;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
   color: var(--text-2);
+}
+
+.connection-test-benchmark-raw-output {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+  background: color-mix(in srgb, var(--bg-2, #fff) 96%, var(--accent-1) 4%);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 120px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .connection-test-actions {
@@ -175,6 +244,9 @@
   .connection-test-benchmark {
     height: auto;
     min-height: 68px;
+  }
+
+  .connection-test-benchmark-summary {
     flex-direction: column;
   }
 

@@ -34,6 +34,8 @@ type serveConfig struct {
 	basePath         string
 	staticDir        string
 	staticFS         fs.FS
+	inspectPrompt    bool
+	inspectRequest   bool
 	sessionTTL       time.Duration
 	passwordOptional bool
 	password         string
@@ -123,6 +125,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
 	cmd.Flags().Bool("allow-empty-password", false, "Allow console to run without console.password/console.password_hash. If a password is configured, login is still required.")
+	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_console_YYYYMMDD_HHmmss.md.")
+	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_console_YYYYMMDD_HHmmss.md.")
 
 	return cmd
 }
@@ -151,6 +155,14 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if err != nil {
 		return serveConfig{}, err
 	}
+	inspectPrompt, err := cmd.Flags().GetBool("inspect-prompt")
+	if err != nil {
+		return serveConfig{}, err
+	}
+	inspectRequest, err := cmd.Flags().GetBool("inspect-request")
+	if err != nil {
+		return serveConfig{}, err
+	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
 	var rawEndpoints []runtimeEndpointConfigRaw
@@ -167,6 +179,8 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		basePath:         basePath,
 		staticDir:        staticDir,
 		staticFS:         consoleStaticFS,
+		inspectPrompt:    inspectPrompt,
+		inspectRequest:   inspectRequest,
 		sessionTTL:       sessionTTL,
 		passwordOptional: passwordOptional,
 		password:         viper.GetString("console.password"),
@@ -303,11 +317,11 @@ func newServer(cfg serveConfig) (*server, error) {
 		sessionStorePath = filepath.Join(cfg.stateDir, "console", "sessions.json")
 	}
 
-	localRuntime, err := newConsoleLocalRuntime()
+	localRuntime, err := newConsoleLocalRuntime(cfg)
 	if err != nil {
 		return nil, err
 	}
-	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds)
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg)
 
 	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
 	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)

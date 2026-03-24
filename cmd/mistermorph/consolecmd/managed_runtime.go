@@ -31,13 +31,15 @@ const (
 )
 
 type managedRuntimeSupervisor struct {
-	mu           sync.Mutex
-	kinds        []string
-	localRuntime *consoleLocalRuntime
-	parentCtx    context.Context
-	cancel       context.CancelFunc
-	onFatal      func(error)
-	generation   uint64
+	mu             sync.Mutex
+	kinds          []string
+	inspectPrompt  bool
+	inspectRequest bool
+	localRuntime   *consoleLocalRuntime
+	parentCtx      context.Context
+	cancel         context.CancelFunc
+	onFatal        func(error)
+	generation     uint64
 }
 
 type managedRuntimeConfigError struct {
@@ -80,10 +82,12 @@ func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 	return out, nil
 }
 
-func newManagedRuntimeSupervisor(localRuntime *consoleLocalRuntime, kinds []string) *managedRuntimeSupervisor {
+func newManagedRuntimeSupervisor(localRuntime *consoleLocalRuntime, cfg serveConfig) *managedRuntimeSupervisor {
 	return &managedRuntimeSupervisor{
-		kinds:        append([]string(nil), kinds...),
-		localRuntime: localRuntime,
+		kinds:          append([]string(nil), cfg.managedKinds...),
+		inspectPrompt:  cfg.inspectPrompt,
+		inspectRequest: cfg.inspectRequest,
+		localRuntime:   localRuntime,
 	}
 }
 
@@ -202,7 +206,9 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 		deps, cleanup := buildManagedRuntimeDeps(s.logger())
 		cfg := channelopts.TelegramConfigFromViper()
 		runOpts, err := channelopts.BuildTelegramRunOptions(cfg, channelopts.TelegramInput{
-			BotToken: botToken,
+			BotToken:       botToken,
+			InspectPrompt:  s.inspectPrompt,
+			InspectRequest: s.inspectRequest,
 		})
 		if err != nil {
 			cleanup()
@@ -231,8 +237,10 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 		deps, cleanup := buildManagedRuntimeDeps(s.logger())
 		cfg := channelopts.SlackConfigFromViper()
 		runOpts := channelopts.BuildSlackRunOptions(cfg, channelopts.SlackInput{
-			BotToken: botToken,
-			AppToken: appToken,
+			BotToken:       botToken,
+			AppToken:       appToken,
+			InspectPrompt:  s.inspectPrompt,
+			InspectRequest: s.inspectRequest,
 		})
 		runOpts.Server.Listen = ""
 		runOpts.Server.AuthToken = ""

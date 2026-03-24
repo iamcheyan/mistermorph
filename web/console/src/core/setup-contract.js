@@ -164,6 +164,10 @@ function setupProviderSupportsModelLookup(choice) {
   return normalizeSetupProviderChoice(choice, { allowEmpty: true }) === SETUP_PROVIDER_OPENAI_COMPATIBLE;
 }
 
+function setupProviderRequiresAPIKey(choice) {
+  return normalizeSetupProviderChoice(choice, { allowEmpty: true }) !== SETUP_PROVIDER_CLOUDFLARE;
+}
+
 function findOpenAICompatibleAPIBaseOption(endpoint) {
   const normalized = normalizeAPIBase(endpoint);
   if (!normalized) {
@@ -221,5 +225,6 @@ export {
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
   resolveSetupAPIKeyHelp,
+  setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
 };

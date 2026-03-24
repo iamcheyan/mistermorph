@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,14 +33,28 @@ const (
 
 var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
 
+var benchmarkErrorStatusPattern = regexp.MustCompile(`(?is)\bstatus\s+\d{3}\s*:\s*(.+)$`)
+
 type llmSettingsPayload struct {
 	Provider            string `json:"provider"`
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
 	APIKey              string `json:"api_key"`
+	CloudflareAPIToken  string `json:"cloudflare_api_token"`
 	CloudflareAccountID string `json:"cloudflare_account_id"`
 	ReasoningEffort     string `json:"reasoning_effort"`
 	ToolsEmulationMode  string `json:"tools_emulation_mode"`
+}
+
+type llmSettingsUpdatePayload struct {
+	Provider            *string `json:"provider,omitempty"`
+	Endpoint            *string `json:"endpoint,omitempty"`
+	Model               *string `json:"model,omitempty"`
+	APIKey              *string `json:"api_key,omitempty"`
+	CloudflareAPIToken  *string `json:"cloudflare_api_token,omitempty"`
+	CloudflareAccountID *string `json:"cloudflare_account_id,omitempty"`
+	ReasoningEffort     *string `json:"reasoning_effort,omitempty"`
+	ToolsEmulationMode  *string `json:"tools_emulation_mode,omitempty"`
 }
 
 type multimodalSettingsPayload struct {
@@ -62,6 +77,21 @@ type agentSettingsPayload struct {
 	Tools      toolsSettingsPayload      `json:"tools"`
 }
 
+type agentSettingsUpdatePayload struct {
+	LLM        llmSettingsUpdatePayload  `json:"llm"`
+	Multimodal multimodalSettingsPayload `json:"multimodal"`
+	Tools      toolsSettingsPayload      `json:"tools"`
+}
+
+type agentSettingsEnvManagedField struct {
+	EnvName string `json:"env_name"`
+	Value   string `json:"value,omitempty"`
+}
+
+type agentSettingsEnvManagedPayload struct {
+	LLM map[string]agentSettingsEnvManagedField `json:"llm,omitempty"`
+}
+
 type agentSettingsModelsRequest struct {
 	Endpoint string `json:"endpoint"`
 	APIKey   string `json:"api_key"`
@@ -72,17 +102,23 @@ type agentSettingsTestRequest struct {
 }
 
 type agentSettingsBenchmarkResult struct {
-	ID         string `json:"id"`
-	OK         bool   `json:"ok"`
-	DurationMS int64  `json:"duration_ms"`
-	Detail     string `json:"detail,omitempty"`
-	Error      string `json:"error,omitempty"`
+	ID          string `json:"id"`
+	OK          bool   `json:"ok"`
+	DurationMS  int64  `json:"duration_ms"`
+	Detail      string `json:"detail,omitempty"`
+	Error       string `json:"error,omitempty"`
+	RawResponse string `json:"raw_response,omitempty"`
 }
 
 type agentSettingsTestResult struct {
 	Provider   string
 	Model      string
 	Benchmarks []agentSettingsBenchmarkResult
+}
+
+type agentSettingsConnectionTestOptions struct {
+	InspectPrompt  bool
+	InspectRequest bool
 }
 
 var runAgentSettingsConnectionTest = defaultAgentSettingsConnectionTest
@@ -116,12 +152,14 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		settings = readAgentSettingsFromReader(viper.GetViper())
+		settings = defaultAgentSettingsPayload()
 		configSource = "defaults"
 		configValid = false
 	}
+	effectiveLLM := settingsFromCurrentRuntime()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"llm":           settings.LLM,
+		"env_managed":   currentAgentSettingsEnvManaged(effectiveLLM.Provider),
 		"multimodal":    settings.Multimodal,
 		"tools":         settings.Tools,
 		"config_path":   configPath,
@@ -132,7 +170,7 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 }
 
 func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) {
-	var req agentSettingsPayload
+	var req agentSettingsUpdatePayload
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
@@ -143,12 +181,13 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	serialized, err := writeAgentSettings(configPath, req)
+	serialized, err := writeAgentSettingsUpdate(configPath, req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	tmp, err := validateAgentConfigDocument(serialized)
+	effectiveLLM := resolveAgentSettingsLLM(req.LLM)
+	tmp, err := validateAgentConfigDocument(serialized, effectiveLLM)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -162,7 +201,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	viper.Set(llmSettingsKey, tmp.Get(llmSettingsKey))
+	viper.Set(llmSettingsKey, llmSettingsPayloadToMap(effectiveLLM))
 	viper.Set(multimodalSettingsKey, tmp.Get(multimodalSettingsKey))
 	viper.Set(toolsSettingsKey, tmp.Get(toolsSettingsKey))
 	if s != nil && s.localRuntime != nil {
@@ -179,9 +218,13 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 	}
 
 	next := readAgentSettingsFromReader(tmp)
+	if doc, docErr := loadYAMLDocumentBytes(serialized); docErr == nil {
+		next = normalizeAgentSettingsConfigView(next, doc)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"llm":           next.LLM,
+		"env_managed":   currentAgentSettingsEnvManaged(effectiveLLM.Provider),
 		"multimodal":    next.Multimodal,
 		"tools":         next.Tools,
 		"config_path":   configPath,
@@ -202,11 +245,20 @@ func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if strings.TrimSpace(req.APIKey) == "" {
+	current := settingsFromCurrentRuntime()
+	endpoint := strings.TrimSpace(req.Endpoint)
+	if endpoint == "" {
+		endpoint = strings.TrimSpace(current.Endpoint)
+	}
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(current.APIKey)
+	}
+	if apiKey == "" {
 		writeError(w, http.StatusBadRequest, "api key is required")
 		return
 	}
-	models, err := fetchOpenAICompatibleModels(r.Context(), req.Endpoint, req.APIKey)
+	models, err := fetchOpenAICompatibleModels(r.Context(), endpoint, apiKey)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -228,7 +280,14 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	result, err := runAgentSettingsConnectionTest(r.Context(), req.LLM)
+	result, err := runAgentSettingsConnectionTest(
+		r.Context(),
+		resolveAgentSettingsLLM(llmSettingsPayloadAsNonEmptyUpdate(req.LLM)),
+		agentSettingsConnectionTestOptions{
+			InspectPrompt:  s != nil && s.cfg.inspectPrompt,
+			InspectRequest: s != nil && s.cfg.inspectRequest,
+		},
+	)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -260,19 +319,33 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return readAgentSettingsFromReader(viper.GetViper()), nil
+			return defaultAgentSettingsPayload(), nil
 		}
 		return agentSettingsPayload{}, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return readAgentSettingsFromReader(viper.GetViper()), nil
+		return defaultAgentSettingsPayload(), nil
 	}
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
 	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
-	return readAgentSettingsFromReader(tmp), nil
+	settings := readAgentSettingsFromReader(tmp)
+	doc, err := loadYAMLDocument(configPath)
+	if err != nil {
+		return agentSettingsPayload{}, err
+	}
+	return normalizeAgentSettingsConfigView(settings, doc), nil
+}
+
+func defaultAgentSettingsPayload() agentSettingsPayload {
+	tmp := viper.New()
+	integration.ApplyViperDefaults(tmp)
+	settings := readAgentSettingsFromReader(tmp)
+	settings.LLM.Endpoint = ""
+	settings.LLM.Model = ""
+	return settings
 }
 
 func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
@@ -290,6 +363,14 @@ func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 }
 
 func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
+	return writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM:        llmSettingsPayloadAsUpdate(values.LLM),
+		Multimodal: values.Multimodal,
+		Tools:      values.Tools,
+	})
+}
+
+func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePayload) ([]byte, error) {
 	doc, err := loadYAMLDocument(configPath)
 	if err != nil {
 		if !isInvalidConfigYAMLError(err) {
@@ -297,24 +378,49 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 		}
 		doc = newEmptyYAMLDocument()
 	}
+	current := defaultAgentSettingsPayload()
+	if existing, readErr := readAgentSettings(configPath); readErr == nil {
+		current = existing
+	} else if !isInvalidConfigYAMLError(readErr) && !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	nextLLM := applyLLMSettingsUpdate(current.LLM, values.LLM)
 	root, err := documentMapping(doc)
 	if err != nil {
 		return nil, err
 	}
 
 	llmNode := ensureMappingValue(root, llmSettingsKey)
-	setOrDeleteMappingScalar(llmNode, "provider", values.LLM.Provider)
-	setOrDeleteMappingScalar(llmNode, "endpoint", values.LLM.Endpoint)
-	setOrDeleteMappingScalar(llmNode, "model", values.LLM.Model)
-	setOrDeleteMappingScalar(llmNode, "api_key", values.LLM.APIKey)
-	if strings.EqualFold(strings.TrimSpace(values.LLM.Provider), "cloudflare") {
+	if values.LLM.Provider != nil {
+		setOrDeleteMappingScalar(llmNode, "provider", *values.LLM.Provider)
+	}
+	if values.LLM.Endpoint != nil {
+		setOrDeleteMappingScalar(llmNode, "endpoint", *values.LLM.Endpoint)
+	}
+	if values.LLM.Model != nil {
+		setOrDeleteMappingScalar(llmNode, "model", *values.LLM.Model)
+	}
+	if strings.EqualFold(strings.TrimSpace(nextLLM.Provider), "cloudflare") {
+		setOrDeleteMappingScalar(llmNode, "api_key", "")
 		cloudflareNode := ensureMappingValue(llmNode, "cloudflare")
-		setOrDeleteMappingScalar(cloudflareNode, "account_id", values.LLM.CloudflareAccountID)
+		if values.LLM.CloudflareAccountID != nil {
+			setOrDeleteMappingScalar(cloudflareNode, "account_id", *values.LLM.CloudflareAccountID)
+		}
+		if values.LLM.CloudflareAPIToken != nil {
+			setOrDeleteMappingScalar(cloudflareNode, "api_token", *values.LLM.CloudflareAPIToken)
+		}
 	} else {
+		if values.LLM.APIKey != nil {
+			setOrDeleteMappingScalar(llmNode, "api_key", *values.LLM.APIKey)
+		}
 		deleteMappingKey(llmNode, "cloudflare")
 	}
-	setOrDeleteMappingScalar(llmNode, "reasoning_effort", values.LLM.ReasoningEffort)
-	setOrDeleteMappingScalar(llmNode, "tools_emulation_mode", values.LLM.ToolsEmulationMode)
+	if values.LLM.ReasoningEffort != nil {
+		setOrDeleteMappingScalar(llmNode, "reasoning_effort", *values.LLM.ReasoningEffort)
+	}
+	if values.LLM.ToolsEmulationMode != nil {
+		setOrDeleteMappingScalar(llmNode, "tools_emulation_mode", *values.LLM.ToolsEmulationMode)
+	}
 
 	multimodalNode := ensureMappingValue(root, multimodalSettingsKey)
 	imageNode := ensureMappingValue(multimodalNode, "image")
@@ -332,7 +438,7 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 	return marshalYAMLDocument(doc)
 }
 
-func validateAgentConfigDocument(data []byte) (*viper.Viper, error) {
+func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (*viper.Viper, error) {
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
 	tmp.SetConfigType("yaml")
@@ -340,6 +446,14 @@ func validateAgentConfigDocument(data []byte) (*viper.Viper, error) {
 		return nil, fmt.Errorf("invalid config yaml: %w", err)
 	}
 	values := llmutil.RuntimeValuesFromReader(tmp)
+	values.Provider = firstNonEmpty(strings.TrimSpace(effectiveLLM.Provider), values.Provider)
+	values.Endpoint = firstNonEmpty(strings.TrimSpace(effectiveLLM.Endpoint), values.Endpoint)
+	values.APIKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.APIKey), values.APIKey)
+	values.Model = firstNonEmpty(strings.TrimSpace(effectiveLLM.Model), values.Model)
+	values.CloudflareAPIToken = firstNonEmpty(strings.TrimSpace(effectiveLLM.CloudflareAPIToken), values.CloudflareAPIToken)
+	values.CloudflareAccountID = firstNonEmpty(strings.TrimSpace(effectiveLLM.CloudflareAccountID), values.CloudflareAccountID)
+	values.ReasoningEffortRaw = firstNonEmpty(strings.TrimSpace(effectiveLLM.ReasoningEffort), values.ReasoningEffortRaw)
+	values.ToolsEmulationMode = firstNonEmpty(strings.TrimSpace(effectiveLLM.ToolsEmulationMode), values.ToolsEmulationMode)
 	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return nil, err
@@ -350,7 +464,170 @@ func validateAgentConfigDocument(data []byte) (*viper.Viper, error) {
 	return tmp, nil
 }
 
-func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload) (agentSettingsTestResult, error) {
+func settingsFromCurrentRuntime() llmSettingsPayload {
+	values := currentConsoleLLMRuntimeValues()
+	provider := strings.TrimSpace(values.Provider)
+	cloudflareAPIToken := strings.TrimSpace(values.CloudflareAPIToken)
+	if cloudflareAPIToken == "" && strings.EqualFold(provider, "cloudflare") {
+		cloudflareAPIToken = llmutil.APIKeyForProviderWithValues(provider, values)
+	}
+	return llmSettingsPayload{
+		Provider:            provider,
+		Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
+		Model:               llmutil.ModelForProviderWithValues(provider, values),
+		APIKey:              strings.TrimSpace(values.APIKey),
+		CloudflareAPIToken:  cloudflareAPIToken,
+		CloudflareAccountID: strings.TrimSpace(values.CloudflareAccountID),
+		ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
+		ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
+	}
+}
+
+func resolveAgentSettingsLLM(overrides llmSettingsUpdatePayload) llmSettingsPayload {
+	return applyLLMSettingsUpdate(settingsFromCurrentRuntime(), overrides)
+}
+
+func currentConsoleLLMRuntimeValues() llmutil.RuntimeValues {
+	values := llmutil.RuntimeValuesFromViper()
+
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_PROVIDER"); ok {
+		values.Provider = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_ENDPOINT"); ok {
+		values.Endpoint = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_API_KEY"); ok {
+		values.APIKey = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_MODEL"); ok {
+		values.Model = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT"); ok {
+		values.AzureDeployment = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
+		values.ReasoningEffortRaw = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_TOOLS_EMULATION_MODE"); ok {
+		values.ToolsEmulationMode = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
+		values.CloudflareAccountID = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
+		values.CloudflareAPIToken = strings.TrimSpace(value)
+	}
+
+	return values
+}
+
+func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpdatePayload) llmSettingsPayload {
+	merged := current
+	if incoming.Provider != nil {
+		merged.Provider = strings.TrimSpace(*incoming.Provider)
+	}
+	if incoming.Endpoint != nil {
+		merged.Endpoint = strings.TrimSpace(*incoming.Endpoint)
+	}
+	if incoming.Model != nil {
+		merged.Model = strings.TrimSpace(*incoming.Model)
+	}
+	if incoming.APIKey != nil {
+		merged.APIKey = strings.TrimSpace(*incoming.APIKey)
+	}
+	if incoming.CloudflareAPIToken != nil {
+		merged.CloudflareAPIToken = strings.TrimSpace(*incoming.CloudflareAPIToken)
+	}
+	if incoming.CloudflareAccountID != nil {
+		merged.CloudflareAccountID = strings.TrimSpace(*incoming.CloudflareAccountID)
+	}
+	if incoming.ReasoningEffort != nil {
+		merged.ReasoningEffort = strings.TrimSpace(*incoming.ReasoningEffort)
+	}
+	if incoming.ToolsEmulationMode != nil {
+		merged.ToolsEmulationMode = strings.TrimSpace(*incoming.ToolsEmulationMode)
+	}
+	if strings.EqualFold(strings.TrimSpace(merged.Provider), "cloudflare") {
+		merged.APIKey = ""
+	} else {
+		merged.CloudflareAPIToken = ""
+		merged.CloudflareAccountID = ""
+	}
+	return merged
+}
+
+func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
+	return llmSettingsUpdatePayload{
+		Provider:            stringPointer(values.Provider),
+		Endpoint:            stringPointer(values.Endpoint),
+		Model:               stringPointer(values.Model),
+		APIKey:              stringPointer(values.APIKey),
+		CloudflareAPIToken:  stringPointer(values.CloudflareAPIToken),
+		CloudflareAccountID: stringPointer(values.CloudflareAccountID),
+		ReasoningEffort:     stringPointer(values.ReasoningEffort),
+		ToolsEmulationMode:  stringPointer(values.ToolsEmulationMode),
+	}
+}
+
+func llmSettingsPayloadAsNonEmptyUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
+	update := llmSettingsUpdatePayload{}
+	if value := strings.TrimSpace(values.Provider); value != "" {
+		update.Provider = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.Endpoint); value != "" {
+		update.Endpoint = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.Model); value != "" {
+		update.Model = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.APIKey); value != "" {
+		update.APIKey = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.CloudflareAPIToken); value != "" {
+		update.CloudflareAPIToken = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.CloudflareAccountID); value != "" {
+		update.CloudflareAccountID = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.ReasoningEffort); value != "" {
+		update.ReasoningEffort = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.ToolsEmulationMode); value != "" {
+		update.ToolsEmulationMode = stringPointer(value)
+	}
+	return update
+}
+
+func stringPointer(value string) *string {
+	next := value
+	return &next
+}
+
+func llmSettingsPayloadToMap(values llmSettingsPayload) map[string]any {
+	out := map[string]any{
+		"provider":             strings.TrimSpace(values.Provider),
+		"endpoint":             strings.TrimSpace(values.Endpoint),
+		"model":                strings.TrimSpace(values.Model),
+		"reasoning_effort":     strings.TrimSpace(values.ReasoningEffort),
+		"tools_emulation_mode": strings.TrimSpace(values.ToolsEmulationMode),
+	}
+	if !strings.EqualFold(strings.TrimSpace(values.Provider), "cloudflare") {
+		out["api_key"] = strings.TrimSpace(values.APIKey)
+	}
+	if strings.EqualFold(strings.TrimSpace(values.Provider), "cloudflare") &&
+		(strings.TrimSpace(values.CloudflareAccountID) != "" || strings.TrimSpace(values.CloudflareAPIToken) != "") {
+		out["cloudflare"] = map[string]any{}
+		if accountID := strings.TrimSpace(values.CloudflareAccountID); accountID != "" {
+			out["cloudflare"].(map[string]any)["account_id"] = accountID
+		}
+		if apiToken := strings.TrimSpace(values.CloudflareAPIToken); apiToken != "" {
+			out["cloudflare"].(map[string]any)["api_token"] = apiToken
+		}
+	}
+	return out
+}
+
+func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 	values := llmutil.RuntimeValues{
 		Provider:            normalizeAgentSettingsProvider(settings.Provider),
 		Endpoint:            strings.TrimSpace(settings.Endpoint),
@@ -359,6 +636,7 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 		RequestTimeoutRaw:   "20s",
 		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
 		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),
+		CloudflareAPIToken:  strings.TrimSpace(settings.CloudflareAPIToken),
 		CloudflareAccountID: strings.TrimSpace(settings.CloudflareAccountID),
 	}
 
@@ -370,6 +648,16 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 	if err != nil {
 		return agentSettingsTestResult{}, err
 	}
+	inspectors, err := newConsoleInspectors(opts.InspectPrompt, opts.InspectRequest, "console_settings_test", "settings_test", "20060102_150405.000000000")
+	if err != nil {
+		return agentSettingsTestResult{}, err
+	}
+	defer func() {
+		if inspectors != nil {
+			_ = inspectors.Close()
+		}
+	}()
+	client = inspectors.Wrap(client, route)
 
 	return agentSettingsTestResult{
 		Provider: route.ClientConfig.Provider,
@@ -386,39 +674,43 @@ func runAgentSettingsTextBenchmark(ctx context.Context, client llm.Client, model
 	start := time.Now()
 	result, err := client.Chat(ctx, llm.Request{
 		Model: model,
+		Scene: "console.settings_test.text_reply",
 		Messages: []llm.Message{
-			{Role: "system", Content: "You are a connection test. Reply briefly."},
-			{Role: "user", Content: "Reply with exactly: OK"},
+			{Role: "system", Content: "You're acting the linux cmd `echo`, will echo back the text."},
+			{Role: "user", Content: "OK"},
 		},
 		Parameters: map[string]any{
-			"max_tokens": 24,
+			"max_tokens": 1024,
 		},
 	})
 	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
 		return agentSettingsBenchmarkResult{
-			ID:         "text_reply",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      strings.TrimSpace(err.Error()),
+			ID:          "text_reply",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
 		}
 	}
 
 	text := strings.TrimSpace(result.Text)
 	if text == "" {
 		return agentSettingsBenchmarkResult{
-			ID:         "text_reply",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      "received an empty text reply",
+			ID:          "text_reply",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "received an empty text reply",
+			RawResponse: benchmarkRawResponse(result),
 		}
 	}
 
 	return agentSettingsBenchmarkResult{
-		ID:         "text_reply",
-		OK:         true,
-		DurationMS: durationMS,
-		Detail:     summarizeBenchmarkDetail(text),
+		ID:          "text_reply",
+		OK:          true,
+		DurationMS:  durationMS,
+		Detail:      summarizeBenchmarkDetail(text),
+		RawResponse: benchmarkRawResponse(result),
 	}
 }
 
@@ -426,43 +718,46 @@ func runAgentSettingsJSONBenchmark(ctx context.Context, client llm.Client, model
 	start := time.Now()
 	result, err := client.Chat(ctx, llm.Request{
 		Model:     model,
+		Scene:     "console.settings_test.json_response",
 		ForceJSON: true,
 		Messages: []llm.Message{
-			{Role: "system", Content: "You are a JSON response test. Reply with a JSON object only."},
-			{Role: "user", Content: `Return exactly this JSON object: {"status":"ok","message":"json ok"}`},
+			{Role: "system", Content: "You wrap the input by a JSON object and echo back the JSON object only. for example, IF input is `Hello` THEN return {\"message\": \"Hello\"}."},
+			{Role: "user", Content: `Hello`},
 		},
 		Parameters: map[string]any{
-			"max_tokens": 48,
+			"max_tokens": 1024,
 		},
 	})
 	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
 		return agentSettingsBenchmarkResult{
-			ID:         "json_response",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      strings.TrimSpace(err.Error()),
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
 		}
 	}
 
 	var payload struct {
-		Status  string `json:"status"`
 		Message string `json:"message"`
 	}
 	if err := jsonutil.DecodeWithFallback(result.Text, &payload); err != nil {
 		return agentSettingsBenchmarkResult{
-			ID:         "json_response",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      "response was not valid json",
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "response was not valid json",
+			RawResponse: benchmarkRawResponse(result),
 		}
 	}
-	if strings.TrimSpace(payload.Status) != "ok" {
+	if strings.TrimSpace(payload.Message) != "Hello" {
 		return agentSettingsBenchmarkResult{
-			ID:         "json_response",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      "json response missing status=ok",
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "json response is not so correct",
+			RawResponse: benchmarkRawResponse(result),
 		}
 	}
 
@@ -471,10 +766,11 @@ func runAgentSettingsJSONBenchmark(ctx context.Context, client llm.Client, model
 		detail = "status=ok"
 	}
 	return agentSettingsBenchmarkResult{
-		ID:         "json_response",
-		OK:         true,
-		DurationMS: durationMS,
-		Detail:     detail,
+		ID:          "json_response",
+		OK:          true,
+		DurationMS:  durationMS,
+		Detail:      detail,
+		RawResponse: benchmarkRawResponse(result),
 	}
 }
 
@@ -482,6 +778,7 @@ func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client
 	start := time.Now()
 	result, err := client.Chat(ctx, llm.Request{
 		Model: model,
+		Scene: "console.settings_test.tool_calling",
 		Messages: []llm.Message{
 			{Role: "system", Content: "You are a tool calling test. Always call the ping tool exactly once."},
 			{Role: "user", Content: "Call the ping tool now."},
@@ -494,26 +791,28 @@ func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client
 			},
 		},
 		Parameters: map[string]any{
-			"max_tokens": 96,
+			"max_tokens": 1024,
 		},
 	})
 	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
 		return agentSettingsBenchmarkResult{
-			ID:         "tool_calling",
-			OK:         false,
-			DurationMS: durationMS,
-			Error:      strings.TrimSpace(err.Error()),
+			ID:          "tool_calling",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
 		}
 	}
 
 	for _, call := range result.ToolCalls {
 		if strings.EqualFold(strings.TrimSpace(call.Name), "ping") {
 			return agentSettingsBenchmarkResult{
-				ID:         "tool_calling",
-				OK:         true,
-				DurationMS: durationMS,
-				Detail:     "called ping",
+				ID:          "tool_calling",
+				OK:          true,
+				DurationMS:  durationMS,
+				Detail:      "called ping",
+				RawResponse: benchmarkRawResponse(result),
 			}
 		}
 	}
@@ -525,11 +824,59 @@ func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client
 		detail = "model replied without calling the tool: " + detail
 	}
 	return agentSettingsBenchmarkResult{
-		ID:         "tool_calling",
-		OK:         false,
-		DurationMS: durationMS,
-		Error:      detail,
+		ID:          "tool_calling",
+		OK:          false,
+		DurationMS:  durationMS,
+		Error:       detail,
+		RawResponse: benchmarkRawResponse(result),
 	}
+}
+
+func benchmarkRawResponse(result llm.Result) string {
+	text := strings.TrimSpace(result.Text)
+	if len(result.ToolCalls) == 0 && result.JSON == nil {
+		return text
+	}
+
+	payload := map[string]any{}
+	if text != "" {
+		payload["text"] = text
+	}
+	if result.JSON != nil {
+		payload["json"] = result.JSON
+	}
+	if len(result.ToolCalls) > 0 {
+		payload["tool_calls"] = result.ToolCalls
+	}
+	if len(payload) == 0 {
+		return ""
+	}
+
+	serialized, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return text
+	}
+	return string(serialized)
+}
+
+func benchmarkRawResponseFromError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	text := strings.TrimSpace(err.Error())
+	if text == "" {
+		return ""
+	}
+
+	matches := benchmarkErrorStatusPattern.FindStringSubmatch(text)
+	if len(matches) == 2 {
+		if raw := strings.TrimSpace(matches[1]); raw != "" {
+			return raw
+		}
+	}
+
+	return text
 }
 
 func summarizeBenchmarkDetail(value string) string {
@@ -648,6 +995,13 @@ func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 		}
 		return nil, err
 	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return newEmptyYAMLDocument(), nil
+	}
+	return loadYAMLDocumentBytes(data)
+}
+
+func loadYAMLDocumentBytes(data []byte) (*yaml.Node, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return newEmptyYAMLDocument(), nil
 	}
@@ -839,6 +1193,38 @@ func boolString(value bool) string {
 	return "false"
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func normalizeAgentSettingsConfigView(settings agentSettingsPayload, doc *yaml.Node) agentSettingsPayload {
+	if !agentSettingsYAMLHasLLMKey(doc, "endpoint") {
+		settings.LLM.Endpoint = ""
+	}
+	if !agentSettingsYAMLHasLLMKey(doc, "model") {
+		settings.LLM.Model = ""
+	}
+	return settings
+}
+
+func agentSettingsYAMLHasLLMKey(doc *yaml.Node, key string) bool {
+	root, err := documentMapping(doc)
+	if err != nil {
+		return false
+	}
+	llmNode := findMappingValue(root, llmSettingsKey)
+	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
+		return false
+	}
+	return findMappingValue(llmNode, key) != nil
+}
+
 func readAgentSettingsFromReader(r interface {
 	GetString(string) string
 	GetStringSlice(string) []string
@@ -847,12 +1233,18 @@ func readAgentSettingsFromReader(r interface {
 	if r == nil {
 		return agentSettingsPayload{}
 	}
+	provider := strings.TrimSpace(r.GetString("llm.provider"))
+	cloudflareAPIToken := strings.TrimSpace(r.GetString("llm.cloudflare.api_token"))
+	if strings.EqualFold(provider, "cloudflare") {
+		cloudflareAPIToken = firstNonEmpty(cloudflareAPIToken, strings.TrimSpace(r.GetString("llm.api_key")))
+	}
 	return agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider:            strings.TrimSpace(r.GetString("llm.provider")),
+			Provider:            provider,
 			Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
 			Model:               strings.TrimSpace(r.GetString("llm.model")),
 			APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
+			CloudflareAPIToken:  cloudflareAPIToken,
 			CloudflareAccountID: strings.TrimSpace(r.GetString("llm.cloudflare.account_id")),
 			ReasoningEffort:     strings.TrimSpace(r.GetString("llm.reasoning_effort")),
 			ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
@@ -870,6 +1262,98 @@ func readAgentSettingsFromReader(r interface {
 			BashEnabled:         r.GetBool("tools.bash.enabled"),
 		},
 	}
+}
+
+func currentAgentSettingsEnvManaged(provider string) agentSettingsEnvManagedPayload {
+	return agentSettingsEnvManagedPayload{
+		LLM: currentAgentSettingsLLMEnvManaged(provider),
+	}
+}
+
+func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettingsEnvManagedField {
+	fields := map[string]agentSettingsEnvManagedField{}
+	normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
+
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_PROVIDER"); ok {
+		fields["provider"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_ENDPOINT"); ok {
+		fields["endpoint"] = field
+	}
+	if field, ok := currentAgentSettingsModelEnvField(provider); ok {
+		fields["model"] = field
+	}
+	if normalizedProvider == "cloudflare" {
+		if field, ok := currentAgentSettingsManagedEnvField(
+			true,
+			"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN",
+			"MISTER_MORPH_LLM_API_KEY",
+		); ok {
+			fields["cloudflare_api_token"] = field
+		}
+	} else {
+		if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_API_KEY"); ok {
+			fields["api_key"] = field
+		}
+		if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
+			fields["cloudflare_api_token"] = field
+		}
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
+		fields["cloudflare_account_id"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
+		fields["reasoning_effort"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_TOOLS_EMULATION_MODE"); ok {
+		fields["tools_emulation_mode"] = field
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+func currentAgentSettingsModelEnvField(provider string) (agentSettingsEnvManagedField, bool) {
+	if strings.EqualFold(strings.TrimSpace(provider), "azure") {
+		return currentAgentSettingsManagedEnvField(
+			false,
+			"MISTER_MORPH_LLM_AZURE_DEPLOYMENT",
+			"MISTER_MORPH_LLM_MODEL",
+		)
+	}
+	return currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_MODEL")
+}
+
+func currentAgentSettingsManagedEnvField(sensitive bool, names ...string) (agentSettingsEnvManagedField, bool) {
+	name, value, ok := firstManagedEnv(names...)
+	if !ok {
+		return agentSettingsEnvManagedField{}, false
+	}
+	field := agentSettingsEnvManagedField{EnvName: name}
+	if !sensitive {
+		field.Value = strings.TrimSpace(value)
+	}
+	return field, true
+}
+
+func firstManagedEnvName(names ...string) (string, bool) {
+	name, _, ok := firstManagedEnv(names...)
+	return name, ok
+}
+
+func firstManagedEnv(names ...string) (string, string, bool) {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			return name, value, true
+		}
+	}
+	return "", "", false
 }
 
 func sanitizeMultimodalSources(values []string) []string {

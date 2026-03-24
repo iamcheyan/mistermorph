@@ -76,6 +76,7 @@ type consoleLocalRuntimeBundle struct {
 
 type consoleLocalRuntime struct {
 	logger                  *slog.Logger
+	inspectors              *consoleInspectors
 	store                   *daemonruntime.ConsoleFileStore
 	bus                     *busruntime.Inproc
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
@@ -99,15 +100,20 @@ type consoleLocalRuntime struct {
 	seq                     atomic.Uint64
 }
 
-func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
+func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 	logger, err := logutil.LoggerFromViper()
 	if err != nil {
 		return nil, err
 	}
 	slog.SetDefault(logger)
 	logOpts := logutil.LogOptionsFromViper()
+	inspectors, err := newConsoleInspectors(cfg.inspectPrompt, cfg.inspectRequest, "console", "console", "20060102_150405")
+	if err != nil {
+		return nil, err
+	}
 	out := &consoleLocalRuntime{
-		logger: logger,
+		logger:     logger,
+		inspectors: inspectors,
 	}
 	var baseRegistry *tools.Registry
 	var sharedGuard *guard.Guard
@@ -128,7 +134,8 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			if err != nil {
 				return nil, err
 			}
-			return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger), nil
+			client := llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger)
+			return inspectors.Wrap(client, route), nil
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
 		Registry: func() *tools.Registry {
@@ -154,6 +161,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskRuntimeOpts)
 	if err != nil {
+		_ = inspectors.Close()
 		return nil, err
 	}
 	if warning := consoleLLMCredentialsWarning(execRuntime.MainRoute); warning != "" {
@@ -176,6 +184,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		Logger:        logger,
 	})
 	if err != nil {
+		_ = inspectors.Close()
 		cancelWorkers()
 		return nil, err
 	}
@@ -185,6 +194,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 
 	authToken, err := consoleLocalRuntimeAuthToken()
 	if err != nil {
+		_ = inspectors.Close()
 		cancelWorkers()
 		memRuntime.Cleanup()
 		return nil, err
@@ -195,6 +205,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		Persist:          consoleTaskPersistenceEnabled(),
 	})
 	if err != nil {
+		_ = inspectors.Close()
 		cancelWorkers()
 		memRuntime.Cleanup()
 		return nil, err
@@ -209,6 +220,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		Component:   "console",
 	})
 	if err != nil {
+		_ = inspectors.Close()
 		cancelWorkers()
 		memRuntime.Cleanup()
 		return nil, err
@@ -241,6 +253,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		},
 	)
 	if err := inprocBus.Subscribe(busruntime.TopicChatMessage, out.handleConsoleBusMessage); err != nil {
+		_ = inspectors.Close()
 		inprocBus.Close()
 		cancelWorkers()
 		memRuntime.Cleanup()
@@ -333,6 +346,9 @@ func (r *consoleLocalRuntime) Close() {
 	}
 	if r.memRuntime.Cleanup != nil {
 		r.memRuntime.Cleanup()
+	}
+	if r.inspectors != nil {
+		_ = r.inspectors.Close()
 	}
 	bundle := r.currentBundle()
 	if bundle != nil && bundle.mcpHost != nil {

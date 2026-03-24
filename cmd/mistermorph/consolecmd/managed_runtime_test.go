@@ -11,7 +11,7 @@ func TestManagedRuntimeSupervisorStartSkipsConfigError(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	supervisor := newManagedRuntimeSupervisor(nil, []string{"telegram"})
+	supervisor := newManagedRuntimeSupervisor(nil, serveConfig{managedKinds: []string{"telegram"}})
 	if err := supervisor.Start(context.Background(), nil); err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
 	}

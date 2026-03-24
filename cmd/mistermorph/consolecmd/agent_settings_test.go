@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,13 +12,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 )
 
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: openai\n  model: gpt-5.2\n  reasoning_effort: high\n  cloudflare:\n    account_id: acc-123\n"+
+		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n"+
 			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
 			"tools:\n  bash:\n    enabled: false\n",
 	), 0o600); err != nil {
@@ -28,11 +30,14 @@ func TestReadAgentSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readAgentSettings() error = %v", err)
 	}
-	if got.LLM.Provider != "openai" || got.LLM.Model != "gpt-5.2" || got.LLM.ReasoningEffort != "high" {
+	if got.LLM.Provider != "cloudflare" || got.LLM.Model != "gpt-5.2" || got.LLM.ReasoningEffort != "high" {
 		t.Fatalf("got.LLM = %+v", got.LLM)
 	}
 	if got.LLM.CloudflareAccountID != "acc-123" {
 		t.Fatalf("got.LLM.CloudflareAccountID = %q, want acc-123", got.LLM.CloudflareAccountID)
+	}
+	if got.LLM.CloudflareAPIToken != "legacy-cf-token" {
+		t.Fatalf("got.LLM.CloudflareAPIToken = %q, want legacy-cf-token", got.LLM.CloudflareAPIToken)
 	}
 	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
 		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
@@ -194,10 +199,237 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n  reasoning_effort: low\n"+
+			"multimodal:\n  image:\n    sources: [telegram]\n"+
+			"tools:\n  bash:\n    enabled: true\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider":         "openai",
+		"endpoint":         "https://api.openai.com",
+		"model":            "gpt-5.2",
+		"api_key":          "sk-file",
+		"reasoning_effort": "low",
+	})
+	viper.Set("multimodal", map[string]any{
+		"image": map[string]any{
+			"sources": []string{"telegram"},
+		},
+	})
+	viper.Set("tools", map[string]any{
+		"bash": map[string]any{"enabled": true},
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{"model":"gpt-5.1"},
+		"multimodal":{"image_sources":["telegram"]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "endpoint: https://api.openai.com") {
+		t.Fatalf("config should preserve omitted provider/endpoint: %s", out)
+	}
+	if !strings.Contains(out, "api_key: sk-file") || !strings.Contains(out, "reasoning_effort: low") {
+		t.Fatalf("config should preserve omitted llm secrets/settings: %s", out)
+	}
+	if !strings.Contains(out, "model: gpt-5.1") {
+		t.Fatalf("config should update provided llm field: %s", out)
+	}
+}
+
+func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n"+
+			"multimodal:\n  image:\n    sources: [telegram]\n"+
+			"tools:\n  bash:\n    enabled: true\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5.2",
+		"api_key":  "sk-file",
+	})
+	viper.Set("multimodal", map[string]any{
+		"image": map[string]any{
+			"sources": []string{"telegram"},
+		},
+	})
+	viper.Set("tools", map[string]any{
+		"bash": map[string]any{"enabled": true},
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{"endpoint":""},
+		"multimodal":{"image_sources":["telegram"]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	out := string(raw)
+	if strings.Contains(out, "endpoint: https://api.openai.com") {
+		t.Fatalf("config should delete explicitly cleared llm field: %s", out)
+	}
+	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "model: gpt-5.2") {
+		t.Fatalf("config should preserve other llm fields: %s", out)
+	}
+}
+
+func TestHandleAgentSettingsPutFallsBackToRuntimeCloudflareCredentials(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5.2",
+	})
+	viper.Set("multimodal", map[string]any{
+		"image": map[string]any{
+			"sources": []string{"telegram"},
+		},
+	})
+	viper.Set("tools", map[string]any{
+		"write_file":    map[string]any{"enabled": true},
+		"contacts_send": map[string]any{"enabled": true},
+		"todo_update":   map[string]any{"enabled": true},
+		"plan_create":   map[string]any{"enabled": true},
+		"url_fetch":     map[string]any{"enabled": true},
+		"web_search":    map[string]any{"enabled": true},
+		"bash":          map[string]any{"enabled": true},
+	})
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID", "acc-env")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-env-token")
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{"provider":"cloudflare","endpoint":"https://api.openai.com"},
+		"multimodal":{"image_sources":["telegram"]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"`) {
+		t.Fatalf("response should expose runtime cloudflare api token env-managed metadata: %s", body)
+	}
+}
+
 func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: openai\n  model: gpt-5.2\n  cloudflare:\n    api_token: ${CLOUDFLARE_API_TOKEN}\n",
+		"llm:\n  provider: openai\n  model: gpt-5.2\n  api_key: sk-old\n  cloudflare:\n    api_token: ${CLOUDFLARE_API_TOKEN}\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -206,6 +438,7 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 		LLM: llmSettingsPayload{
 			Provider:            "cloudflare",
 			Model:               "@cf/meta/llama-3.1-8b-instruct",
+			CloudflareAPIToken:  "cf-new-token",
 			CloudflareAccountID: "acc-live",
 		},
 	})
@@ -216,8 +449,11 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 	if !strings.Contains(out, "provider: cloudflare") || !strings.Contains(out, "account_id: acc-live") {
 		t.Fatalf("serialized config missing cloudflare settings: %s", out)
 	}
-	if !strings.Contains(out, "api_token: ${CLOUDFLARE_API_TOKEN}") {
-		t.Fatalf("serialized config should preserve cloudflare api_token: %s", out)
+	if !strings.Contains(out, "api_token: cf-new-token") {
+		t.Fatalf("serialized config should write cloudflare api_token: %s", out)
+	}
+	if strings.Contains(out, "api_key: sk-old") {
+		t.Fatalf("serialized config should remove generic api_key for cloudflare provider: %s", out)
 	}
 }
 
@@ -286,6 +522,131 @@ func TestHandleAgentSettingsGetFallsBackWhenConfigIsMalformed(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsGetIncludesEnvManagedMetadata(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "openai")
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "sk-test")
+	t.Setenv("MISTER_MORPH_LLM_REASONING_EFFORT", "high")
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider":         "openai",
+		"endpoint":         "https://api.openai.com",
+		"model":            "gpt-5.2",
+		"api_key":          "sk-test",
+		"reasoning_effort": "high",
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"env_name":"MISTER_MORPH_LLM_API_KEY"`) {
+		t.Fatalf("response missing api key env-managed metadata: %s", got)
+	}
+	if strings.Contains(rec.Body.String(), `"api_key":"sk-test"`) {
+		t.Fatalf("response should not leak env-managed api key into llm payload: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"env_managed":{"llm":`) {
+		t.Fatalf("response missing env_managed wrapper: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"openai"`) {
+		t.Fatalf("response missing provider env-managed metadata: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"env_name":"MISTER_MORPH_LLM_REASONING_EFFORT","value":"high"`) {
+		t.Fatalf("response missing reasoning env-managed metadata: %s", rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsGetUsesDefaultsForLLMWhenConfigMissing(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "cloudflare")
+	t.Setenv("MISTER_MORPH_LLM_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "sk-env")
+
+	configPath := filepath.Join(t.TempDir(), "missing-config.yaml")
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
+		t.Fatalf("llm payload should expose defaults only: %s", body)
+	}
+	if !strings.Contains(body, `"env_managed":{"llm":`) || !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"cloudflare"`) {
+		t.Fatalf("env_managed payload should expose env overrides separately: %s", body)
+	}
+}
+
+func TestHandleAgentSettingsGetIncludesCloudflareTokenEnvManagedWithoutCloudflareProvider(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "missing-config.yaml")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID", "acc-env")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-env-token")
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"`) {
+		t.Fatalf("response missing cloudflare api token env-managed metadata: %s", body)
+	}
+	if !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID","value":"acc-env"`) {
+		t.Fatalf("response missing cloudflare account id env-managed metadata: %s", body)
+	}
+}
+
 func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte("llm: [\n"), 0o600); err != nil {
@@ -339,9 +700,46 @@ func TestHandleAgentSettingsModels(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsModelsFallsBackToRuntimeAPIKey(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-runtime" {
+			t.Fatalf("authorization = %q, want Bearer sk-runtime", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5"}]}`))
+	}))
+	defer upstream.Close()
+
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": upstream.URL,
+		"api_key":  "sk-runtime",
+	})
+	t.Cleanup(func() {
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/models", bytes.NewBufferString(`{"endpoint":"","api_key":""}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsModels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func TestHandleAgentSettingsTest(t *testing.T) {
 	prev := runAgentSettingsConnectionTest
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload) (agentSettingsTestResult, error) {
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
 		if settings.Provider != "openai" {
 			t.Fatalf("provider = %q, want openai", settings.Provider)
 		}
@@ -352,7 +750,7 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 			Provider: "openai",
 			Model:    "gpt-5",
 			Benchmarks: []agentSettingsBenchmarkResult{
-				{ID: "text_reply", OK: true, DurationMS: 912, Detail: "OK"},
+				{ID: "text_reply", OK: true, DurationMS: 912, Detail: "OK", RawResponse: "OK"},
 				{ID: "json_response", OK: true, DurationMS: 1044, Detail: "json ok"},
 				{ID: "tool_calling", OK: false, DurationMS: 1350, Error: "model replied without calling the tool"},
 			},
@@ -375,6 +773,237 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 	if got := rec.Body.String(); !strings.Contains(got, `"benchmarks":[`) || !strings.Contains(got, `"id":"text_reply"`) || !strings.Contains(got, `"id":"json_response"`) || !strings.Contains(got, `"id":"tool_calling"`) {
 		t.Fatalf("response missing test result fields: %s", got)
 	}
+	if got := rec.Body.String(); !strings.Contains(got, `"raw_response":"OK"`) {
+		t.Fatalf("response missing raw benchmark response: %s", got)
+	}
+}
+
+func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5-mini",
+		"api_key":  "sk-runtime",
+	})
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", settings.Provider)
+		}
+		if settings.Endpoint != "https://api.openai.com" {
+			t.Fatalf("endpoint = %q, want https://api.openai.com", settings.Endpoint)
+		}
+		if settings.APIKey != "sk-runtime" {
+			t.Fatalf("api_key = %q, want sk-runtime", settings.APIKey)
+		}
+		if settings.Model != "gpt-5" {
+			t.Fatalf("model = %q, want gpt-5", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: "openai",
+			Model:    "gpt-5",
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"model":"gpt-5"}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider": "cloudflare",
+		"model":    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"cloudflare": map[string]any{
+			"account_id": "acc-runtime",
+			"api_token":  "cf-runtime-token",
+		},
+	})
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Provider != "cloudflare" {
+			t.Fatalf("provider = %q, want cloudflare", settings.Provider)
+		}
+		if settings.CloudflareAccountID != "acc-runtime" {
+			t.Fatalf("cloudflare_account_id = %q, want acc-runtime", settings.CloudflareAccountID)
+		}
+		if settings.CloudflareAPIToken != "cf-runtime-token" {
+			t.Fatalf("cloudflare_api_token = %q, want cf-runtime-token", settings.CloudflareAPIToken)
+		}
+		if settings.Model != "@cf/meta/llama-3.3-70b-instruct-fp8-fast" {
+			t.Fatalf("model = %q, want cloudflare runtime model", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: "cloudflare",
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5.2",
+		"api_key":  "sk-viper",
+	})
+	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "cloudflare")
+	t.Setenv("MISTER_MORPH_LLM_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID", "acc-env")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-env-token")
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Provider != "cloudflare" {
+			t.Fatalf("provider = %q, want cloudflare", settings.Provider)
+		}
+		if settings.Model != "@cf/meta/llama-3.3-70b-instruct-fp8-fast" {
+			t.Fatalf("model = %q, want cloudflare env model", settings.Model)
+		}
+		if settings.CloudflareAccountID != "acc-env" {
+			t.Fatalf("cloudflare_account_id = %q, want acc-env", settings.CloudflareAccountID)
+		}
+		if settings.CloudflareAPIToken != "cf-env-token" {
+			t.Fatalf("cloudflare_api_token = %q, want cf-env-token", settings.CloudflareAPIToken)
+		}
+		return agentSettingsTestResult{
+			Provider: "cloudflare",
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestAgentSettingsBenchmarksIncludeRawResponseOnChatError(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(context.Context, llm.Client, string) agentSettingsBenchmarkResult
+	}{
+		{name: "text", run: runAgentSettingsTextBenchmark},
+		{name: "json", run: runAgentSettingsJSONBenchmark},
+		{name: "tool", run: runAgentSettingsToolCallingBenchmark},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.run(context.Background(), benchmarkClientStub{
+				err: errors.New(`openai API request failed with status 400: {"error":{"message":"bad model"}}`),
+			}, "gpt-5")
+			if got.OK {
+				t.Fatalf("got.OK = true, want false")
+			}
+			if got.RawResponse != `{"error":{"message":"bad model"}}` {
+				t.Fatalf("got.RawResponse = %q, want upstream response body", got.RawResponse)
+			}
+		})
+	}
+}
+
+func TestBenchmarkRawResponseFromErrorFallsBackToErrorText(t *testing.T) {
+	err := errors.New("dial tcp 127.0.0.1:443: connect: connection refused")
+	if got := benchmarkRawResponseFromError(err); got != err.Error() {
+		t.Fatalf("benchmarkRawResponseFromError() = %q, want %q", got, err.Error())
+	}
+}
+
+func TestHandleAgentSettingsTestPassesInspectFlags(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if !opts.InspectPrompt || !opts.InspectRequest {
+			t.Fatalf("inspect opts = %+v, want both enabled", opts)
+		}
+		return agentSettingsTestResult{
+			Provider: "openai",
+			Model:    "gpt-5",
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(`{"llm":{"provider":"openai","model":"gpt-5"}}`))
+	rec := httptest.NewRecorder()
+
+	(&server{cfg: serveConfig{inspectPrompt: true, inspectRequest: true}}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
 }
 
 func TestNormalizeAgentSettingsProvider(t *testing.T) {
@@ -395,4 +1024,45 @@ func TestNormalizeAgentSettingsProvider(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "sk-generic")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-token")
+	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "cloudflare")
+	t.Setenv("MISTER_MORPH_LLM_MODEL", "gpt-5.2")
+	t.Setenv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT", "azure-deploy")
+
+	cloudflareFields := currentAgentSettingsLLMEnvManaged("cloudflare")
+	if got := cloudflareFields["cloudflare_api_token"].EnvName; got != "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN" {
+		t.Fatalf("cloudflare api token env = %q, want MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", got)
+	}
+
+	azureFields := currentAgentSettingsLLMEnvManaged("azure")
+	if got := azureFields["model"].EnvName; got != "MISTER_MORPH_LLM_AZURE_DEPLOYMENT" {
+		t.Fatalf("azure model env = %q, want MISTER_MORPH_LLM_AZURE_DEPLOYMENT", got)
+	}
+	if got := cloudflareFields["provider"].Value; got != "cloudflare" {
+		t.Fatalf("provider value = %q, want cloudflare", got)
+	}
+	if got := cloudflareFields["cloudflare_api_token"].Value; got != "" {
+		t.Fatalf("api token value = %q, want empty for sensitive env-managed field", got)
+	}
+
+	emptyProviderFields := currentAgentSettingsLLMEnvManaged("")
+	if got := emptyProviderFields["cloudflare_api_token"].EnvName; got != "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN" {
+		t.Fatalf("empty provider cloudflare api token env = %q, want MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", got)
+	}
+	if got := emptyProviderFields["api_key"].EnvName; got != "MISTER_MORPH_LLM_API_KEY" {
+		t.Fatalf("empty provider api key env = %q, want MISTER_MORPH_LLM_API_KEY", got)
+	}
+}
+
+type benchmarkClientStub struct {
+	result llm.Result
+	err    error
+}
+
+func (c benchmarkClientStub) Chat(context.Context, llm.Request) (llm.Result, error) {
+	return c.result, c.err
 }

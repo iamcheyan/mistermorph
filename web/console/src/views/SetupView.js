@@ -26,6 +26,7 @@ import {
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPTIONS,
+  setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 import { pickRandomPersonaSeed } from "../core/persona-seeds";
@@ -117,6 +118,7 @@ function buildDefaultPayload() {
       endpoint: "",
       model: "",
       api_key: "",
+      cloudflare_api_token: "",
       cloudflare_account_id: "",
       reasoning_effort: "",
       tools_emulation_mode: "",
@@ -305,6 +307,7 @@ const SetupView = {
 
     const loadedPayload = ref(buildDefaultPayload());
     const loadedConfigSource = ref("defaults");
+    const llmEnvManaged = ref({});
     const loadedIdentityRaw = ref("");
     const loadedSoulRaw = ref("");
     const llmForm = reactive({
@@ -312,6 +315,7 @@ const SetupView = {
       endpoint: "",
       model: "",
       api_key: "",
+      cloudflare_api_token: "",
       cloudflare_account_id: "",
     });
     const personaForm = reactive(buildEmptyIdentityProfile());
@@ -358,15 +362,28 @@ const SetupView = {
       () => providerItems.value.find((item) => item.value === llmForm.provider) || null
     );
     const showCloudflareAccountField = computed(
-      () => String(llmForm.provider || "").trim() === SETUP_PROVIDER_CLOUDFLARE
+      () => normalizeSetupProviderChoice(llmFieldValue("provider")) === SETUP_PROVIDER_CLOUDFLARE
     );
-    const showOpenAICompatibleHelpers = computed(() => setupProviderSupportsModelLookup(llmForm.provider));
+    const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
+    const credentialLabelKey = computed(() =>
+      showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label"
+    );
+    const credentialPlaceholderKey = computed(() =>
+      showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_placeholder" : "settings_agent_api_key_placeholder"
+    );
+    const credentialHintKey = computed(() =>
+      showCloudflareAccountField.value ? "setup_llm_api_token_hint" : "setup_llm_api_key_hint"
+    );
+    const credentialHintPlainKey = computed(() =>
+      showCloudflareAccountField.value ? "setup_llm_api_token_hint_plain" : "setup_llm_api_key_hint_plain"
+    );
+    const showOpenAICompatibleHelpers = computed(() => setupProviderSupportsModelLookup(llmFieldValue("provider")));
     const modelLookupDisabled = computed(
       () =>
         loading.value ||
         saving.value ||
         !showOpenAICompatibleHelpers.value ||
-        String(llmForm.api_key || "").trim() === ""
+        !hasLLMFieldValue("api_key")
     );
     const apiBasePickerItems = computed(() =>
       OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
@@ -376,18 +393,19 @@ const SetupView = {
         note: "",
       }))
     );
-    const apiKeyHelp = computed(() => {
-      if (String(llmForm.provider || "").trim() === "") {
+    const credentialHelp = computed(() => {
+      const provider = llmFieldValue("provider");
+      if (provider === "" || isLLMFieldEnvManaged(credentialFieldName.value)) {
         return null;
       }
-      return resolveSetupAPIKeyHelp(llmForm.provider, llmForm.endpoint);
+      return resolveSetupAPIKeyHelp(provider, llmFieldValue("endpoint"));
     });
-    const apiKeyHelpParts = computed(() => {
-      if (!apiKeyHelp.value) {
+    const credentialHelpParts = computed(() => {
+      if (!credentialHelp.value) {
         return null;
       }
       const marker = "__PROVIDER__";
-      const template = String(t("setup_llm_api_key_hint", { provider: marker }) || "");
+      const template = String(t(credentialHintKey.value, { provider: marker }) || "");
       const index = template.indexOf(marker);
       if (index === -1) {
         return {
@@ -415,12 +433,22 @@ const SetupView = {
       () =>
         loading.value ||
         saving.value ||
-        String(llmForm.provider || "").trim() === "" ||
-        String(llmForm.model || "").trim() === "" ||
-        String(llmForm.api_key || "").trim() === "" ||
-        (showCloudflareAccountField.value && String(llmForm.cloudflare_account_id || "").trim() === "")
+        !hasLLMFieldValue("provider") ||
+        !hasLLMFieldValue("model") ||
+        !hasLLMFieldValue(credentialFieldName.value) ||
+        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
     );
-    const testConnectionDisabled = computed(() => llmSaveDisabled.value || testConnectionLoading.value);
+    const testConnectionDisabled = computed(
+      () =>
+        loading.value ||
+        saving.value ||
+        testConnectionLoading.value ||
+        !hasLLMFieldValue("provider") ||
+        !hasLLMFieldValue("model") ||
+        (setupProviderRequiresAPIKey(llmFieldValue("provider")) && !hasLLMFieldValue(credentialFieldName.value)) ||
+        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_api_token")) ||
+        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
+    );
     const personaSaveDisabled = computed(
       () =>
         loading.value ||
@@ -553,13 +581,18 @@ const SetupView = {
 
     function applyLLMPayload(data) {
       const normalized = normalizePayload(data);
+      const envManagedPayload = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
+      const llmEnvManagedPayload =
+        envManagedPayload?.llm && typeof envManagedPayload.llm === "object" ? envManagedPayload.llm : {};
       loadedPayload.value = normalized;
       loadedConfigSource.value = String(data?.config_source || "defaults").trim() || "defaults";
+      llmEnvManaged.value = llmEnvManagedPayload;
       if (loadedConfigSource.value !== "config") {
         llmForm.provider = SETUP_PROVIDER_OPENAI_COMPATIBLE;
         llmForm.endpoint = "";
         llmForm.model = "";
         llmForm.api_key = "";
+        llmForm.cloudflare_api_token = "";
         llmForm.cloudflare_account_id = "";
         return;
       }
@@ -567,7 +600,64 @@ const SetupView = {
       llmForm.endpoint = String(normalized.llm.endpoint || "").trim();
       llmForm.model = String(normalized.llm.model || "").trim();
       llmForm.api_key = String(normalized.llm.api_key || "").trim();
+      llmForm.cloudflare_api_token = String(normalized.llm.cloudflare_api_token || "").trim();
       llmForm.cloudflare_account_id = String(normalized.llm.cloudflare_account_id || "").trim();
+    }
+
+    function llmFieldEnvName(field) {
+      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      return typeof entry.env_name === "string" ? entry.env_name : "";
+    }
+
+    function llmFieldEnvValue(field) {
+      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      return typeof entry.value === "string" ? entry.value.trim() : "";
+    }
+
+    function isLLMFieldEnvManaged(field) {
+      return llmFieldEnvName(field) !== "";
+    }
+
+    function llmFieldValue(field) {
+      const key = String(field || "").trim();
+      if (!key) {
+        return "";
+      }
+      if (isLLMFieldEnvManaged(key)) {
+        return llmFieldEnvValue(key);
+      }
+      const value = llmForm && typeof llmForm === "object" ? llmForm[key] : "";
+      return typeof value === "string" ? value.trim() : "";
+    }
+
+    function hasLLMFieldValue(field) {
+      return llmFieldValue(field) !== "" || isLLMFieldEnvManaged(field);
+    }
+
+    function llmFieldManagedDisplayValue(field) {
+      const envValue = llmFieldEnvValue(field);
+      if (envValue !== "") {
+        return envValue;
+      }
+      if (["api_key", "cloudflare_api_token"].includes(String(field || "").trim())) {
+        return "";
+      }
+      return isLLMFieldEnvManaged(field) ? llmFieldValue(field) : "";
+    }
+
+    function llmFieldManagedHeadline(field) {
+      const envName = llmFieldEnvName(field);
+      if (envName === "") {
+        return "";
+      }
+      const value = llmFieldManagedDisplayValue(field);
+      return value === "" ? envName : `${envName}=${value}`;
     }
 
     async function loadLLMForm() {
@@ -701,10 +791,15 @@ const SetupView = {
       saving.value = true;
       err.value = "";
       try {
+        const llm = buildLLMSettingsPayload();
+        if (Object.keys(llm).length === 0) {
+          await finishStep();
+          return;
+        }
         const payload = await apiFetch("/settings/agent", {
           method: "PUT",
           body: {
-            llm: buildLLMSettingsPayload(),
+            llm,
             multimodal: loadedPayload.value.multimodal,
             tools: loadedPayload.value.tools,
           },
@@ -719,14 +814,69 @@ const SetupView = {
     }
 
     function buildLLMSettingsPayload() {
-      return {
-        ...loadedPayload.value.llm,
-        provider: normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint),
-        endpoint: String(llmForm.endpoint || "").trim(),
-        model: String(llmForm.model || "").trim(),
-        api_key: String(llmForm.api_key || "").trim(),
-        cloudflare_account_id: String(llmForm.cloudflare_account_id || "").trim(),
-      };
+      const payload = {};
+      const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
+      const useCloudflareCredentials = normalizeSetupProviderChoice(llmForm.provider) === SETUP_PROVIDER_CLOUDFLARE;
+      if (!isLLMFieldEnvManaged("provider")) {
+        payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
+      }
+      if (!isLLMFieldEnvManaged("endpoint")) {
+        payload.endpoint = String(llmForm.endpoint || "").trim();
+      }
+      if (!isLLMFieldEnvManaged("model")) {
+        payload.model = String(llmForm.model || "").trim();
+      }
+      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+        if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
+          payload.cloudflare_api_token = useCloudflareCredentials ? String(llmForm.cloudflare_api_token || "").trim() : "";
+        }
+        if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
+          payload.cloudflare_account_id = String(llmForm.cloudflare_account_id || "").trim();
+        }
+      } else if (!isLLMFieldEnvManaged("api_key")) {
+        payload.api_key = String(llmForm.api_key || "").trim();
+      }
+      return payload;
+    }
+
+    function buildLLMTestPayload() {
+      const payload = {};
+      const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
+      if (!isLLMFieldEnvManaged("provider") && provider !== "") {
+        payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
+      }
+      if (!isLLMFieldEnvManaged("endpoint")) {
+        const endpoint = String(llmForm.endpoint || "").trim();
+        if (endpoint !== "") {
+          payload.endpoint = endpoint;
+        }
+      }
+      if (!isLLMFieldEnvManaged("model")) {
+        const model = String(llmForm.model || "").trim();
+        if (model !== "") {
+          payload.model = model;
+        }
+      }
+      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+        if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
+          const token = String(llmForm.cloudflare_api_token || "").trim();
+          if (token !== "") {
+            payload.cloudflare_api_token = token;
+          }
+        }
+        if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
+          const accountID = String(llmForm.cloudflare_account_id || "").trim();
+          if (accountID !== "") {
+            payload.cloudflare_account_id = accountID;
+          }
+        }
+      } else if (!isLLMFieldEnvManaged("api_key")) {
+        const apiKey = String(llmForm.api_key || "").trim();
+        if (apiKey !== "") {
+          payload.api_key = apiKey;
+        }
+      }
+      return payload;
     }
 
     async function savePersona() {
@@ -829,8 +979,8 @@ const SetupView = {
         const payload = await apiFetch("/settings/agent/models", {
           method: "POST",
           body: {
-            endpoint: String(llmForm.endpoint || "").trim(),
-            api_key: String(llmForm.api_key || "").trim(),
+            endpoint: llmFieldValue("endpoint"),
+            api_key: llmFieldValue("api_key"),
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -863,11 +1013,11 @@ const SetupView = {
       if (testConnectionLoading.value) {
         return;
       }
-      const nextPayload = buildLLMSettingsPayload();
+      const nextPayload = buildLLMTestPayload();
       testConnectionLoading.value = true;
       testConnectionError.value = "";
       testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
+      testConnectionMeta.provider = normalizeSetupProviderForSave(llmFieldValue("provider"), llmFieldValue("endpoint"));
       testConnectionMeta.model = String(nextPayload.model || "").trim();
       try {
         const payload = await apiFetch("/settings/agent/test", {
@@ -885,6 +1035,7 @@ const SetupView = {
           duration_ms: Number(item?.duration_ms || 0),
           detail: String(item?.detail || "").trim(),
           error: String(item?.error || "").trim(),
+          raw_response: String(item?.raw_response || ""),
         }));
       } catch (e) {
         testConnectionError.value = e.message || t("msg_load_failed");
@@ -1018,12 +1169,23 @@ const SetupView = {
       doneStatusItems,
       providerItems,
       providerItem,
+      llmEnvManaged,
       showCloudflareAccountField,
       showOpenAICompatibleHelpers,
       modelLookupDisabled,
       apiBasePickerItems,
-      apiKeyHelp,
-      apiKeyHelpParts,
+      credentialLabelKey,
+      credentialPlaceholderKey,
+      credentialHelp,
+      credentialHelpParts,
+      credentialHintPlainKey,
+      llmFieldEnvName,
+      llmFieldEnvValue,
+      isLLMFieldEnvManaged,
+      llmFieldValue,
+      hasLLMFieldValue,
+      llmFieldManagedDisplayValue,
+      llmFieldManagedHeadline,
       previousStage,
       showPrevious,
       llmSaveDisabled,
@@ -1064,7 +1226,7 @@ const SetupView = {
   },
   template: `
     <section :class="screenClass">
-      <section class="setup-shell stat-item">
+      <QCard class="setup-shell stat-item" variant="default">
         <header class="setup-head">
           <p class="ui-kicker setup-step">{{ stageKicker }}</p>
           <div class="setup-progress" aria-hidden="true">
@@ -1085,7 +1247,12 @@ const SetupView = {
         >
           <label class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_provider_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('provider')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("provider") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
             <QDropdownMenu
+              v-else
               :key="llmForm.provider || 'provider'"
               :items="providerItems"
               :initialItem="providerItem"
@@ -1095,9 +1262,13 @@ const SetupView = {
             />
           </label>
 
-          <label class="setup-field is-wide">
+          <label v-if="!showCloudflareAccountField" class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_endpoint_label") }}</span>
-            <div class="setup-field-control">
+            <div v-if="isLLMFieldEnvManaged('endpoint')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("endpoint") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <div v-else class="setup-field-control">
               <QInput
                 v-model="llmForm.endpoint"
                 :placeholder="t('settings_agent_endpoint_placeholder')"
@@ -1116,30 +1287,60 @@ const SetupView = {
             </div>
           </label>
 
-          <label class="setup-field is-wide">
-            <span class="setup-field-label">{{ t("settings_agent_api_key_label") }}</span>
+          <label v-if="showCloudflareAccountField" class="setup-field is-wide">
+            <span class="setup-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('cloudflare_account_id')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("cloudflare_account_id") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
             <QInput
-              v-model="llmForm.api_key"
-              inputType="password"
-              :placeholder="t('settings_agent_api_key_placeholder')"
+              v-else
+              v-model="llmForm.cloudflare_account_id"
+              :placeholder="t('settings_agent_cloudflare_account_placeholder')"
               :disabled="loading || saving"
             />
-            <p v-if="apiKeyHelp" class="setup-field-hint">
-              <button v-if="apiKeyHelp.url" type="button" class="setup-field-link" @click="openExternal(apiKeyHelp.url)">
-                <span>{{ apiKeyHelpParts?.before }}</span>
-                <span class="setup-field-link-provider">{{ apiKeyHelp.title }}</span>
-                <span>{{ apiKeyHelpParts?.after }}</span>
+          </label>
+
+          <label class="setup-field is-wide">
+            <span class="setup-field-label">{{ t(credentialLabelKey) }}</span>
+            <div v-if="showCloudflareAccountField ? isLLMFieldEnvManaged('cloudflare_api_token') : isLLMFieldEnvManaged('api_key')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(showCloudflareAccountField ? "cloudflare_api_token" : "api_key") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <QInput
+              v-else-if="showCloudflareAccountField"
+              v-model="llmForm.cloudflare_api_token"
+              inputType="password"
+              :placeholder="t(credentialPlaceholderKey)"
+              :disabled="loading || saving"
+            />
+            <QInput
+              v-else
+              v-model="llmForm.api_key"
+              inputType="password"
+              :placeholder="t(credentialPlaceholderKey)"
+              :disabled="loading || saving"
+            />
+            <p v-if="credentialHelp" class="setup-field-hint">
+              <button v-if="credentialHelp.url" type="button" class="setup-field-link" @click="openExternal(credentialHelp.url)">
+                <span>{{ credentialHelpParts?.before }}</span>
+                <span class="setup-field-link-provider">{{ credentialHelp.title }}</span>
+                <span>{{ credentialHelpParts?.after }}</span>
                 <QIconArrowUpRight class="icon setup-field-link-icon" />
               </button>
               <span v-else class="setup-field-link is-static">
-                {{ t("setup_llm_api_key_hint_plain", { provider: apiKeyHelp.title }) }}
+                {{ t(credentialHintPlainKey, { provider: credentialHelp.title }) }}
               </span>
             </p>
           </label>
 
           <label class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_model_label") }}</span>
-            <div class="setup-field-control">
+            <div v-if="isLLMFieldEnvManaged('model')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("model") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <div v-else class="setup-field-control">
               <QInput
                 v-model="llmForm.model"
                 :placeholder="t('settings_agent_model_placeholder')"
@@ -1156,15 +1357,6 @@ const SetupView = {
                 <QIconSearch class="icon" />
               </QButton>
             </div>
-          </label>
-
-          <label v-if="showCloudflareAccountField" class="setup-field is-wide">
-            <span class="setup-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
-            <QInput
-              v-model="llmForm.cloudflare_account_id"
-              :placeholder="t('settings_agent_cloudflare_account_placeholder')"
-              :disabled="loading || saving"
-            />
           </label>
 
           <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
@@ -1391,7 +1583,7 @@ const SetupView = {
           :showIntro="false"
           @retry="runConnectionTest"
         />
-      </section>
+      </QCard>
     </section>
   `,
 };
