@@ -2,7 +2,7 @@
 
 ## Start Here
 
-- [Top-level README](../README.md)
+- [README](../README.md)
 - [Desktop App](./app.md)
 - [Modes](./modes.md)
 - [Configuration](./configuration.md)

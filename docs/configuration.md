@@ -1,18 +1,18 @@
 # Configuration
 
-This page collects the configuration details that do not need to live on the top-level README.
+This page holds the config details moved out of the top-level README.
 
 The canonical config template is [../assets/config/config.example.yaml](../assets/config/config.example.yaml).
 
 ## Sources and Precedence
 
-`mistermorph` uses Viper, so you can configure it with:
+`mistermorph` uses Viper. You can configure it with:
 
 - CLI flags
 - environment variables
 - a config file
 
-Precedence for config-sourced values is:
+Precedence:
 
 `CLI flag > MISTER_MORPH_* env > config.yaml > default`
 
@@ -24,7 +24,7 @@ Supported config file formats:
 - `.toml`
 - `.ini`
 
-Environment variable rules:
+Env var rules:
 
 - prefix: `MISTER_MORPH_`
 - nested keys: replace `.` and `-` with `_`
@@ -137,7 +137,7 @@ Global flags:
 - `MISTER_MORPH_SLACK_APP_TOKEN`
 - `MISTER_MORPH_FILE_CACHE_DIR`
 
-Provider-specific values follow the same mapping. Examples:
+Provider-specific values use the same mapping. Examples:
 
 - `llm.azure.deployment` -> `MISTER_MORPH_LLM_AZURE_DEPLOYMENT`
 - `llm.bedrock.model_arn` -> `MISTER_MORPH_LLM_BEDROCK_MODEL_ARN`
@@ -190,7 +190,7 @@ Auth profiles and secrets:
 - `auth_profiles.<id>.credential.secret` holds the secret value.
 - Use `${ENV_VAR}` for secret references.
 
-If at least one allowlisted auth profile is configured, `bash` still works but `curl` is denied by default. Authenticated HTTP should go through `url_fetch` with an auth profile.
+If you configure at least one allowlisted auth profile, `bash` still works but `curl` is denied by default. Use `url_fetch` for authenticated HTTP.
 
 ## Example
 

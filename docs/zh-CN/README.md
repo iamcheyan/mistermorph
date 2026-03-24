@@ -10,7 +10,7 @@
 
 - 🖥️ App 优先的上手路径：桌面 App 去掉了过去那种多终端启动流程，但 CLI 仍然保留，适合脚本和自动化。
 - 🧩 可复用的 Go 核心：既可以把 Mister Morph 当桌面 App、CLI、Console 后端来运行，也可以嵌入到其他 Go 项目里。
-- 🔀 一个后端，多种入口：桌面 App、Console server、CLI、各类渠道 runtime 都建立在同一套核心运行时之上。
+- 🤝 Connection：基于 [Aqua](https://mistermorph.com/aqua)，多个 agent 可以彼此对话，一起规划和协作。
 - 🛠️ 实用的扩展模型：内置工具、`SKILL.md` 技能系统，以及 Go 嵌入层，覆盖本地使用、自动化和集成。
 - 🔒 从设计上考虑安全：auth profiles、出站策略、审批与脱敏都属于运行时模型的一部分。
 
