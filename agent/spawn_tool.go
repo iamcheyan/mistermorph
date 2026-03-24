@@ -93,6 +93,11 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 		defer cleanup()
 	}
 
+	subOpts := []Option{WithLogger(t.engine.log)}
+	if t.engine.guard != nil {
+		subOpts = append(subOpts, WithGuard(t.engine.guard))
+	}
+
 	subEngine := New(client, subRegistry, Config{
 		MaxSteps:        t.engine.config.MaxSteps,
 		MaxTokenBudget:  t.engine.config.MaxTokenBudget,
@@ -100,7 +105,7 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 		ToolRepeatLimit: t.engine.config.ToolRepeatLimit,
 		DefaultModel:    model,
 		ToolCallTimeout: t.engine.config.ToolCallTimeout,
-	}, t.engine.spec, WithLogger(t.engine.log))
+	}, t.engine.spec, subOpts...)
 
 	final, _, err := subEngine.Run(ctx, task, RunOptions{Model: model})
 	if err != nil {

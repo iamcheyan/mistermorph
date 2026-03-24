@@ -261,6 +261,7 @@ func New(deps Dependencies) *cobra.Command {
 					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 					ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 					SpawnEnabled:    configutil.FlagOrViperBool(cmd, "spawn-enabled", "spawn_enabled"),
+					DefaultModel:    strings.TrimSpace(mainCfg.Model),
 				},
 				promptSpec,
 				opts...,

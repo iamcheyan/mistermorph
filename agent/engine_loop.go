@@ -317,28 +317,37 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
 				}
 
-				switch {
-				case sig != "" && st.seenToolCallSignatures[sig]:
-					items[i].observation = duplicateToolCallObservation(tc.Name)
-					items[i].err = fmt.Errorf("duplicate tool call blocked")
+			switch {
+			case sig != "" && st.seenToolCallSignatures[sig]:
+				items[i].observation = duplicateToolCallObservation(tc.Name)
+				items[i].err = fmt.Errorf("duplicate tool call blocked")
+				items[i].skip = true
+			case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
+				items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
+				items[i].err = fmt.Errorf("tool repeat limit reached")
+				items[i].skip = true
+			default:
+				remaining := toolCalls[i+1:]
+				obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
+				if pPaused {
+					pausedFinal = pFinal
+					paused = true
+				}
+				if denied {
+					items[i].observation = obs
+					items[i].err = fmt.Errorf("blocked by guard")
 					items[i].skip = true
-				case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
-					items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
-					items[i].err = fmt.Errorf("tool repeat limit reached")
-					items[i].skip = true
-				default:
-					remaining := toolCalls[i+1:]
-					obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
-					if pPaused {
-						pausedFinal = pFinal
-						paused = true
+				} else if !paused {
+					// Reserve signature/count so later items in this batch
+					// are correctly deduped and repeat-limited.
+					if sig != "" {
+						st.seenToolCallSignatures[sig] = true
 					}
-					if denied {
-						items[i].observation = obs
-						items[i].err = fmt.Errorf("blocked by guard")
-						items[i].skip = true
+					if toolNameKey != "" {
+						st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
 					}
 				}
+			}
 				if paused {
 					break
 				}
@@ -402,14 +411,15 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					item.observation, item.err = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
 				}
 
-				if item.executed && item.err == nil {
-					if item.toolNameKey != "" {
-						st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] + 1
-					}
-					if item.sig != "" {
-						st.seenToolCallSignatures[item.sig] = true
-					}
+			if item.executed && item.err != nil {
+				// Roll back pre-reserved counts from Phase 1 for failed executions.
+				if item.toolNameKey != "" && st.toolRunCounts[item.toolNameKey] > 0 {
+					st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] - 1
 				}
+				if item.sig != "" {
+					delete(st.seenToolCallSignatures, item.sig)
+				}
+			}
 
 				st.agentCtx.RecordStep(Step{
 					StepNumber:  step,
