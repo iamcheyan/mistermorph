@@ -1,257 +1,110 @@
 # Mister Morph
 
-统一 Agent CLI 与可复用的 Go Agent 核心。
+面向本地或多渠道 Agent 的桌面 App、CLI，以及可复用的 Go 运行时。
 
-## 目录
+其他语言：[English](../../README.md) | [日本語](../ja-JP/README.md)
 
-- [为什么选择 Mister Morph](#why-mistermorph)
-- [快速开始](#quickstart)
-- [支持模型](#supported-models)
-- [Telegram 机器人模式](#telegram-bot-mode)
-- [嵌入到其他项目](#embedding-to-other-projects)
-- [内置工具](#built-in-tools)
-- [Skills（技能）](#skills)
-- [安全性](#security)
-- [故障排查](#troubleshoots)
-- [调试](#debug)
-- [配置](#configuration)
+如果你只是想先体验 Mister Morph，最简单的入口已经是桌面 App。它会自带 Console UI、自动启动本地后端，并在首次启动时引导完成配置。
 
-<a id="why-mistermorph"></a>
 ## 为什么选择 Mister Morph
 
-这个项目值得关注的原因：
+- 🖥️ App 优先的上手路径：桌面 App 去掉了过去那种多终端启动流程，但 CLI 仍然保留，适合脚本和自动化。
+- 🧩 可复用的 Go 核心：既可以把 Mister Morph 当桌面 App、CLI、Console 后端来运行，也可以嵌入到其他 Go 项目里。
+- 🔀 一个后端，多种入口：桌面 App、Console server、CLI、各类渠道 runtime 都建立在同一套核心运行时之上。
+- 🛠️ 实用的扩展模型：内置工具、`SKILL.md` 技能系统，以及 Go 嵌入层，覆盖本地使用、自动化和集成。
+- 🔒 从设计上考虑安全：auth profiles、出站策略、审批与脱敏都属于运行时模型的一部分。
 
-- 🧩 **可复用的 Go 核心**：既能把 Agent 当 CLI 运行，也能以库或子进程的方式嵌入到其他应用。
-- 🔒 **严肃的默认安全策略**：基于 profile 的凭据注入、Guard 脱敏、出站策略控制、带审计轨迹的异步审批（见 [../security.md](../security.md)）。
-- 🧰 **实用的 Skills 系统**：可从 `file_state_dir/skills` 发现并注入 `SKILL.md`，支持简单的 on/off 控制（见 [../skills.md](../skills.md)）。
-- 📚 **对新手友好**：这是一个以学习为导向的 Agent 项目；`docs/` 里有详细设计文档，也提供了 `--inspect-prompt`、`--inspect-request` 等实用调试工具。
-
-<a id="quickstart"></a>
 ## 快速开始
 
-### 第 1 步：安装
+### 桌面 App（推荐）
 
-方案 A：从 GitHub Releases 下载预构建二进制（生产环境推荐）：
+1. 从 [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) 页面下载对应平台的安装包：
+   - macOS: `mistermorph-desktop-darwin-arm64.dmg`
+   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
+   - Windows: `mistermorph-desktop-windows-amd64.zip`
+2. 启动 App。
+3. 在 App 内完成首次配置。
+4. 直接使用 Console UI，无需再手动运行 `mistermorph console serve`。
+
+构建、打包与平台说明见：[../app.md](../app.md)
+
+### CLI
+
+先安装 CLI：
 
 ```bash
-curl -fsSL -o /tmp/install-mistermorph.sh \
-  https://raw.githubusercontent.com/quailyquaily/mistermorph/main/scripts/install-release.sh
-bash /tmp/install-mistermorph.sh v0.1.0
+curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quailyquaily/mistermorph/refs/heads/master/scripts/install-release.sh
+sudo bash /tmp/install-mistermorph.sh
 ```
 
-安装脚本支持：
-
-- `bash install-release.sh <version-tag>`
-- `INSTALL_DIR=$HOME/.local/bin bash install-release.sh <version-tag>`
-
-方案 B：使用 Go 从源码安装：
+或者从源码安装：
 
 ```bash
-go install github.com/quailyquaily/mistermorph@latest
+go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 ```
 
-### 第 2 步：安装 Agent 运行所需文件与内置技能
+初始化工作目录、设置 API Key，并运行一个任务：
 
 ```bash
 mistermorph install
-# 或
-mistermorph install <dir>
-```
-
-`install` 命令会把必需文件和内置技能安装到 `~/.morph/skills/`（或你通过 `<dir>` 指定的目录）。
-
-### 第 3 步：配置 API Key
-
-不需要 `config.yaml` 也可以直接运行，推荐先用环境变量：
-
-```bash
-export MISTER_MORPH_LLM_API_KEY="YOUR_OPENAI_API_KEY_HERE"
-# 可选：显式指定默认 provider/model
-export MISTER_MORPH_LLM_PROVIDER="openai"
-export MISTER_MORPH_LLM_MODEL="gpt-5.2"
-```
-
-Mister Morph 也支持 Azure OpenAI、Anthropic Claude、AWS Bedrock 等（更多配置见 `../../assets/config/config.example.yaml`）。如果你更喜欢文件配置，也可以使用 `~/.morph/config.yaml`。
-
-### 第 4 步：首次运行
-
-```bash
+export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
 mistermorph run --task "Hello!"
 ```
 
-<a id="supported-models"></a>
-## 支持模型
+如果当前还没有 `config.yaml`，`mistermorph install` 会启动初始化向导并写入所需的工作区文件。
 
-> 模型支持情况可能因具体模型 ID、provider endpoint 能力和 tool-calling 行为而变化。
+CLI 模式与配置说明见：[../modes.md](../modes.md)、[../configuration.md](../configuration.md)
 
-| Model family | Model range | Status |
-|---|---|---|
-| GPT | `gpt-5*` | ✅ Full |
-| GPT-OSS | `gpt-oss-120b` | ✅ Full |
-| Grok | `grok-4+` | ✅ Full |
-| Claude | `claude-3.5+` | ✅ Full |
-| DeepSeek | `deepseek-3*` | ✅ Full |
-| Gemini | `gemini-2.5+` | ✅ Full |
-| Kimi | `kimi-2.5+` | ✅ Full |
-| MiniMax | `minimax* / minimax-m2.5+` | ✅ Full |
-| GLM | `glm-4.6+` | ✅ Full |
-| Cloudflare Workers AI | `Workers AI model IDs` | ⚠️ Limited (no tool calling) |
+## Mister Morph 包含什么
 
-<a id="telegram-bot-mode"></a>
-## Telegram 机器人模式
+- 桌面 App：适合本地使用，带首次配置流程与内置 Console UI。
+- CLI：适合单次任务、脚本调用、自动化与服务模式。
+- 本地 Console 服务：提供浏览器中的设置、运行态管理与监控界面。
+- 渠道运行时：Telegram、Slack、LINE、Lark。
+- 可嵌入的 Go 集成层：方便在其他项目中复用 Mister Morph。
+- 内置工具与基于 `SKILL.md` 的技能系统。
+- 面向真实运行环境的安全控制：auth profiles、出站策略、审批与脱敏。
 
-通过长轮询运行 Telegram 机器人，这样你就可以直接在 Telegram 里和 Agent 对话：
+## 文档导航
 
-编辑 `~/.morph/config.yaml`，设置 Telegram bot token：
+入门：
 
-```yaml
-telegram:
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-  allowed_chat_ids: [] # 在这里加入允许的 chat id
-```
+- [桌面 App](../app.md)
+- [运行模式](../modes.md)
+- [配置](../configuration.md)
+- [故障排查](../troubleshoots.md)
 
-```bash
-mistermorph telegram --log-level info
-```
+参考：
 
-说明：
-- 使用 `/id` 获取当前 chat id，并把它加入 `allowed_chat_ids` 白名单。
-- 在群聊里，回复机器人消息或提及 `@BotUsername` 会触发响应。
-- 你可以发送文件；文件会下载到 `file_cache_dir/telegram/`，Agent 可以处理它。Agent 也能通过 `telegram_send_file` 回传缓存文件，通过 `telegram_send_photo` 回传缓存图片，还可以通过 `telegram_send_voice` 发送位于 `file_cache_dir` 的本地语音文件。
-- 每个 chat 会保留最近一次加载的 skill（sticky），后续消息不会“忘记” `SKILL.md`；可用 `/reset` 清除。
-- `telegram.group_trigger_mode=smart` 会让每条群消息都进入 addressing LLM 判定；触发需满足 `addressed=true`，且 `confidence >= telegram.addressing_confidence_threshold`、`interject > telegram.addressing_interject_threshold`。
-- `telegram.group_trigger_mode=talkative` 也会让每条群消息进入 addressing LLM 判定，但不要求 `addressed=true`（仍受 confidence/interject 阈值控制）。
-- 可在 chat 中使用 `/reset` 清空对话历史。
-- 默认支持多 chat 并发处理，但单个 chat 内按串行处理（配置项：`telegram.max_concurrency`）。
+- [Console](../console.md)
+- [Tools](../tools.md)
+- [Skills](../skills.md)
+- [Security](../security.md)
+- [Integration](../integration.md)
+- [Architecture](../arch.md)
 
-<a id="embedding-to-other-projects"></a>
-## 嵌入到其他项目
+渠道接入：
 
-请参见 [../integration.md](../integration.md) 获取嵌入模式与示例。
+- [Telegram](../telegram.md)
+- [Slack](../slack.md)
+- [LINE](../line.md)
+- [Lark](../lark.md)
 
-<a id="built-in-tools"></a>
-## 内置工具
+完整文档索引：[../README.md](../README.md)
 
-Agent 可用的核心工具：
+## 开发
 
-- `read_file`：读取本地文本文件。
-- `write_file`：将文本文件写入 `file_cache_dir` 或 `file_state_dir`。
-- `bash`：执行 shell 命令（默认禁用）。
-- `url_fetch`：发起 HTTP 请求（可选 auth profile）。
-- `web_search`：网页搜索（DuckDuckGo HTML）。
-- `plan_create`：生成结构化计划。
-
-频道运行时工具：
-
-- `telegram_send_file`：在 Telegram 发送文件（仅 Telegram）。
-- `telegram_send_photo`：在 Telegram 发送图片（仅 Telegram）。
-- `telegram_send_voice`：在 Telegram 发送语音消息（仅 Telegram）。
-- `message_react`：在消息上添加 emoji reaction（Telegram/Slack 运行时，参数随频道不同）。
-
-详细工具文档请见 [../tools.md](../tools.md)。
-
-<a id="skills"></a>
-## Skills（技能）
-
-`mistermorph` 可以在 `file_state_dir/skills` 下递归发现 skills，并将选中的 `SKILL.md` 内容注入 system prompt。
-
-默认情况下，`run` 使用 `skills.enabled=true`；`skills.load=[]` 表示加载全部已发现技能，未知技能名会被忽略。
-
-文档： [../skills.md](../skills.md)。
+常用本地命令：
 
 ```bash
-# 列出可用 skills
-mistermorph skills list
-# 在 run 命令中使用指定 skill
-mistermorph run --task "..." --skills-enabled --skill skill-name
-# 安装远程 skill
-mistermorph skills install <remote-skill-url>
+./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-desktop.sh --release
+go test ./...
 ```
 
-### Skills 的安全机制
+Console 前端位于 `web/console/`，使用 `pnpm`。本地构建细节见：[../console.md](../console.md) 与 [../app.md](../app.md)。
 
-1. 安装审计：安装远程 skill 时，Mister Morph 会先预览技能内容，并做基础安全审计（例如扫描脚本中的危险命令），再请求用户确认。
-2. Auth profiles：skill 可以在 `auth_profiles` 字段声明依赖的认证配置。这里的声明只用于提示和上下文，不构成权限边界。真正的授权只来自宿主机配置里的 `secrets.allow_profiles` 和 `auth_profiles`（见 `../../assets/skills/moltbook` 以及配置文件相关部分）。
+## 配置模板
 
-<a id="security"></a>
-## 安全性
-
-推荐的 systemd 加固与密钥管理方式： [../security.md](../security.md)。
-
-<a id="troubleshoots"></a>
-## 故障排查
-
-已知问题与规避建议： [../troubleshoots.md](../troubleshoots.md)。
-
-<a id="debug"></a>
-## 调试
-
-### 日志
-
-可通过参数 `--log-level` 设置日志级别与格式：
-
-```bash
-mistermorph run --log-level debug --task "..."
-```
-
-### 导出内部调试数据
-
-可用 `--inspect-prompt` / `--inspect-request` 这两个参数导出内部状态，便于调试：
-
-```bash
-mistermorph run --inspect-prompt --inspect-request --task "..."
-```
-
-这些参数会把最终 system/user/tool prompt，以及完整 LLM 请求/响应 JSON，以纯文本形式输出到 `./dump` 目录。
-
-<a id="configuration"></a>
-## 配置
-
-`mistermorph` 使用 Viper，因此你可以通过 flags、环境变量或配置文件进行配置。
-
-- 配置文件：`--config /path/to/config.yaml`（支持 `.yaml/.yml/.json/.toml/.ini`）
-- 环境变量前缀：`MISTER_MORPH_`
-- 嵌套键：将 `.` 和 `-` 替换为 `_`（例如 `tools.bash.enabled` → `MISTER_MORPH_TOOLS_BASH_ENABLED=true`）
-
-### CLI 参数
-
-**全局（所有命令）**
-- `--config`
-- `--log-level`
-- `--log-format`
-- `--log-add-source`
-- `--log-include-thoughts`
-- `--log-include-tool-params`
-- `--log-include-skill-contents`
-- `--log-max-thought-chars`
-- `--log-max-json-bytes`
-- `--log-max-string-value-chars`
-- `--log-max-skill-content-chars`
-- `--log-redact-key`（可重复）
-
-**run**
-- `--task`
-- `--provider`
-- `--endpoint`
-- `--model`
-- `--api-key`
-- `--llm-request-timeout`
-- `--interactive`
-- `--skills-dir`（可重复）
-- `--skill`（可重复）
-- `--skills-enabled`
-- `--max-steps`
-- `--parse-retries`
-- `--max-token-budget`
-- `--timeout`
-- `--inspect-prompt`
-- `--inspect-request`
-
-**submit**
-- `--task`
-- `--server-url`
-- `--auth-token`
-- `--model`
-- `--submit-timeout`
-- `--wait`
-- `--poll-interval`
+规范配置模板在 [../../assets/config/config.example.yaml](../../assets/config/config.example.yaml)。
+环境变量统一使用 `MISTER_MORPH_` 前缀。完整配置说明与常用 flags 见 [../configuration.md](../configuration.md)。

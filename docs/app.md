@@ -1,31 +1,38 @@
-# Desktop App Wrapper (Wails)
+# Desktop App
 
-This document describes the current desktop wrapper architecture for MisterMorph.
+Mister Morph ships a desktop App that wraps the existing Console backend and UI into a single local experience.
 
-## 1. Goal
+## User Quick Start
 
-Provide a single desktop app entrypoint that:
+Download a release asset from the [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) page:
 
-- launches the Console UI without asking users to run multiple terminal commands
-- supports first-run setup in Console
-- reuses existing backend (`mistermorph console serve`) and existing web console (`web/console`)
+- macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
+- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`
+- Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
 
-## 2. Current Shape
+Then:
 
-The desktop app is implemented under `desktop/wails` and built with tag `wailsdesktop production`.
+1. launch the App
+2. complete the setup flow inside the App
+3. let the App start and host the local Console for you
 
-- Wails process hosts the native window and Go bindings.
-- A child process runs `mistermorph console serve`.
-- Wails asset handler reverse-proxies WebView requests to the child process.
+You do not need to run `mistermorph console serve` manually when using the App.
 
-This keeps CLI and console backend logic unchanged and limits wrapper-specific code to a small area.
-The desktop wrapper is intentionally thin: lifecycle + process hosting + proxy only, no business rules.
+## Current Shape
 
-## 3. ASCII Architecture
+The desktop code lives under `desktop/wails` and is built with `wailsdesktop production`.
+
+- the Wails process owns the native window and Go bindings
+- a child process runs `mistermorph console serve`
+- the App routes WebView traffic to that local child process
+
+The wrapper stays intentionally thin: lifecycle, process hosting, restart flow, and local proxying only.
+
+## Architecture
 
 ```text
 +--------------------------------------------------------------+
-| Desktop App Process (Wails)                                 |
+| Desktop App Process (Wails)                                  |
 |                                                              |
 |  +----------------------+        +------------------------+  |
 |  | WebView (UI)         | <----> | Reverse Proxy Handler  |  |
@@ -49,97 +56,93 @@ The desktop wrapper is intentionally thin: lifecycle + process hosting + proxy o
                            +----------------------------------+
 ```
 
-## 4. Startup Sequence
+## Startup and Restart
+
+Startup sequence:
 
 ```text
-Desktop main
+desktop main
   -> resolve backend binary path
   -> reserve random loopback port
   -> spawn child: mistermorph console serve
-       --console-listen 127.0.0.1:<port>
-       --console-base-path /console
-       --allow-empty-password
   -> poll GET /health until ready
-  -> start Wails window
-  -> proxy requests to child process
+  -> open native window
+  -> proxy requests to the child process
 ```
 
-If health check timeout is reached, app startup fails fast with stderr message.
-
-## 5. First-run Setup Flow
+First run:
 
 ```text
 incomplete config
   -> console backend starts with allow-empty-password
-  -> frontend router redirects to /setup
-  -> user submits setup form (agent settings + identity/soul)
-  -> frontend calls Wails binding `window.go.main.App.RestartApp()`
+  -> frontend routes to /setup
+  -> user saves agent settings + identity/soul
+  -> frontend calls App.RestartApp()
 ```
 
-## 6. Restart Flow
+`App.RestartApp()` starts a new copy of the current desktop executable and then quits the old one.
 
-`App.RestartApp()` in desktop binding:
+## Paths and Configuration
 
-- spawns a new instance of current executable (`os.Executable()` + original args)
-- then quits current Wails process
-
-This is used after successful setup apply.
-
-## 7. Paths and Configuration
-
-- frontend static assets default: embedded in the `mistermorph` backend binary
-- override static assets path with existing backend settings:
+- Console frontend assets are embedded in the bundled `mistermorph` backend by default.
+- You can override static assets with:
   - `console.static_dir`
   - `--console-static-dir /abs/path/to/dist`
-- `--config <path>` passed to desktop app is forwarded to child `console serve`.
+- `--config <path>` passed to the desktop App is forwarded to the child `console serve` process.
 
-## 8. Build and Run
+## Local Build and Run
 
-Build console assets first:
-
-```bash
-pnpm --dir web/console build
-./scripts/stage-console-assets.sh
-go build -o ./bin/mistermorph ./cmd/mistermorph
-```
-
-On Ubuntu/Debian with WebKitGTK 4.1, install the native Linux desktop deps first:
+On Ubuntu or Debian, install desktop build dependencies first:
 
 ```bash
 sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 ```
 
-Run desktop app:
+Build the backend binary used by the desktop wrapper:
+
+```bash
+./scripts/build-backend.sh --output ./bin/mistermorph
+```
+
+Build a local desktop release binary:
+
+```bash
+./scripts/build-desktop.sh --release
+```
+
+Run from source:
 
 ```bash
 go run -tags 'wailsdesktop production' ./desktop/wails
 ```
 
-Build desktop binary:
+Build only the desktop wrapper directly:
 
 ```bash
 go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
 ```
 
-## 9. Packaging
+For local debug builds with DevTools, use:
 
-Tag releases build these desktop assets in GitHub Actions:
+```bash
+./scripts/build-desktop.sh
+```
+
+## Release Packaging
+
+Tagged releases currently publish:
 
 - macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
 - Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`
-- Windows `amd64`: `mistermorph-desktop-windows-amd64.exe`
+- Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
 
-The DMG and AppImage packaging steps also bundle a sibling `mistermorph` backend binary next to the desktop wrapper executable inside the package. That lets the desktop host find `console serve` locally before falling back to PATH or GitHub release download.
+The packaged desktop App includes a sibling `mistermorph` backend binary so the wrapper can start `console serve` locally without a first-run download.
 
-## 10. Security and Scope Notes
+That bundled backend is intentionally built with `CGO_ENABLED=0`. Keep it that way unless there is a deliberate packaging plan to change the constraint.
 
-- Child process listens on loopback only (`127.0.0.1`).
-- Child process only binds to loopback; no external listener is exposed.
-- This is an MVP wrapper, not yet a full packaging/distribution pipeline.
+## Known Gaps
 
-## 11. Known Gaps
-
-- No notarization/codesign flow yet for the macOS DMG.
-- Windows still ships as a raw `.exe`; no NSIS/MSIX packaging yet.
-- No dedicated UI for backend startup failure details yet.
-- CLI reuse is done through child process orchestration, not an extracted in-process console module.
+- No notarization or codesign flow yet for the macOS DMG.
+- Windows ships as a zip bundle, not an installer.
+- No dedicated UI yet for detailed backend startup failures.
+- The desktop wrapper still reuses the CLI backend through child-process orchestration rather than an in-process console module.

@@ -1,258 +1,110 @@
 # Mister Morph
 
-統合 Agent CLI と再利用可能な Go エージェントコア。
+ローカルまたは各種チャネル接続で動かす Agent 向けのデスクトップ App、CLI、そして再利用可能な Go ランタイムです。
 
-## 目次
+他の言語：[English](../../README.md) | [简体中文](../zh-CN/README.md)
 
-- [Mister Morph を選ぶ理由](#why-mistermorph)
-- [クイックスタート](#quickstart)
-- [対応モデル](#supported-models)
-- [Telegram ボットモード](#telegram-bot-mode)
-- [他プロジェクトへの組み込み](#embedding-to-other-projects)
-- [組み込みツール](#built-in-tools)
-- [Skills（スキル）](#skills)
-- [セキュリティ](#security)
-- [トラブルシュート](#troubleshoots)
-- [デバッグ](#debug)
-- [設定](#configuration)
+まず触ってみたいだけなら、いまはデスクトップ App が最短です。Console UI を同梱し、ローカルバックエンドの起動も引き受け、初回セットアップも App 内で完結します。
 
-<a id="why-mistermorph"></a>
 ## Mister Morph を選ぶ理由
 
-このプロジェクトの主な特徴は次のとおりです。
+- 🖥️ App 起点で始めやすい: デスクトップ App によって以前のような複数ターミナル前提の導入が不要になり、必要なら CLI もそのまま使えます。
+- 🧩 再利用可能な Go コア: デスクトップ App、CLI、Console バックエンドとして動かすだけでなく、他の Go プロジェクトへ組み込むこともできます。
+- 🔀 1 つのバックエンドを複数入口で共有: デスクトップ App、Console server、CLI、各チャネル runtime が同じ中核ランタイムを使います。
+- 🛠️ 実用的な拡張モデル: 組み込みツール、`SKILL.md` ベースのスキル、Go への組み込みでローカル利用から自動化、統合までカバーします。
+- 🔒 セキュリティを前提にした設計: auth profiles、送信先ポリシー、承認、秘匿化がランタイムモデルに組み込まれています。
 
-- 🧩 **再利用しやすい Go コア**: Agent を CLI として実行するだけでなく、ライブラリやサブプロセスとして他アプリへ組み込めます。
-- 🤝 **Mesh Agent Exchange Protocol（MAEP）**: 複数の Agent を運用し、相互にメッセージをやり取りしたい場合に MAEP を使えます。信頼状態と監査トレイルを備えた P2P プロトコルです（[../maep.md](../maep.md) を参照、WIP）。
-- 🔒 **実運用を意識した安全なデフォルト**: プロファイルベースの資格情報注入、Guard によるマスキング、アウトバウンドポリシー制御、監査トレイル付きの非同期承認を提供します（[../security.md](../security.md) を参照）。
-- 🧰 **実用的な Skills システム**: `file_state_dir/skills` から `SKILL.md` を検出して注入でき、シンプルな on/off 制御に対応します（[../skills.md](../skills.md) を参照）。
-- 📚 **学習しやすい構成**: 学習重視の Agent プロジェクトとして設計されており、`docs/` に詳細な設計ドキュメントがあり、`--inspect-prompt` や `--inspect-request` など実用的なデバッグ機能も用意されています。
-
-<a id="quickstart"></a>
 ## クイックスタート
 
-### ステップ 1: インストール
+### デスクトップ App（推奨）
 
-方法 A: GitHub Releases からビルド済みバイナリを取得（本番用途では推奨）。
+1. [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) ページから対象プラットフォームの配布物を取得します。
+   - macOS: `mistermorph-desktop-darwin-arm64.dmg`
+   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
+   - Windows: `mistermorph-desktop-windows-amd64.zip`
+2. App を起動します。
+3. App 内のセットアップフローを完了します。
+4. そのまま Console UI を使います。`mistermorph console serve` を手動で起動する必要はありません。
+
+ビルド、パッケージ、プラットフォーム別メモは [../app.md](../app.md) を参照してください。
+
+### CLI
+
+まず CLI をインストールします。
 
 ```bash
-curl -fsSL -o /tmp/install-mistermorph.sh \
-  https://raw.githubusercontent.com/quailyquaily/mistermorph/main/scripts/install-release.sh
-bash /tmp/install-mistermorph.sh v0.1.0
+curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quailyquaily/mistermorph/refs/heads/master/scripts/install-release.sh
+sudo bash /tmp/install-mistermorph.sh
 ```
 
-インストーラースクリプトは次の実行方法に対応しています。
-
-- `bash install-release.sh <version-tag>`
-- `INSTALL_DIR=$HOME/.local/bin bash install-release.sh <version-tag>`
-
-方法 B: Go でソースからインストール。
+またはソースからインストールします。
 
 ```bash
-go install github.com/quailyquaily/mistermorph@latest
+go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 ```
 
-### ステップ 2: Agent の必須ファイルと組み込みスキルをインストール
+ワークスペースを初期化し、API Key を設定して、1 回タスクを実行します。
 
 ```bash
 mistermorph install
-# または
-mistermorph install <dir>
-```
-
-`install` コマンドは、必須ファイルと組み込みスキルを `~/.morph/skills/`（または `<dir>` で指定したディレクトリ）にインストールします。
-
-### ステップ 3: API キーを設定
-
-`config.yaml` がなくても、まずは環境変数だけで実行できます。
-
-```bash
-export MISTER_MORPH_LLM_API_KEY="YOUR_OPENAI_API_KEY_HERE"
-# 任意: 既定の provider/model を明示
-export MISTER_MORPH_LLM_PROVIDER="openai"
-export MISTER_MORPH_LLM_MODEL="gpt-5.2"
-```
-
-Mister Morph は Azure OpenAI、Anthropic Claude、AWS Bedrock などにも対応しています（詳細は `../../assets/config/config.example.yaml` を参照）。ファイルベースの設定を使いたい場合は `~/.morph/config.yaml` も利用できます。
-
-### ステップ 4: 初回実行
-
-```bash
+export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
 mistermorph run --task "Hello!"
 ```
 
-<a id="supported-models"></a>
-## 対応モデル
+まだ `config.yaml` がない場合、`mistermorph install` がセットアップウィザードを起動し、必要なワークスペースファイルを書き出します。
 
-> モデル対応状況は、モデル ID・provider endpoint の機能・tool-calling の挙動によって変わる場合があります。
+CLI モードと設定の詳細は [../modes.md](../modes.md) と [../configuration.md](../configuration.md) を参照してください。
 
-| Model family | Model range | Status |
-|---|---|---|
-| GPT | `gpt-5*` | ✅ Full |
-| GPT-OSS | `gpt-oss-120b` | ✅ Full |
-| Grok | `grok-4+` | ✅ Full |
-| Claude | `claude-3.5+` | ✅ Full |
-| DeepSeek | `deepseek-3*` | ✅ Full |
-| Gemini | `gemini-2.5+` | ✅ Full |
-| Kimi | `kimi-2.5+` | ✅ Full |
-| MiniMax | `minimax* / minimax-m2.5+` | ✅ Full |
-| GLM | `glm-4.6+` | ✅ Full |
-| Cloudflare Workers AI | `Workers AI model IDs` | ⚠️ Limited (no tool calling) |
+## Mister Morph に含まれるもの
 
-<a id="telegram-bot-mode"></a>
-## Telegram ボットモード
+- 初回セットアップと内蔵 Console UI を備えたデスクトップ App
+- 単発タスク、スクリプト、自動化、サーバーモード向けの CLI
+- ブラウザ上で設定、運用、監視を行うローカル Console サーバー
+- Telegram、Slack、LINE、Lark 向けランタイム
+- 他プロジェクトへ組み込める Go 統合レイヤー
+- 組み込みツール群と `SKILL.md` ベースのスキルシステム
+- auth profiles、送信先ポリシー、承認、秘匿化などのセキュリティ制御
 
-Telegram から Agent と会話できるように、Telegram ボット（ロングポーリング）を起動します。
+## ドキュメント
 
-`~/.morph/config.yaml` を編集し、Telegram ボットトークンを設定します。
+まず読むもの：
 
-```yaml
-telegram:
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-  allowed_chat_ids: [] # 許可する chat id をここに追加
-```
+- [デスクトップ App](../app.md)
+- [モード](../modes.md)
+- [設定](../configuration.md)
+- [トラブルシュート](../troubleshoots.md)
 
-```bash
-mistermorph telegram --log-level info
-```
+リファレンス：
 
-補足:
-- `/id` で現在の chat id を取得し、`allowed_chat_ids` に追加して許可リスト化します。
-- グループでは、ボットへの返信または `@BotUsername` メンションで応答します。
-- ファイルを送信すると `file_cache_dir/telegram/` に保存され、Agent が処理できます。`telegram_send_file` でキャッシュ済みファイルを送信でき、`telegram_send_photo` でキャッシュ済み画像を送信でき、`telegram_send_voice` で `file_cache_dir` 配下のローカル音声ファイルも送信できます。
-- 最後に読み込んだスキルはチャット単位で保持されるため、後続メッセージでも `SKILL.md` の文脈が維持されます。`/reset` でクリアできます。
-- `telegram.group_trigger_mode=smart` は、グループ内の各メッセージを addressing LLM で判定します。受理には `addressed=true` かつ `confidence >= telegram.addressing_confidence_threshold`、`interject > telegram.addressing_interject_threshold` が必要です。
-- `telegram.group_trigger_mode=talkative` も各メッセージを addressing LLM で判定しますが、`addressed=true` は必須ではありません（confidence/interject の閾値は適用されます）。
-- チャットで `/reset` を実行すると会話履歴をクリアできます。
-- 既定では複数チャットを並列処理しつつ、各チャット内は直列で処理します（設定: `telegram.max_concurrency`）。
+- [Console](../console.md)
+- [Tools](../tools.md)
+- [Skills](../skills.md)
+- [Security](../security.md)
+- [Integration](../integration.md)
+- [Architecture](../arch.md)
 
-<a id="embedding-to-other-projects"></a>
-## 他プロジェクトへの組み込み
+チャネル設定：
 
-[../integration.md](../integration.md) に組み込みパターンとサンプルをまとめています。
+- [Telegram](../telegram.md)
+- [Slack](../slack.md)
+- [LINE](../line.md)
+- [Lark](../lark.md)
 
-<a id="built-in-tools"></a>
-## 組み込みツール
+完全なドキュメント一覧は [../README.md](../README.md) を参照してください。
 
-Agent が利用できる主要ツール:
+## 開発
 
-- `read_file`: ローカルのテキストファイルを読み取る。
-- `write_file`: `file_cache_dir` または `file_state_dir` 配下にテキストファイルを書き込む。
-- `bash`: シェルコマンドを実行する（デフォルトでは無効）。
-- `url_fetch`: 認証プロファイル指定に対応した HTTP 取得。
-- `web_search`: Web 検索（DuckDuckGo HTML）。
-- `plan_create`: 構造化された計画を生成。
-
-チャネル実行時ツール:
-
-- `telegram_send_file`: Telegram にファイルを送信（Telegram のみ）。
-- `telegram_send_photo`: Telegram に画像を送信（Telegram のみ）。
-- `telegram_send_voice`: Telegram に音声メッセージを送信（Telegram のみ）。
-- `message_react`: メッセージに絵文字リアクションを追加（Telegram/Slack 実行時。パラメータはチャネルごとに異なる）。
-
-詳しくは [../tools.md](../tools.md) を参照してください。
-
-<a id="skills"></a>
-## Skills（スキル）
-
-`mistermorph` は `file_state_dir/skills` を再帰的に探索し、選択した `SKILL.md` の内容を system prompt に注入できます。
-
-デフォルトでは `run` は `skills.enabled=true` を使います。`skills.load=[]` は検出した全スキルを読み込み、未知のスキル名は無視されます。
-
-ドキュメント: [../skills.md](../skills.md)
+よく使うローカルコマンド：
 
 ```bash
-# 利用可能なスキル一覧
-mistermorph skills list
-# run コマンドで特定スキルを使用
-mistermorph run --task "..." --skills-enabled --skill skill-name
-# リモートスキルをインストール
-mistermorph skills install <remote-skill-url>
+./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-desktop.sh --release
+go test ./...
 ```
 
-### Skills のセキュリティ機構
+Console フロントエンドは `web/console/` にあり、`pnpm` を使います。ローカルビルドの詳細は [../console.md](../console.md) と [../app.md](../app.md) を参照してください。
 
-1. インストール監査: リモートスキルをインストールする際、Mister Morph は内容を事前表示し、基本的なセキュリティ監査（例: スクリプト内の危険コマンド検出）を行ったうえでユーザー確認を求めます。
-2. Auth profiles: スキルは `auth_profiles` フィールドで必要な認証プロファイルを宣言できます。これはあくまで宣言であり、権限境界ではありません。実際の許可はホスト側の `secrets.allow_profiles` と `auth_profiles` だけで決まります（`../../assets/skills/moltbook` と設定ファイル内の関連セクションを参照）。
+## 設定テンプレート
 
-<a id="security"></a>
-## セキュリティ
-
-systemd ハードニングとシークレット管理の推奨事項は [../security.md](../security.md) を参照してください。
-
-<a id="troubleshoots"></a>
-## トラブルシュート
-
-既知の問題と回避策: [../troubleshoots.md](../troubleshoots.md)
-
-<a id="debug"></a>
-## デバッグ
-
-### ログ
-
-`--log-level` 引数でログレベルと形式を設定できます。
-
-```bash
-mistermorph run --log-level debug --task "..."
-```
-
-### 内部デバッグ情報のダンプ
-
-`--inspect-prompt` / `--inspect-request` を指定すると、デバッグ用に内部状態を出力できます。
-
-```bash
-mistermorph run --inspect-prompt --inspect-request --task "..."
-```
-
-これらの引数を使うと、最終的な system/user/tool プロンプトと、LLM のリクエスト/レスポンス JSON 全体がプレーンテキストとして `./dump` ディレクトリに保存されます。
-
-<a id="configuration"></a>
-## 設定
-
-`mistermorph` は Viper を使用しているため、フラグ、環境変数、設定ファイルのいずれでも設定できます。
-
-- 設定ファイル: `--config /path/to/config.yaml`（`.yaml/.yml/.json/.toml/.ini` をサポート）
-- 環境変数プレフィックス: `MISTER_MORPH_`
-- ネストしたキー: `.` と `-` を `_` に置換（例: `tools.bash.enabled` → `MISTER_MORPH_TOOLS_BASH_ENABLED=true`）
-
-### CLI フラグ
-
-**グローバル（全コマンド共通）**
-- `--config`
-- `--log-level`
-- `--log-format`
-- `--log-add-source`
-- `--log-include-thoughts`
-- `--log-include-tool-params`
-- `--log-include-skill-contents`
-- `--log-max-thought-chars`
-- `--log-max-json-bytes`
-- `--log-max-string-value-chars`
-- `--log-max-skill-content-chars`
-- `--log-redact-key`（繰り返し指定可）
-
-**run**
-- `--task`
-- `--provider`
-- `--endpoint`
-- `--model`
-- `--api-key`
-- `--llm-request-timeout`
-- `--interactive`
-- `--skills-dir`（繰り返し指定可）
-- `--skill`（繰り返し指定可）
-- `--skills-enabled`
-- `--max-steps`
-- `--parse-retries`
-- `--max-token-budget`
-- `--timeout`
-- `--inspect-prompt`
-- `--inspect-request`
-
-**submit**
-- `--task`
-- `--server-url`
-- `--auth-token`
-- `--model`
-- `--submit-timeout`
-- `--wait`
-- `--poll-interval`
+正規の設定テンプレートは [../../assets/config/config.example.yaml](../../assets/config/config.example.yaml) にあります。
+環境変数は `MISTER_MORPH_` プレフィックスを使います。設定と代表的な flags の詳細は [../configuration.md](../configuration.md) にまとめています。

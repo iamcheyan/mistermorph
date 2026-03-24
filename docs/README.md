@@ -1,35 +1,35 @@
-# Documentation Index
+# Docs
 
-## Core Docs
+## Start Here
 
-Core components:
+- [Top-level README](../README.md)
+- [Desktop App](./app.md)
+- [Modes](./modes.md)
+- [Configuration](./configuration.md)
+- [Troubleshoots](./troubleshoots.md)
+
+## Product Reference
+
+- [Console](./console.md)
+- [Tools](./tools.md)
+- [Skills](./skills.md)
+- [Security](./security.md)
+- [Integration](./integration.md)
+
+## Architecture
 
 - [Architecture](./arch.md)
 - [Runtime Layers](./runtime_layers.md)
 - [Prompt System](./prompt.md)
-- [Tools](./tools.md)
-- [Skills](./skills.md)
 - [Memory](./memory.md)
+- [Bus](./bus.md)
 
-Channels:
+## Channels
 
 - [Telegram](./telegram.md)
 - [Slack](./slack.md)
 - [LINE](./line.md)
-- [Lark (Planned)](./lark.md)
-- [Bus](./bus.md)
-
-Integration:
-
-- [Integration](./integration.md)
-
-Others:
-
-- [Modes](./modes.md)
-- [Console](./console.md)
-- [Desktop App Wrapper](./app.md)
-- [Security](./security.md)
-- [Troubleshoots](./troubleshoots.md)
+- [Lark](./lark.md)
 
 ## Localized README
 
