@@ -260,6 +260,7 @@ func New(deps Dependencies) *cobra.Command {
 					ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
 					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 					ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
+					SpawnEnabled:    configutil.FlagOrViperBool(cmd, "spawn-enabled", "spawn_enabled"),
 				},
 				promptSpec,
 				opts...,
@@ -314,6 +315,7 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Int("parse-retries", 2, "Max JSON parse retries.")
 	cmd.Flags().Int("max-token-budget", 0, "Max cumulative token budget (0 disables).")
 	cmd.Flags().Int("tool-repeat-limit", 3, "Force final when the same successful tool call repeats this many times.")
+	cmd.Flags().Bool("spawn-enabled", false, "Enable the spawn tool to start sub-agents.")
 
 	cmd.Flags().Duration("timeout", 10*time.Minute, "Overall timeout.")
 

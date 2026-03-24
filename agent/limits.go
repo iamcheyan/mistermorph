@@ -13,6 +13,7 @@ type Limits struct {
 	ParseRetries    int
 	MaxTokenBudget  int
 	ToolRepeatLimit int
+	SpawnEnabled    bool
 }
 
 func (l Limits) ToConfig() Config {
@@ -21,6 +22,7 @@ func (l Limits) ToConfig() Config {
 		ParseRetries:    l.ParseRetries,
 		MaxTokenBudget:  l.MaxTokenBudget,
 		ToolRepeatLimit: l.ToolRepeatLimit,
+		SpawnEnabled:    l.SpawnEnabled,
 	}
 }
 
