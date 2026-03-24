@@ -123,16 +123,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
-	toolStartHook := func(_ *agent.Context, toolName string) {
-		msg := toolStartMessage(toolName)
-		if msg == "" {
-			return
-		}
-		correlationID := fmt.Sprintf("telegram:tool_start:%d:%d", job.ChatID, job.MessageID)
-		if err := sendTelegramText(context.Background(), job.ChatID, msg, correlationID); err != nil {
-			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-		}
-	}
 	meta := job.Meta
 	if meta == nil {
 		meta = map[string]any{
@@ -169,7 +159,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 		},
 		PlanStepUpdate: planUpdateHook,
-		OnToolStart:    toolStartHook,
 		Memory:         memoryHooks,
 	})
 	if err != nil {
@@ -431,18 +420,4 @@ func defaultEncodeImageToWebP(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-func toolStartMessage(toolName string) string {
-	toolName = strings.ToLower(strings.TrimSpace(toolName))
-	switch toolName {
-	case "spawn":
-		return "🧩 sub-agent started"
-	case "web_search":
-		return "🔎 searching…"
-	case "url_fetch":
-		return "🧭 fetching…"
-	default:
-		return ""
-	}
 }

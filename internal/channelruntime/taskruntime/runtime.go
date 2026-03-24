@@ -68,7 +68,6 @@ type RunRequest struct {
 	Registry       *tools.Registry
 	PromptAugment  PromptAugmentFunc
 	PlanStepUpdate func(*agent.Context, agent.PlanStepUpdate)
-	OnToolStart    func(*agent.Context, string)
 	OnStream       llm.StreamHandler
 	Memory         MemoryHooks
 }
@@ -207,10 +206,6 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if req.PlanStepUpdate != nil {
 		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(req.PlanStepUpdate))
 	}
-	if req.OnToolStart != nil {
-		engineOpts = append(engineOpts, agent.WithOnToolStart(req.OnToolStart))
-	}
-
 	engine := agent.New(
 		rt.MainClient,
 		reg,
