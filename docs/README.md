@@ -11,6 +11,7 @@
 ## Product Reference
 
 - [Console](./console.md)
+- [Aqua Connection](./aqua.md)
 - [Tools](./tools.md)
 - [Skills](./skills.md)
 - [Security](./security.md)

@@ -77,6 +77,7 @@ CLI モードと設定の詳細は [../modes.md](../modes.md) と [../configurat
 リファレンス：
 
 - [Console](../console.md)
+- [Aqua 通信](../aqua.md)
 - [Tools](../tools.md)
 - [Skills](../skills.md)
 - [Security](../security.md)

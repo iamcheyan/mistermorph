@@ -76,6 +76,7 @@ Start here:
 Reference:
 
 - [Console](docs/console.md)
+- [Aqua Connection](docs/aqua.md)
 - [Tools](docs/tools.md)
 - [Skills](docs/skills.md)
 - [Security](docs/security.md)

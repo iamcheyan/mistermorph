@@ -77,6 +77,7 @@ CLI 模式与配置说明见：[../modes.md](../modes.md)、[../configuration.md
 参考：
 
 - [Console](../console.md)
+- [Aqua 通讯](../aqua.md)
 - [Tools](../tools.md)
 - [Skills](../skills.md)
 - [Security](../security.md)
