@@ -156,7 +156,6 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		}
 	}
 
-	e.log.Info("engine_created", "spawn_enabled", cfg.SpawnEnabled)
 	if cfg.SpawnEnabled {
 		e.registry.Register(&spawnTool{engine: e})
 	}

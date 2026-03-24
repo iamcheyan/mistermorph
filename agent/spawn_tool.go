@@ -110,7 +110,7 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 		return "{}", nil
 	}
 
-	b, err := json.Marshal(final)
+	b, err := json.Marshal(final.Output)
 	if err != nil {
 		return fmt.Sprintf("%v", final.Output), nil
 	}
