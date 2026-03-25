@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Mister Morph</title>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="6" fill="#141414" stroke="#6a6a6a" stroke-width="1.5"/>
+  <g fill="none" stroke="#e6e6e6" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 29h44"/>
+    <path d="M15 29v-10a7 7 0 0 1 7-7h20a7 7 0 0 1 7 7v10"/>
+    <circle cx="20" cy="44" r="7"/>
+    <circle cx="44" cy="44" r="7"/>
+    <path d="M27 44h10"/>
+  </g>
+</svg>
