@@ -1274,7 +1274,7 @@ func (s *FileStore) loadBusOutboxLocked() ([]BusOutboxRecord, error) {
 	}
 	out := make([]BusOutboxRecord, 0, len(file.Records))
 	for _, item := range file.Records {
-		normalized, normalizeErr := normalizeBusOutboxRecord(item)
+		normalized, normalizeErr := normalizeBusOutboxRecordForLoad(item)
 		if normalizeErr != nil {
 			return nil, normalizeErr
 		}
@@ -1610,6 +1610,14 @@ func normalizeBusInboxRecord(record BusInboxRecord) (BusInboxRecord, error) {
 }
 
 func normalizeBusOutboxRecord(record BusOutboxRecord) (BusOutboxRecord, error) {
+	return normalizeBusOutboxRecordWithOptions(record, false)
+}
+
+func normalizeBusOutboxRecordForLoad(record BusOutboxRecord) (BusOutboxRecord, error) {
+	return normalizeBusOutboxRecordWithOptions(record, true)
+}
+
+func normalizeBusOutboxRecordWithOptions(record BusOutboxRecord, allowLegacyZeroAttempts bool) (BusOutboxRecord, error) {
 	channel, err := normalizeBusChannel(record.Channel)
 	if err != nil {
 		return BusOutboxRecord{}, err
@@ -1623,7 +1631,11 @@ func normalizeBusOutboxRecord(record BusOutboxRecord) (BusOutboxRecord, error) {
 		return BusOutboxRecord{}, err
 	}
 	if record.Attempts <= 0 {
-		return BusOutboxRecord{}, fmt.Errorf("attempts must be > 0")
+		if !allowLegacyZeroAttempts {
+			return BusOutboxRecord{}, fmt.Errorf("attempts must be > 0")
+		}
+		// Older v1 outbox files could omit attempts. Treat that legacy state as one attempt.
+		record.Attempts = 1
 	}
 	createdAt := record.CreatedAt.UTC()
 	updatedAt := record.UpdatedAt.UTC()

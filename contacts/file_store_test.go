@@ -146,6 +146,54 @@ func TestFileStoreBusOutboxRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestFileStoreBusOutboxLoadsLegacyRecordWithoutAttempts(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "bus_outbox.json"),
+		[]byte("{\"version\":1,\"records\":[{\"channel\":\"telegram\",\"idempotency_key\":\"legacy:k1\",\"status\":\"sent\",\"created_at\":\"2026-02-08T12:00:00Z\",\"updated_at\":\"2026-02-08T12:00:00Z\",\"sent_at\":\"2026-02-08T12:00:00Z\"}]}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	record, ok, err := store.GetBusOutboxRecord(ctx, ChannelTelegram, "legacy:k1")
+	if err != nil {
+		t.Fatalf("GetBusOutboxRecord() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetBusOutboxRecord() expected ok=true")
+	}
+	if record.Attempts != 1 {
+		t.Fatalf("attempts mismatch: got %d want 1", record.Attempts)
+	}
+}
+
+func TestFileStorePutBusOutboxRecordRejectsZeroAttempts(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	now := time.Date(2026, 2, 8, 11, 0, 0, 0, time.UTC)
+	if err := store.PutBusOutboxRecord(ctx, BusOutboxRecord{
+		Channel:        ChannelTelegram,
+		IdempotencyKey: "manual:k-zero",
+		Status:         BusDeliveryStatusPending,
+		Attempts:       0,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}); err == nil {
+		t.Fatalf("PutBusOutboxRecord() expected error for zero attempts")
+	}
+}
+
 func TestFileStoreParsesProfileMarkdownTemplate(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "contacts")

@@ -3,6 +3,7 @@ package contacts
 import (
 	"context"
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,6 +65,53 @@ func TestInvariantOutboxIdempotency(t *testing.T) {
 	}
 	if !second.Deduped {
 		t.Fatalf("second send expected deduped outcome, got=%+v", second)
+	}
+}
+
+func TestSendDecisionWithLegacyOutboxRecordMissingAttempts(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	svc := NewService(store)
+	now := time.Date(2026, 2, 8, 21, 15, 0, 0, time.UTC)
+
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "bus_outbox.json"),
+		[]byte("{\"version\":1,\"records\":[{\"channel\":\"telegram\",\"idempotency_key\":\"legacy:k0\",\"status\":\"sent\",\"created_at\":\"2026-02-08T20:00:00Z\",\"updated_at\":\"2026-02-08T20:00:00Z\",\"sent_at\":\"2026-02-08T20:00:00Z\"}]}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := svc.UpsertContact(ctx, Contact{
+		ContactID:       "tg:10087",
+		Kind:            KindHuman,
+		Channel:         ChannelTelegram,
+		TGPrivateChatID: 10087,
+	}, now); err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+
+	sender := &mockSender{accepted: true}
+	payload := base64.RawURLEncoding.EncodeToString([]byte("hello"))
+	outcome, err := svc.SendDecision(ctx, now, ShareDecision{
+		ContactID:      "tg:10087",
+		ItemID:         "manual_item_legacy",
+		ContentType:    "text/plain",
+		PayloadBase64:  payload,
+		IdempotencyKey: "manual:key-legacy",
+	}, sender)
+	if err != nil {
+		t.Fatalf("SendDecision() error = %v", err)
+	}
+	if sender.calls != 1 {
+		t.Fatalf("sender calls mismatch: got %d want 1", sender.calls)
+	}
+	if !outcome.Accepted {
+		t.Fatalf("outcome accepted mismatch: got %+v", outcome)
 	}
 }
 
