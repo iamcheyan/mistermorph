@@ -20,6 +20,10 @@ const SetupConnectionTestDialog = {
       type: String,
       default: "",
     },
+    apiBase: {
+      type: String,
+      default: "",
+    },
     model: {
       type: String,
       default: "",
@@ -33,6 +37,19 @@ const SetupConnectionTestDialog = {
   setup(props, { emit }) {
     const t = translate;
     const expandedRawBenchmarkId = ref("");
+    const targetHost = computed(() => {
+      const value = String(props.apiBase || "").trim();
+      if (value === "") {
+        return "";
+      }
+      try {
+        return String(new URL(value).host || "").trim() || value;
+      } catch {
+        return value;
+      }
+    });
+    const targetModel = computed(() => String(props.model || "").trim());
+    const showTarget = computed(() => targetHost.value !== "" || targetModel.value !== "");
 
     const hasBenchmarks = computed(() => Array.isArray(props.benchmarks) && props.benchmarks.length > 0);
     const visibleBenchmarks = computed(() => {
@@ -148,6 +165,9 @@ const SetupConnectionTestDialog = {
 
     return {
       t,
+      targetHost,
+      targetModel,
+      showTarget,
       visibleBenchmarks,
       showBenchmarks,
       close,
@@ -172,7 +192,17 @@ const SetupConnectionTestDialog = {
         <header class="connection-test-head">
           <div class="connection-test-copy">
             <h3 class="connection-test-title">{{ t("setup_llm_test_title") }}</h3>
-            <p v-if="showIntro" class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
+            <div v-if="showTarget" class="connection-test-intro">
+              <div v-if="targetHost" class="connection-test-target-row">
+                <QIconCompass class="connection-test-target-icon icon" />
+                <span class="connection-test-target-text">{{ targetHost }}</span>
+              </div>
+              <div v-if="targetModel" class="connection-test-target-row">
+                <QIconCpuChip class="connection-test-target-icon icon" />
+                <span class="connection-test-target-text">{{ targetModel }}</span>
+              </div>
+            </div>
+            <p v-else-if="showIntro" class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
           </div>
         </header>
 

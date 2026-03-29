@@ -118,7 +118,8 @@ type agentSettingsModelsRequest struct {
 }
 
 type agentSettingsTestRequest struct {
-	LLM llmSettingsPayload `json:"llm"`
+	LLM           llmSettingsPayload `json:"llm"`
+	TargetProfile *string            `json:"target_profile,omitempty"`
 }
 
 type agentSettingsBenchmarkResult struct {
@@ -132,6 +133,7 @@ type agentSettingsBenchmarkResult struct {
 
 type agentSettingsTestResult struct {
 	Provider   string
+	APIBase    string
 	Model      string
 	Benchmarks []agentSettingsBenchmarkResult
 }
@@ -316,9 +318,15 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	settings, err := resolveAgentSettingsTestLLM(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	result, err := runAgentSettingsConnectionTest(
 		r.Context(),
-		resolveAgentSettingsLLM(llmSettingsPayloadAsNonEmptyUpdate(req.LLM)),
+		settings,
 		agentSettingsConnectionTestOptions{
 			InspectPrompt:  s != nil && s.cfg.inspectPrompt,
 			InspectRequest: s != nil && s.cfg.inspectRequest,
@@ -332,6 +340,7 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"provider":   result.Provider,
+		"api_base":   result.APIBase,
 		"model":      result.Model,
 		"benchmarks": result.Benchmarks,
 	})
@@ -506,6 +515,212 @@ func resolveAgentSettingsLLM(overrides llmSettingsUpdatePayload) llmSettingsPayl
 	return applyLLMSettingsUpdate(settingsFromCurrentRuntime(), overrides)
 }
 
+func resolveAgentSettingsTestLLM(req agentSettingsTestRequest) (llmSettingsPayload, error) {
+	targetProfile := agentSettingsTestTargetProfile(req)
+	snapshot := resolveAgentSettingsTestSnapshot(req, targetProfile)
+	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
+		return resolveAgentSettingsTestDefaultLLM(snapshot)
+	}
+	return resolveAgentSettingsTestProfileLLM(snapshot, targetProfile)
+}
+
+func resolveAgentSettingsTestSnapshot(req agentSettingsTestRequest, targetProfile string) llmSettingsPayload {
+	if targetProfile != "" && !strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
+		return resolveAgentSettingsLLM(llmSettingsPayloadAsProfileTestUpdate(req.LLM))
+	}
+	return resolveAgentSettingsLLM(llmSettingsPayloadAsNonEmptyUpdate(req.LLM))
+}
+
+func agentSettingsTestTargetProfile(req agentSettingsTestRequest) string {
+	if req.TargetProfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(*req.TargetProfile)
+}
+
+func resolveAgentSettingsTestDefaultLLM(snapshot llmSettingsPayload) (llmSettingsPayload, error) {
+	values, err := runtimeValuesFromAgentSettingsTestSnapshot(snapshot, "")
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	return llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values), nil
+}
+
+func resolveAgentSettingsTestProfileLLM(snapshot llmSettingsPayload, targetProfile string) (llmSettingsPayload, error) {
+	values, err := runtimeValuesFromAgentSettingsTestSnapshot(snapshot, targetProfile)
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	values.Routes.MainLoop = strings.TrimSpace(targetProfile)
+	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	return llmSettingsPayloadFromAgentSettingsTestRuntimeValues(route.Values), nil
+}
+
+func llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values llmutil.RuntimeValues) llmSettingsPayload {
+	payload := llmSettingsPayloadFromRuntimeValues(values)
+	payload.Profiles = nil
+	payload.FallbackProfiles = nil
+	return payload
+}
+
+func runtimeValuesFromAgentSettingsTestSnapshot(
+	snapshot llmSettingsPayload,
+	targetProfile string,
+) (llmutil.RuntimeValues, error) {
+	values, err := runtimeValuesFromAgentSettingsTestLLM(snapshot)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	targetProfile = strings.TrimSpace(targetProfile)
+	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
+		return values, nil
+	}
+	profile, ok := findAgentSettingsTestProfile(snapshot.Profiles, targetProfile)
+	if !ok {
+		return llmutil.RuntimeValues{}, fmt.Errorf("missing profile %q", targetProfile)
+	}
+	cfg, err := runtimeProfileConfigFromAgentSettingsTestProfile(profile)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	values.Profiles = map[string]llmutil.ProfileConfig{
+		targetProfile: cfg,
+	}
+	return values, nil
+}
+
+func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil.RuntimeValues, error) {
+	provider, err := resolveAgentSettingsTestFieldValue(snapshot.Provider)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	endpoint, err := resolveAgentSettingsTestFieldValue(snapshot.Endpoint)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	apiKey, err := resolveAgentSettingsTestFieldValue(snapshot.APIKey)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	model, err := resolveAgentSettingsTestFieldValue(snapshot.Model)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	cloudflareAPIToken, err := resolveAgentSettingsTestFieldValue(snapshot.CloudflareAPIToken)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	cloudflareAccountID, err := resolveAgentSettingsTestFieldValue(snapshot.CloudflareAccountID)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	reasoningEffort, err := resolveAgentSettingsTestFieldValue(snapshot.ReasoningEffort)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	toolsEmulationMode, err := resolveAgentSettingsTestFieldValue(snapshot.ToolsEmulationMode)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	return llmutil.RuntimeValues{
+		Provider:            normalizeAgentSettingsProvider(provider),
+		Endpoint:            endpoint,
+		APIKey:              apiKey,
+		Model:               model,
+		RequestTimeoutRaw:   "20s",
+		ReasoningEffortRaw:  reasoningEffort,
+		ToolsEmulationMode:  toolsEmulationMode,
+		CloudflareAPIToken:  cloudflareAPIToken,
+		CloudflareAccountID: cloudflareAccountID,
+	}, nil
+}
+
+func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettingsPayload) (llmutil.ProfileConfig, error) {
+	provider, err := resolveAgentSettingsTestFieldValue(profile.Provider)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	endpoint, err := resolveAgentSettingsTestFieldValue(profile.Endpoint)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	apiKey, err := resolveAgentSettingsTestFieldValue(profile.APIKey)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	model, err := resolveAgentSettingsTestFieldValue(profile.Model)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	cloudflareAPIToken, err := resolveAgentSettingsTestFieldValue(profile.CloudflareAPIToken)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	cloudflareAccountID, err := resolveAgentSettingsTestFieldValue(profile.CloudflareAccountID)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	reasoningEffort, err := resolveAgentSettingsTestFieldValue(profile.ReasoningEffort)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	toolsEmulationMode, err := resolveAgentSettingsTestFieldValue(profile.ToolsEmulationMode)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	return llmutil.ProfileConfig{
+		Provider:           normalizeAgentSettingsProviderForOverride(provider),
+		Endpoint:           endpoint,
+		APIKey:             apiKey,
+		Model:              model,
+		ToolsEmulationMode: toolsEmulationMode,
+		ReasoningEffortRaw: reasoningEffort,
+		Cloudflare: struct {
+			AccountID string `mapstructure:"account_id"`
+			APIToken  string `mapstructure:"api_token"`
+		}{
+			AccountID: cloudflareAccountID,
+			APIToken:  cloudflareAPIToken,
+		},
+	}, nil
+}
+
+func resolveAgentSettingsTestFieldValue(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	matches := agentSettingsEnvRefPattern.FindStringSubmatch(value)
+	if len(matches) != 2 {
+		return value, nil
+	}
+	envName := strings.TrimSpace(matches[1])
+	if envName == "" {
+		return "", fmt.Errorf("invalid env placeholder %q", value)
+	}
+	resolved, ok := os.LookupEnv(envName)
+	if !ok {
+		return "", fmt.Errorf("missing env %q", envName)
+	}
+	return strings.TrimSpace(resolved), nil
+}
+
+func findAgentSettingsTestProfile(
+	profiles []llmProfileSettingsPayload,
+	targetProfile string,
+) (llmProfileSettingsPayload, bool) {
+	targetProfile = strings.TrimSpace(targetProfile)
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.Name) == targetProfile {
+			return profile, true
+		}
+	}
+	return llmProfileSettingsPayload{}, false
+}
+
 func currentConsoleLLMRuntimeValues() llmutil.RuntimeValues {
 	values := llmutil.RuntimeValuesFromViper()
 
@@ -623,6 +838,17 @@ func llmSettingsPayloadAsNonEmptyUpdate(values llmSettingsPayload) llmSettingsUp
 	}
 	if value := strings.TrimSpace(values.ToolsEmulationMode); value != "" {
 		update.ToolsEmulationMode = stringPointer(value)
+	}
+	return update
+}
+
+func llmSettingsPayloadAsProfileTestUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
+	update := llmSettingsPayloadAsNonEmptyUpdate(values)
+	if len(values.Profiles) > 0 {
+		update.Profiles = profileSettingsPointer(values.Profiles)
+	}
+	if len(values.FallbackProfiles) > 0 {
+		update.FallbackProfiles = stringSlicePointer(values.FallbackProfiles)
 	}
 	return update
 }
@@ -1035,6 +1261,7 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 
 	return agentSettingsTestResult{
 		Provider: route.ClientConfig.Provider,
+		APIBase:  strings.TrimSpace(route.ClientConfig.Endpoint),
 		Model:    route.ClientConfig.Model,
 		Benchmarks: []agentSettingsBenchmarkResult{
 			runAgentSettingsTextBenchmark(ctx, client, route.ClientConfig.Model),
@@ -1270,6 +1497,18 @@ func normalizeAgentSettingsProvider(provider string) string {
 	value := strings.ToLower(strings.TrimSpace(provider))
 	switch value {
 	case "", "openai_compatible":
+		return "openai"
+	default:
+		return value
+	}
+}
+
+func normalizeAgentSettingsProviderForOverride(provider string) string {
+	value := strings.ToLower(strings.TrimSpace(provider))
+	switch value {
+	case "":
+		return ""
+	case "openai_compatible":
 		return "openai"
 	default:
 		return value

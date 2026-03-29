@@ -28,6 +28,7 @@ import {
   setupStagePath,
 } from "../core/setup";
 import {
+  defaultEndpointForSetupProvider,
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
@@ -345,6 +346,7 @@ const SetupView = {
     const testConnectionBenchmarks = ref([]);
     const testConnectionMeta = reactive({
       provider: "",
+      apiBase: "",
       model: "",
     });
 
@@ -982,10 +984,24 @@ const SetupView = {
       llmForm.model = String(item?.value || "").trim();
     }
 
+    function primeConnectionTestState(nextPayload = null) {
+      const payload = nextPayload || buildLLMTestPayload();
+      const targetProviderChoice = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
+      const targetEndpoint = llmFieldValue("endpoint");
+      const targetModel = llmFieldValue("model");
+      testConnectionError.value = "";
+      testConnectionBenchmarks.value = [];
+      testConnectionMeta.provider = normalizeSetupProviderForSave(targetProviderChoice, targetEndpoint);
+      testConnectionMeta.apiBase = String(targetEndpoint || "").trim() || defaultEndpointForSetupProvider(targetProviderChoice);
+      testConnectionMeta.model = String(targetModel || "").trim() || String(payload.model || "").trim();
+      return payload;
+    }
+
     async function openTestConnection() {
       if (testConnectionDisabled.value) {
         return;
       }
+      primeConnectionTestState();
       testConnectionOpen.value = true;
       await runConnectionTest();
     }
@@ -994,12 +1010,8 @@ const SetupView = {
       if (testConnectionLoading.value) {
         return;
       }
-      const nextPayload = buildLLMTestPayload();
+      const nextPayload = primeConnectionTestState(buildLLMTestPayload());
       testConnectionLoading.value = true;
-      testConnectionError.value = "";
-      testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(llmFieldValue("provider"), llmFieldValue("endpoint"));
-      testConnectionMeta.model = String(nextPayload.model || "").trim();
       try {
         const payload = await apiFetch("/settings/agent/test", {
           method: "POST",
@@ -1008,6 +1020,10 @@ const SetupView = {
           },
         });
         testConnectionMeta.provider = String(payload?.provider || "").trim();
+        const resolvedAPIBase = String(payload?.api_base || "").trim();
+        if (resolvedAPIBase !== "") {
+          testConnectionMeta.apiBase = resolvedAPIBase;
+        }
         testConnectionMeta.model = String(payload?.model || "").trim();
         const items = Array.isArray(payload?.benchmarks) ? payload.benchmarks : [];
         testConnectionBenchmarks.value = items.map((item) => ({
@@ -1560,6 +1576,7 @@ const SetupView = {
           :error="testConnectionError"
           :benchmarks="testConnectionBenchmarks"
           :provider="testConnectionMeta.provider"
+          :apiBase="testConnectionMeta.apiBase"
           :model="testConnectionMeta.model"
           :showIntro="false"
           @retry="runConnectionTest"

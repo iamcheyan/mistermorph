@@ -1062,6 +1062,7 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 		}
 		return agentSettingsTestResult{
 			Provider: "openai",
+			APIBase:  "https://api.openai.com",
 			Model:    "gpt-5",
 			Benchmarks: []agentSettingsBenchmarkResult{
 				{ID: "text_reply", OK: true, DurationMS: 912, Detail: "OK", RawResponse: "OK"},
@@ -1086,6 +1087,9 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 	}
 	if got := rec.Body.String(); !strings.Contains(got, `"benchmarks":[`) || !strings.Contains(got, `"id":"text_reply"`) || !strings.Contains(got, `"id":"json_response"`) || !strings.Contains(got, `"id":"tool_calling"`) {
 		t.Fatalf("response missing test result fields: %s", got)
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"api_base":"https://api.openai.com"`) {
+		t.Fatalf("response missing api_base: %s", got)
 	}
 	if got := rec.Body.String(); !strings.Contains(got, `"raw_response":"OK"`) {
 		t.Fatalf("response missing raw benchmark response: %s", got)
@@ -1257,6 +1261,195 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider": "cloudflare",
+		"model":    "@cf/moonshotai/kimi-k2.5",
+		"cloudflare": map[string]any{
+			"account_id": "acc-runtime",
+			"api_token":  "cf-runtime-token",
+		},
+	})
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Provider != "cloudflare" {
+			t.Fatalf("provider = %q, want cloudflare", settings.Provider)
+		}
+		if settings.Endpoint != "" {
+			t.Fatalf("endpoint = %q, want empty cloudflare endpoint", settings.Endpoint)
+		}
+		if settings.CloudflareAccountID != "acc-runtime" {
+			t.Fatalf("cloudflare_account_id = %q, want runtime fallback", settings.CloudflareAccountID)
+		}
+		if settings.CloudflareAPIToken != "cf-runtime-token" {
+			t.Fatalf("cloudflare_api_token = %q, want runtime fallback", settings.CloudflareAPIToken)
+		}
+		if settings.Model != "@cf/moonshotai/kimi-k2.5" {
+			t.Fatalf("model = %q, want runtime fallback model", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: "cloudflare",
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"cloudflare","endpoint":"","model":"","cloudflare_api_token":"","cloudflare_account_id":"","profiles":[{"name":"backup","provider":"openai","endpoint":"https://susanoo-api.quaily.com/v1/","model":"carrot/gpt-5.4","api_key":"${MISTER_MORPH_LLM_PROFILE_BACKUP_API_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":["backup"]},"target_profile":""}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	t.Setenv("BASE_API_KEY", "sk-base")
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", settings.Provider)
+		}
+		if settings.Endpoint != "https://api.example.com" {
+			t.Fatalf("endpoint = %q, want https://api.example.com", settings.Endpoint)
+		}
+		if settings.APIKey != "sk-base" {
+			t.Fatalf("api_key = %q, want resolved base env value", settings.APIKey)
+		}
+		if settings.Model != "gpt-5-nano" {
+			t.Fatalf("model = %q, want gpt-5-nano", settings.Model)
+		}
+		if len(settings.Profiles) != 0 || len(settings.FallbackProfiles) != 0 {
+			t.Fatalf("resolved test settings should not retain profile metadata: %+v", settings)
+		}
+		return agentSettingsTestResult{
+			Provider: "openai",
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"${BASE_API_KEY}","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}]},"target_profile":"cheap"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestIgnoresUnrelatedInvalidProfiles(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	t.Setenv("BASE_API_KEY", "sk-base")
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.Model != "gpt-5-nano" {
+			t.Fatalf("model = %q, want target profile model", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: "openai",
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"${BASE_API_KEY}","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""},{"name":"broken","provider":"","endpoint":"","model":"","api_key":"${MISSING_PROFILE_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":[]},"target_profile":"cheap"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestRejectsMissingTargetProfile(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		t.Fatalf("runAgentSettingsConnectionTest should not be called when target profile is missing")
+		return agentSettingsTestResult{}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"openai","model":"gpt-5","profiles":[]},"target_profile":"cheap"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `missing profile \"cheap\"`) {
+		t.Fatalf("missing profile error not reported: %s", rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsTestRejectsMissingEnvInTargetProfile(t *testing.T) {
+	prev := runAgentSettingsConnectionTest
+	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		t.Fatalf("runAgentSettingsConnectionTest should not be called when target profile env is missing")
+		return agentSettingsTestResult{}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"sk-base","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"${MISSING_PROFILE_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":[]},"target_profile":"cheap"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `missing env \"MISSING_PROFILE_KEY\"`) {
+		t.Fatalf("missing env error not reported: %s", rec.Body.String())
 	}
 }
 

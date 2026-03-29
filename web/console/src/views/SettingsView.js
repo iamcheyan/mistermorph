@@ -24,6 +24,7 @@ import {
   llmFieldValue,
 } from "../core/llm-env-managed";
 import {
+  defaultEndpointForSetupProvider,
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
@@ -212,8 +213,10 @@ const SettingsView = {
     const testConnectionBenchmarks = ref([]);
     const testConnectionMeta = reactive({
       provider: "",
+      apiBase: "",
       model: "",
     });
+    const testConnectionTargetProfileKey = ref("");
 
     const state = reactive({
       llm: {
@@ -444,6 +447,9 @@ const SettingsView = {
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
+    const currentTestTargetProfile = computed(() =>
+      state.llm.profiles.find((item) => item._key === testConnectionTargetProfileKey.value) || null
+    );
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
       () =>
@@ -660,6 +666,84 @@ const SettingsView = {
       return payload;
     }
 
+    function buildDefaultLLMTestPayload() {
+      const payload = {};
+      const provider = normalizeSetupProviderChoice(llmFieldValue(state.llm, llmEnvManaged.value, "provider"), { allowEmpty: true });
+      const providerRaw = llmFieldEnvRawValue(llmEnvManaged.value, "provider");
+      if (providerRaw !== "") {
+        payload.provider = providerRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider") && provider !== "") {
+        payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
+      }
+      const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
+      if (endpointRaw !== "") {
+        payload.endpoint = endpointRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
+        const endpoint = trimText(state.llm.endpoint);
+        if (endpoint !== "") {
+          payload.endpoint = endpoint;
+        }
+      }
+      const modelRaw = llmFieldEnvRawValue(llmEnvManaged.value, "model");
+      if (modelRaw !== "") {
+        payload.model = modelRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
+        const model = trimText(state.llm.model);
+        if (model !== "") {
+          payload.model = model;
+        }
+      }
+      const reasoningEffortRaw = llmFieldEnvRawValue(llmEnvManaged.value, "reasoning_effort");
+      if (reasoningEffortRaw !== "") {
+        payload.reasoning_effort = reasoningEffortRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
+        const reasoningEffort = trimText(state.llm.reasoning_effort);
+        if (reasoningEffort !== "") {
+          payload.reasoning_effort = reasoningEffort;
+        }
+      }
+      const toolsEmulationModeRaw = llmFieldEnvRawValue(llmEnvManaged.value, "tools_emulation_mode");
+      if (toolsEmulationModeRaw !== "") {
+        payload.tools_emulation_mode = toolsEmulationModeRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
+        const toolsEmulationMode = trimText(state.llm.tools_emulation_mode);
+        if (toolsEmulationMode !== "") {
+          payload.tools_emulation_mode = toolsEmulationMode;
+        }
+      }
+      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+        const tokenRaw = llmFieldEnvRawValue(llmEnvManaged.value, "cloudflare_api_token");
+        if (tokenRaw !== "") {
+          payload.cloudflare_api_token = tokenRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
+          const token = trimText(state.llm.cloudflare_api_token);
+          if (token !== "") {
+            payload.cloudflare_api_token = token;
+          }
+        }
+        const accountIDRaw = llmFieldEnvRawValue(llmEnvManaged.value, "cloudflare_account_id");
+        if (accountIDRaw !== "") {
+          payload.cloudflare_account_id = accountIDRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
+          const accountID = trimText(state.llm.cloudflare_account_id);
+          if (accountID !== "") {
+            payload.cloudflare_account_id = accountID;
+          }
+        }
+      } else {
+        const apiKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
+        if (apiKeyRaw !== "") {
+          payload.api_key = apiKeyRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
+          const apiKey = trimText(state.llm.api_key);
+          if (apiKey !== "") {
+            payload.api_key = apiKey;
+          }
+        }
+      }
+      return payload;
+    }
+
     async function loadAgentSettings() {
       agentLoading.value = true;
       agentErr.value = "";
@@ -752,55 +836,83 @@ const SettingsView = {
       return payload;
     }
 
-    function buildLLMTestPayload() {
-      const payload = {};
-      const provider = normalizeSetupProviderChoice(llmFieldValue(state.llm, llmEnvManaged.value, "provider"), { allowEmpty: true });
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider") && provider !== "") {
-        payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
+    function buildProfileTestPayload(profile) {
+      return {
+        ...buildDefaultLLMTestPayload(),
+        profiles: [buildProfilePayload(profile)],
+      };
+    }
+
+    function effectiveProfileProviderChoice(profile) {
+      const envManaged = llmProfileEnvManaged(profile);
+      const explicitProvider = normalizeSetupProviderChoice(llmFieldValue(profile, envManaged, "provider"), {
+        allowEmpty: true,
+      });
+      return explicitProvider || defaultProviderChoice.value;
+    }
+
+    function effectiveProfileFieldValue(profile, field) {
+      const envManaged = llmProfileEnvManaged(profile);
+      const localValue = llmFieldValue(profile, envManaged, field);
+      if (localValue !== "") {
+        return localValue;
       }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
-        const endpoint = trimText(state.llm.endpoint);
-        if (endpoint !== "") {
-          payload.endpoint = endpoint;
-        }
+      return llmFieldValue(state.llm, llmEnvManaged.value, field);
+    }
+
+    function hasResolvableProfileTestTarget(profile) {
+      const name = trimText(profile?.name);
+      if (name === "" || name.toLowerCase() === "default") {
+        return false;
       }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
-        const model = trimText(state.llm.model);
-        if (model !== "") {
-          payload.model = model;
-        }
+      const matches = state.llm.profiles.filter((item) => trimText(item?.name).toLowerCase() === name.toLowerCase()).length;
+      return matches === 1;
+    }
+
+    function hasEffectiveProfileFieldValue(profile, field) {
+      const envManaged = llmProfileEnvManaged(profile);
+      return (
+        hasLLMFieldValue(profile, envManaged, field) ||
+        hasLLMFieldValue(state.llm, llmEnvManaged.value, field)
+      );
+    }
+
+    function testConnectionDisabledForProfile(profile) {
+      const provider = effectiveProfileProviderChoice(profile);
+      if (testConnectionLoading.value || agentLoading.value || agentSaving.value) {
+        return true;
+      }
+      if (!hasResolvableProfileTestTarget(profile) || provider === "") {
+        return true;
+      }
+      if (!hasEffectiveProfileFieldValue(profile, "model")) {
+        return true;
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
-        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
-          const token = trimText(state.llm.cloudflare_api_token);
-          if (token !== "") {
-            payload.cloudflare_api_token = token;
-          }
-        }
-        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
-          const accountID = trimText(state.llm.cloudflare_account_id);
-          if (accountID !== "") {
-            payload.cloudflare_account_id = accountID;
-          }
-        }
-      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
-        const apiKey = trimText(state.llm.api_key);
-        if (apiKey !== "") {
-          payload.api_key = apiKey;
-        }
+        return (
+          !hasEffectiveProfileFieldValue(profile, "cloudflare_api_token") ||
+          !hasEffectiveProfileFieldValue(profile, "cloudflare_account_id")
+        );
       }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
-        const reasoningEffort = trimText(state.llm.reasoning_effort);
-        if (reasoningEffort !== "") {
-          payload.reasoning_effort = reasoningEffort;
-        }
-      }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
-        const toolsEmulationMode = trimText(state.llm.tools_emulation_mode);
-        if (toolsEmulationMode !== "") {
-          payload.tools_emulation_mode = toolsEmulationMode;
-        }
-      }
+      return setupProviderRequiresAPIKey(provider) && !hasEffectiveProfileFieldValue(profile, "api_key");
+    }
+
+    function primeConnectionTestState(targetProfile, nextPayload = null) {
+      const payload = nextPayload || (targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload());
+      const targetProviderChoice = targetProfile
+        ? effectiveProfileProviderChoice(targetProfile)
+        : normalizeSetupProviderChoice(llmFieldValue(state.llm, llmEnvManaged.value, "provider"), { allowEmpty: true });
+      const targetEndpoint = targetProfile
+        ? effectiveProfileFieldValue(targetProfile, "endpoint")
+        : llmFieldValue(state.llm, llmEnvManaged.value, "endpoint");
+      const targetModel = targetProfile
+        ? effectiveProfileFieldValue(targetProfile, "model")
+        : llmFieldValue(state.llm, llmEnvManaged.value, "model");
+      testConnectionError.value = "";
+      testConnectionBenchmarks.value = [];
+      testConnectionMeta.provider = normalizeSetupProviderForSave(targetProviderChoice, targetEndpoint);
+      testConnectionMeta.apiBase = trimText(targetEndpoint) || defaultEndpointForSetupProvider(targetProviderChoice);
+      testConnectionMeta.model = trimText(targetModel) || String(payload.model || "").trim();
       return payload;
     }
 
@@ -921,10 +1033,16 @@ const SettingsView = {
       state.llm.model = String(item?.value || "").trim();
     }
 
-    async function openTestConnection() {
-      if (testConnectionDisabled.value) {
+    async function openTestConnection(profileKey = "") {
+      const targetProfile = state.llm.profiles.find((item) => item._key === profileKey) || null;
+      if (!targetProfile && testConnectionDisabled.value) {
         return;
       }
+      if (targetProfile && testConnectionDisabledForProfile(targetProfile)) {
+        return;
+      }
+      testConnectionTargetProfileKey.value = targetProfile?._key || "";
+      primeConnectionTestState(targetProfile);
       testConnectionOpen.value = true;
       await runConnectionTest();
     }
@@ -933,23 +1051,33 @@ const SettingsView = {
       if (testConnectionLoading.value) {
         return;
       }
-      const nextPayload = buildLLMTestPayload();
-      testConnectionLoading.value = true;
-      testConnectionError.value = "";
-      testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(
-        llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
-        llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
+      const targetProfile = currentTestTargetProfile.value;
+      const targetProfileName = trimText(targetProfile?.name);
+      if (testConnectionTargetProfileKey.value !== "" && targetProfileName === "") {
+        testConnectionError.value = t("settings_agent_profile_name_required");
+        return;
+      }
+      const nextPayload = primeConnectionTestState(
+        targetProfile,
+        targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload(),
       );
-      testConnectionMeta.model = String(nextPayload.model || "").trim();
+      testConnectionLoading.value = true;
       try {
+        const body = {
+          llm: nextPayload,
+        };
+        if (targetProfileName !== "") {
+          body.target_profile = targetProfileName;
+        }
         const payload = await apiFetch("/settings/agent/test", {
           method: "POST",
-          body: {
-            llm: nextPayload,
-          },
+          body,
         });
         testConnectionMeta.provider = String(payload?.provider || "").trim();
+        const resolvedAPIBase = String(payload?.api_base || "").trim();
+        if (resolvedAPIBase !== "") {
+          testConnectionMeta.apiBase = resolvedAPIBase;
+        }
         testConnectionMeta.model = String(payload?.model || "").trim();
         const items = Array.isArray(payload?.benchmarks) ? payload.benchmarks : [];
         testConnectionBenchmarks.value = items.map((item) => ({
@@ -1100,6 +1228,7 @@ const SettingsView = {
       agentSaveDisabled,
       consoleSaveDisabled,
       testConnectionDisabled,
+      testConnectionDisabledForProfile,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
@@ -1300,7 +1429,10 @@ const SettingsView = {
                         :toolsEmulationItems="profileToolsEmulationItems"
                         :providerPlaceholderKey="'settings_agent_provider_inherit'"
                         :allowProviderInherit="true"
+                        :showTestAction="true"
+                        :testActionDisabled="testConnectionDisabledForProfile(profile)"
                         @update-field="updateProfileField(profile._key, $event)"
+                        @open-test="openTestConnection(profile._key)"
                       />
                     </article>
 
@@ -1476,7 +1608,9 @@ const SettingsView = {
         :error="testConnectionError"
         :benchmarks="testConnectionBenchmarks"
         :provider="testConnectionMeta.provider"
+        :apiBase="testConnectionMeta.apiBase"
         :model="testConnectionMeta.model"
+        :showIntro="false"
         @retry="runConnectionTest"
       />
       <QMessageDialog

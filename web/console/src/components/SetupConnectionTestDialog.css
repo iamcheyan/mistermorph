@@ -25,9 +25,31 @@
 
 .connection-test-intro {
   margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.connection-test-target-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-test-target-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-2);
+}
+
+.connection-test-target-text {
+  min-width: 0;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 
 .connection-test-result {
