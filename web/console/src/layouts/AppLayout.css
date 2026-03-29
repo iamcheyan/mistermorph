@@ -41,6 +41,10 @@
   overflow-y: auto;
 }
 
+.content-overview {
+  padding: 0;
+}
+
 .content-page {
   padding: 0;
 }
@@ -60,6 +64,10 @@
     padding: var(--content-gutter-y) var(--content-gutter-x);
   }
 
+  .content-overview {
+    padding: 0;
+  }
+
   .content-page {
     padding: 0;
   }
@@ -74,6 +82,10 @@
   .content,
   .content-overview {
     padding: var(--content-gutter-y) var(--content-gutter-x);
+  }
+
+  .content-overview {
+    padding: 0;
   }
 
   .content-page {

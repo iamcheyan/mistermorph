@@ -1,3 +1,28 @@
+.overview-page {
+  display: grid;
+  gap: clamp(18px, 2vw, 28px);
+}
+
+.overview-groups {
+  gap: clamp(22px, 2.4vw, 34px);
+}
+
+.overview-group {
+  gap: 12px;
+}
+
+.overview-group-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overview-group-empty {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
 .endpoint-overview-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -107,6 +132,11 @@
 }
 
 @media (max-width: 620px) {
+  .overview-group-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .endpoint-overview-list {
     grid-template-columns: 1fr;
   }

@@ -1,6 +1,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import "./StatsView.css";
 
+import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
@@ -32,17 +33,9 @@ function sumModelTotals(models) {
   return totals;
 }
 
-function tuiKicker(left, right) {
-  const lhs = String(left || "").trim();
-  const rhs = String(right || "").trim();
-  if (lhs && rhs) {
-    return `[ ${lhs} // ${rhs} ]`;
-  }
-  return `[ ${lhs || rhs} ]`;
-}
-
 const StatsView = {
   components: {
+    AppKicker,
     AppPage,
   },
   setup() {
@@ -125,7 +118,6 @@ const StatsView = {
       summaryMetrics,
       primarySummaryMetric,
       secondarySummaryMetrics,
-      tuiKicker,
       load,
       onTabChange,
       sectionMetrics,
@@ -142,7 +134,7 @@ const StatsView = {
         <QCard class="stats-summary-board" variant="default">
           <template #header>
             <div class="stats-summary-head">
-              <h3 class="ui-kicker">{{ tuiKicker("LLM", t("stats_group_summary")) }}</h3>
+              <AppKicker as="h3" left="LLM" right="Summary" />
               <p class="stats-summary-meta">{{ t("stats_updated_at") }}: {{ formatTime(payload.updated_at) }}</p>
             </div>
           </template>

@@ -2,6 +2,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./ChatView.css";
 
+import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
 import RawJsonDialog from "../components/RawJsonDialog";
@@ -248,17 +249,28 @@ function newHistoryID() {
   return `${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function tuiKicker(left, right) {
-  const lhs = String(left || "").trim();
-  const rhs = String(right || "").trim();
-  if (lhs && rhs) {
-    return `[ ${lhs} // ${rhs} ]`;
+function kickerChannelLabel(mode) {
+  switch (normalizeEndpointMode(mode)) {
+    case "console":
+      return "Console";
+    case "serve":
+      return "Serve";
+    case "telegram":
+      return "Telegram";
+    case "slack":
+      return "Slack";
+    case "line":
+      return "LINE";
+    case "lark":
+      return "Lark";
+    default:
+      return "Endpoint";
   }
-  return `[ ${lhs || rhs} ]`;
 }
 
 const ChatView = {
   components: {
+    AppKicker,
     AppPage,
     RawJsonDialog,
     MarkdownContent,
@@ -340,9 +352,7 @@ const ChatView = {
         channel: endpointChannelLabel(selectedEndpoint.value?.mode, t),
       });
     });
-    const readonlyKicker = computed(() => {
-      return tuiKicker(endpointChannelLabel(selectedEndpoint.value?.mode, t), t("chat_readonly_kicker"));
-    });
+    const readonlyKickerLeft = computed(() => kickerChannelLabel(selectedEndpoint.value?.mode));
     const readonlyReason = computed(() => {
       const selected = selectedEndpoint.value;
       if (!selected) {
@@ -1466,7 +1476,7 @@ const ChatView = {
       submitBlockedMessage,
       chatReadonly,
       readonlyTitle,
-      readonlyKicker,
+      readonlyKickerLeft,
       readonlyReason,
       handleComposerPointerDown,
       pageClass,
@@ -1531,7 +1541,7 @@ const ChatView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <section v-if="chatReadonly" class="chat-main is-readonly">
         <section class="chat-readonly">
-          <h3 class="chat-readonly-title ui-kicker">{{ readonlyKicker }}</h3>
+          <AppKicker as="h3" class="chat-readonly-title" :left="readonlyKickerLeft" right="Read Only" />
           <p class="chat-readonly-text">{{ readonlyReason }}</p>
         </section>
       </section>

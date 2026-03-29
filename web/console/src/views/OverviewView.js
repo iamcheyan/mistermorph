@@ -2,34 +2,65 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import "./OverviewView.css";
 
+import AppKicker from "../components/AppKicker";
+import AppPage from "../components/AppPage";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
 
+function endpointSortKey(item) {
+  return String(item?.title || item?.url || item?.location || item?.endpoint_ref || "").trim();
+}
+
+function sortOverviewItems(items) {
+  return [...items].sort((left, right) =>
+    endpointSortKey(left).localeCompare(endpointSortKey(right), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  );
+}
+
 const OverviewView = {
+  components: {
+    AppKicker,
+    AppPage,
+  },
   setup() {
     const t = translate;
     const router = useRouter();
     const err = ref("");
     const loading = ref(false);
     let refreshTimer = null;
-    const endpointRows = computed(() =>
-      visibleEndpoints(endpointState.items).map((item) => ({
-        ...endpointDisplayItem(item, t),
-        url: item.url || "",
-        connected: toBool(item.connected, false),
-        can_submit: toBool(item.can_submit, false),
-        agent_name: String(item.agent_name || "").trim(),
-      }))
-    );
 
-    function tuiKicker(left, right) {
-      const lhs = String(left || "").trim();
-      const rhs = String(right || "").trim();
-      if (lhs && rhs) {
-        return `[ ${lhs} // ${rhs} ]`;
-      }
-      return `[ ${lhs || rhs} ]`;
-    }
+    const endpointRows = computed(() =>
+      sortOverviewItems(
+        visibleEndpoints(endpointState.items).map((item) => ({
+          ...endpointDisplayItem(item, t),
+          url: item.url || "",
+          connected: toBool(item.connected, false),
+          can_submit: toBool(item.can_submit, false),
+          agent_name: String(item.agent_name || "").trim(),
+        }))
+      )
+    );
+    const activeEndpointRows = computed(() => endpointRows.value.filter((item) => item.connected));
+    const inactiveEndpointRows = computed(() => endpointRows.value.filter((item) => !item.connected));
+    const endpointGroups = computed(() => [
+      {
+        key: "active",
+        tone: "success",
+        items: activeEndpointRows.value,
+        emptyText: t("overview_empty_active"),
+        kickerRight: "Active",
+      },
+      {
+        key: "inactive",
+        tone: "default",
+        items: inactiveEndpointRows.value,
+        emptyText: t("overview_empty_inactive"),
+        kickerRight: "Inactive",
+      },
+    ]);
 
     function openEndpoint(item) {
       if (
@@ -86,77 +117,87 @@ const OverviewView = {
         refreshTimer = null;
       }
     });
+
     return {
       t,
       err,
       loading,
-      endpointRows,
-      tuiKicker,
+      endpointGroups,
       openEndpoint,
       channelBadgeType,
     };
   },
   template: `
-    <section>
+    <AppPage :title="t('nav_overview')">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <div class="stat-groups">
-        <section class="stat-group">
-          <h3 class="ui-kicker">{{ tuiKicker(t("runtime_title"), t("group_endpoints")) }}</h3>
-          <div class="endpoint-overview-list">
-            <QCard
-              v-for="item in endpointRows"
-              :key="item.endpoint_ref"
-              variant="default"
-              :hoverable="item.connected"
-              :dashed="!item.connected"
-              :class="item.connected ? 'endpoint-overview-item clickable' : 'endpoint-overview-item is-disabled'"
-              :tabindex="item.connected ? 0 : -1"
-              :role="item.connected ? 'button' : undefined"
-              :aria-disabled="item.connected ? undefined : 'true'"
-              @click="item.connected && openEndpoint(item)"
-              @keydown.enter.prevent="item.connected && openEndpoint(item)"
-              @keydown.space.prevent="item.connected && openEndpoint(item)"
-            >
-              <template #header>
-                <div class="endpoint-overview-head">
-                  <div class="endpoint-overview-title">
-                    <div class="endpoint-overview-name-row">
-                      <span class="channel-runtime-dot">
-                        <QBadge
-                          :type="item.connected ? 'success' : 'default'"
-                          size="md"
-                          variant="filled"
-                          :dot="true"
-                        />
-                      </span>
-                      <code class="endpoint-overview-name">{{ item.title }}</code>
+
+      <section class="overview-page">
+        <div class="stat-groups overview-groups">
+          <section
+            v-for="group in endpointGroups"
+            :key="group.key"
+            :class="'stat-group overview-group overview-group-' + group.key"
+          >
+            <header class="overview-group-head">
+              <AppKicker as="p" left="Endpoints" :right="group.kickerRight" />
+              <QBadge :type="group.tone" size="sm">{{ group.items.length }}</QBadge>
+            </header>
+
+            <div class="endpoint-overview-list">
+              <QCard
+                v-for="item in group.items"
+                :key="item.endpoint_ref"
+                variant="default"
+                :hoverable="item.connected"
+                :dashed="!item.connected"
+                :class="item.connected ? 'endpoint-overview-item clickable' : 'endpoint-overview-item is-disabled'"
+                :tabindex="item.connected ? 0 : -1"
+                :role="item.connected ? 'button' : undefined"
+                :aria-disabled="item.connected ? undefined : 'true'"
+                @click="item.connected && openEndpoint(item)"
+                @keydown.enter.prevent="item.connected && openEndpoint(item)"
+                @keydown.space.prevent="item.connected && openEndpoint(item)"
+              >
+                <template #header>
+                  <div class="endpoint-overview-head">
+                    <div class="endpoint-overview-title">
+                      <div class="endpoint-overview-name-row">
+                        <span class="channel-runtime-dot">
+                          <QBadge
+                            :type="item.connected ? 'success' : 'default'"
+                            size="md"
+                            variant="filled"
+                            :dot="true"
+                          />
+                        </span>
+                        <code class="endpoint-overview-name">{{ item.title }}</code>
+                      </div>
+                      <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
                     </div>
-                    <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
                   </div>
-                </div>
-              </template>
-              <code class="endpoint-overview-url">{{ item.url || item.location }}</code>
-              <template #footer>
-                <span class="endpoint-channel-badge-list">
-                  <QBadge
-                    v-for="badge in item.channelBadges"
-                    :key="badge.tone + ':' + badge.label"
-                    :type="channelBadgeType(badge)"
-                    size="sm"
-                  >
-                    {{ badge.label }}
-                  </QBadge>
-                </span>
-              </template>
-            </QCard>
-            <p v-if="endpointRows.length === 0 && !loading" class="muted">{{ t("no_endpoints") }}</p>
-          </div>
-        </section>
-      </div>
-    </section>
+                </template>
+                <code class="endpoint-overview-url">{{ item.url || item.location }}</code>
+                <template #footer>
+                  <span class="endpoint-channel-badge-list">
+                    <QBadge
+                      v-for="badge in item.channelBadges"
+                      :key="badge.tone + ':' + badge.label"
+                      :type="channelBadgeType(badge)"
+                      size="sm"
+                    >
+                      {{ badge.label }}
+                    </QBadge>
+                  </span>
+                </template>
+              </QCard>
+              <p v-if="group.items.length === 0 && !loading" class="muted overview-group-empty">{{ group.emptyText }}</p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </AppPage>
   `,
 };
-
 
 export default OverviewView;

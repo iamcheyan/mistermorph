@@ -2,6 +2,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import "./SettingsView.css";
 
+import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import LLMConfigForm from "../components/LLMConfigForm";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
@@ -30,15 +31,6 @@ import {
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
-
-function tuiKicker(left, right) {
-  const lhs = String(left || "").trim();
-  const rhs = String(right || "").trim();
-  if (lhs && rhs) {
-    return `[ ${lhs.toUpperCase()} // ${rhs.toUpperCase()} ]`;
-  }
-  return `[ ${(lhs || rhs).toUpperCase()} ]`;
-}
 
 const MULTIMODAL_SOURCES = [
   { id: "telegram", titleKey: "settings_multimodal_source_telegram", noteKey: "settings_multimodal_note_telegram" },
@@ -179,6 +171,7 @@ function buildConsoleSnapshot(state) {
 
 const SettingsView = {
   components: {
+    AppKicker,
     AppPage,
     LLMConfigForm,
     SetupConnectionTestDialog,
@@ -298,21 +291,24 @@ const SettingsView = {
           id: "agent",
           title: t("settings_agent_block_title"),
           meta: t("settings_section_agent_meta"),
-          groupTitle: t("settings_agent_title"),
+          kickerLeft: "Agent",
+          kickerRight: "Agent Config",
           saveKind: "agent",
         },
         {
           id: "inputs",
           title: t("settings_multimodal_title"),
           meta: t("settings_section_inputs_meta"),
-          groupTitle: t("settings_agent_title"),
+          kickerLeft: "Agent",
+          kickerRight: "Multimodal",
           saveKind: "agent",
         },
         {
           id: "tools",
           title: t("settings_tools_title"),
           meta: t("settings_section_tools_meta"),
-          groupTitle: t("settings_agent_title"),
+          kickerLeft: "Agent",
+          kickerRight: "Tools",
           saveKind: "agent",
         },
       ];
@@ -321,7 +317,8 @@ const SettingsView = {
           id: "runtimes",
           title: t("settings_console_runtime_title"),
           meta: t("settings_section_runtimes_meta"),
-          groupTitle: t("settings_console_title"),
+          kickerLeft: "Console",
+          kickerRight: "Managed Runtimes",
           saveKind: "console",
         });
       }
@@ -329,7 +326,8 @@ const SettingsView = {
         id: "console",
         title: t("settings_console_title"),
         meta: t("settings_section_console_meta"),
-        groupTitle: t("settings_console_title"),
+        kickerLeft: "Console",
+        kickerRight: "Console",
         saveKind: "",
       });
       return items;
@@ -339,12 +337,6 @@ const SettingsView = {
       () => settingsSections.value.find((item) => item.id === selectedSectionID.value) || settingsSections.value[0] || null
     );
     const activeSaveKind = computed(() => String(selectedSection.value?.saveKind || ""));
-    const panelKicker = computed(() => {
-      if (!selectedSection.value) {
-        return "";
-      }
-      return tuiKicker(selectedSection.value.groupTitle, selectedSection.value.title);
-    });
     const panelHint = computed(() => {
       switch (selectedSection.value?.id) {
         case "agent":
@@ -1098,7 +1090,6 @@ const SettingsView = {
       managedRuntimeItems,
       settingsSections,
       selectedSection,
-      panelKicker,
       panelHint,
       activeSaveKind,
       showIndexPane,
@@ -1135,7 +1126,6 @@ const SettingsView = {
       isSelectedSection,
       sectionClass,
       showIndexView,
-      tuiKicker,
       apiBasePickerOpen,
       modelPickerOpen,
       modelPickerLoading,
@@ -1191,7 +1181,7 @@ const SettingsView = {
           <div class="settings-panel-shell">
             <header class="settings-panel-head">
               <div class="settings-panel-copy">
-                <p class="ui-kicker">{{ panelKicker }}</p>
+                <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
                 <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
                 <p class="settings-panel-meta">{{ panelHint }}</p>
               </div>
