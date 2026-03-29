@@ -2,6 +2,7 @@ package llmutil
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type RuntimeValues struct {
 	TemperatureRaw     string `config:"llm.temperature"`
 	ReasoningEffortRaw string `config:"llm.reasoning_effort"`
 	ReasoningBudgetRaw string `config:"llm.reasoning_budget_tokens"`
+	FallbackProfiles   []string
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
@@ -53,6 +55,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
 		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
 		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		FallbackProfiles:    loadStringSliceKeyFromReader(r, "llm.fallback_profiles"),
 		Profiles:            loadLLMProfilesFromReader(r),
 		Routes:              loadLLMRoutesFromReader(r),
 		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
@@ -164,6 +167,54 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	}
 }
 
+type BaseClientBuilder func(cfg llmconfig.ClientConfig, values RuntimeValues) (llm.Client, error)
+
+type ClientWrapFunc func(client llm.Client, cfg llmconfig.ClientConfig, profile string) llm.Client
+
+func BuildRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConfig, build BaseClientBuilder, wrap ClientWrapFunc, logger *slog.Logger) (llm.Client, error) {
+	if build == nil {
+		return nil, fmt.Errorf("base client builder is nil")
+	}
+	primaryCfg := route.ClientConfig
+	if primaryOverride != nil {
+		primaryCfg = *primaryOverride
+	}
+	primaryClient, err := build(primaryCfg, route.Values)
+	if err != nil {
+		return nil, err
+	}
+	if wrap != nil {
+		primaryClient = wrap(primaryClient, primaryCfg, route.Profile)
+	}
+	if len(route.Fallbacks) == 0 {
+		return primaryClient, nil
+	}
+
+	candidates := make([]FallbackCandidate, 0, len(route.Fallbacks))
+	for _, fallback := range route.Fallbacks {
+		client, err := build(fallback.ClientConfig, fallback.Values)
+		if err != nil {
+			return nil, err
+		}
+		if wrap != nil {
+			client = wrap(client, fallback.ClientConfig, fallback.Profile)
+		}
+		candidates = append(candidates, FallbackCandidate{
+			Profile: fallback.Profile,
+			Model:   strings.TrimSpace(fallback.ClientConfig.Model),
+			Client:  client,
+		})
+	}
+
+	return NewFallbackClient(FallbackClientOptions{
+		Primary:        primaryClient,
+		PrimaryProfile: route.Profile,
+		PrimaryModel:   strings.TrimSpace(primaryCfg.Model),
+		Fallbacks:      candidates,
+		Logger:         logger,
+	}), nil
+}
+
 func toolsEmulationModeFromValue(raw string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(raw))
 	if mode == "" {
@@ -241,4 +292,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func loadStringSliceKeyFromReader(r ConfigReader, key string) []string {
+	if getter, ok := any(r).(interface{ GetStringSlice(string) []string }); ok {
+		return normalizeProfileNames(getter.GetStringSlice(key))
+	}
+	var raw []string
+	if err := unmarshalKey(r, key, &raw); err == nil {
+		return normalizeProfileNames(raw)
+	}
+	return nil
 }

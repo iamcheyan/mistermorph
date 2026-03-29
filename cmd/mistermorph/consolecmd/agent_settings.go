@@ -34,8 +34,9 @@ const (
 var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
 
 var benchmarkErrorStatusPattern = regexp.MustCompile(`(?is)\bstatus\s+\d{3}\s*:\s*(.+)$`)
+var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
-type llmSettingsPayload struct {
+type llmConfigFieldsPayload struct {
 	Provider            string `json:"provider"`
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
@@ -46,7 +47,18 @@ type llmSettingsPayload struct {
 	ToolsEmulationMode  string `json:"tools_emulation_mode"`
 }
 
-type llmSettingsUpdatePayload struct {
+type llmProfileSettingsPayload struct {
+	Name string `json:"name"`
+	llmConfigFieldsPayload
+}
+
+type llmSettingsPayload struct {
+	llmConfigFieldsPayload
+	Profiles         []llmProfileSettingsPayload `json:"profiles,omitempty"`
+	FallbackProfiles []string                    `json:"fallback_profiles,omitempty"`
+}
+
+type llmConfigFieldsUpdatePayload struct {
 	Provider            *string `json:"provider,omitempty"`
 	Endpoint            *string `json:"endpoint,omitempty"`
 	Model               *string `json:"model,omitempty"`
@@ -55,6 +67,12 @@ type llmSettingsUpdatePayload struct {
 	CloudflareAccountID *string `json:"cloudflare_account_id,omitempty"`
 	ReasoningEffort     *string `json:"reasoning_effort,omitempty"`
 	ToolsEmulationMode  *string `json:"tools_emulation_mode,omitempty"`
+}
+
+type llmSettingsUpdatePayload struct {
+	llmConfigFieldsUpdatePayload
+	Profiles         *[]llmProfileSettingsPayload `json:"profiles,omitempty"`
+	FallbackProfiles *[]string                    `json:"fallback_profiles,omitempty"`
 }
 
 type multimodalSettingsPayload struct {
@@ -84,12 +102,14 @@ type agentSettingsUpdatePayload struct {
 }
 
 type agentSettingsEnvManagedField struct {
-	EnvName string `json:"env_name"`
-	Value   string `json:"value,omitempty"`
+	EnvName  string `json:"env_name"`
+	Value    string `json:"value,omitempty"`
+	RawValue string `json:"raw_value,omitempty"`
 }
 
 type agentSettingsEnvManagedPayload struct {
-	LLM map[string]agentSettingsEnvManagedField `json:"llm,omitempty"`
+	LLM         map[string]agentSettingsEnvManagedField            `json:"llm,omitempty"`
+	LLMProfiles map[string]map[string]agentSettingsEnvManagedField `json:"llm_profiles,omitempty"`
 }
 
 type agentSettingsModelsRequest struct {
@@ -157,9 +177,18 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 		configValid = false
 	}
 	effectiveLLM := settingsFromCurrentRuntime()
+	doc := newEmptyYAMLDocument()
+	if configValid {
+		doc, err = loadYAMLDocument(configPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	settings, envManaged := buildAgentSettingsResponseView(settings, doc, effectiveLLM.Provider)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"llm":           settings.LLM,
-		"env_managed":   currentAgentSettingsEnvManaged(effectiveLLM.Provider),
+		"env_managed":   envManaged,
 		"multimodal":    settings.Multimodal,
 		"tools":         settings.Tools,
 		"config_path":   configPath,
@@ -187,8 +216,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	effectiveLLM := resolveAgentSettingsLLM(req.LLM)
-	tmp, err := validateAgentConfigDocument(serialized, effectiveLLM)
-	if err != nil {
+	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -201,9 +229,14 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	viper.Set(llmSettingsKey, llmSettingsPayloadToMap(effectiveLLM))
-	viper.Set(multimodalSettingsKey, tmp.Get(multimodalSettingsKey))
-	viper.Set(toolsSettingsKey, tmp.Get(toolsSettingsKey))
+	expanded, err := readExpandedAgentSettingsConfig(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	viper.Set(llmSettingsKey, expanded.Get(llmSettingsKey))
+	viper.Set(multimodalSettingsKey, expanded.Get(multimodalSettingsKey))
+	viper.Set(toolsSettingsKey, expanded.Get(toolsSettingsKey))
 	if s != nil && s.localRuntime != nil {
 		if err := s.localRuntime.ReloadAgentConfig(); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -217,14 +250,17 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	next := readAgentSettingsFromReader(tmp)
-	if doc, docErr := loadYAMLDocumentBytes(serialized); docErr == nil {
-		next = normalizeAgentSettingsConfigView(next, doc)
+	next := readAgentSettingsFromReader(expanded)
+	doc, docErr := loadYAMLDocumentBytes(serialized)
+	if docErr != nil {
+		writeError(w, http.StatusInternalServerError, docErr.Error())
+		return
 	}
+	next, envManaged := buildAgentSettingsResponseView(next, doc, settingsFromCurrentRuntime().Provider)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"llm":           next.LLM,
-		"env_managed":   currentAgentSettingsEnvManaged(effectiveLLM.Provider),
+		"env_managed":   envManaged,
 		"multimodal":    next.Multimodal,
 		"tools":         next.Tools,
 		"config_path":   configPath,
@@ -326,9 +362,8 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return defaultAgentSettingsPayload(), nil
 	}
-	tmp := viper.New()
-	integration.ApplyViperDefaults(tmp)
-	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
+	tmp, err := readExpandedAgentSettingsConfig(configPath)
+	if err != nil {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
 	settings := readAgentSettingsFromReader(tmp)
@@ -337,6 +372,15 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 		return agentSettingsPayload{}, err
 	}
 	return normalizeAgentSettingsConfigView(settings, doc), nil
+}
+
+func readExpandedAgentSettingsConfig(configPath string) (*viper.Viper, error) {
+	tmp := viper.New()
+	integration.ApplyViperDefaults(tmp)
+	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
+		return nil, err
+	}
+	return tmp, nil
 }
 
 func defaultAgentSettingsPayload() agentSettingsPayload {
@@ -391,35 +435,18 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 	}
 
 	llmNode := ensureMappingValue(root, llmSettingsKey)
-	if values.LLM.Provider != nil {
-		setOrDeleteMappingScalar(llmNode, "provider", *values.LLM.Provider)
-	}
-	if values.LLM.Endpoint != nil {
-		setOrDeleteMappingScalar(llmNode, "endpoint", *values.LLM.Endpoint)
-	}
-	if values.LLM.Model != nil {
-		setOrDeleteMappingScalar(llmNode, "model", *values.LLM.Model)
-	}
-	if strings.EqualFold(strings.TrimSpace(nextLLM.Provider), "cloudflare") {
-		setOrDeleteMappingScalar(llmNode, "api_key", "")
-		cloudflareNode := ensureMappingValue(llmNode, "cloudflare")
-		if values.LLM.CloudflareAccountID != nil {
-			setOrDeleteMappingScalar(cloudflareNode, "account_id", *values.LLM.CloudflareAccountID)
+	applyLLMConfigFieldsUpdate(llmNode, nextLLM.llmConfigFieldsPayload, values.LLM.llmConfigFieldsUpdatePayload)
+	if values.LLM.Profiles != nil {
+		profiles, err := normalizeLLMProfileSettings(*values.LLM.Profiles)
+		if err != nil {
+			return nil, err
 		}
-		if values.LLM.CloudflareAPIToken != nil {
-			setOrDeleteMappingScalar(cloudflareNode, "api_token", *values.LLM.CloudflareAPIToken)
+		if err := setLLMProfilesNode(llmNode, profiles, nextLLM.Provider); err != nil {
+			return nil, err
 		}
-	} else {
-		if values.LLM.APIKey != nil {
-			setOrDeleteMappingScalar(llmNode, "api_key", *values.LLM.APIKey)
-		}
-		deleteMappingKey(llmNode, "cloudflare")
 	}
-	if values.LLM.ReasoningEffort != nil {
-		setOrDeleteMappingScalar(llmNode, "reasoning_effort", *values.LLM.ReasoningEffort)
-	}
-	if values.LLM.ToolsEmulationMode != nil {
-		setOrDeleteMappingScalar(llmNode, "tools_emulation_mode", *values.LLM.ToolsEmulationMode)
+	if values.LLM.FallbackProfiles != nil {
+		setMappingOrderedStringList(llmNode, "fallback_profiles", normalizeNamedProfileSequence(*values.LLM.FallbackProfiles))
 	}
 
 	multimodalNode := ensureMappingValue(root, multimodalSettingsKey)
@@ -454,33 +481,25 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	values.CloudflareAccountID = firstNonEmpty(strings.TrimSpace(effectiveLLM.CloudflareAccountID), values.CloudflareAccountID)
 	values.ReasoningEffortRaw = firstNonEmpty(strings.TrimSpace(effectiveLLM.ReasoningEffort), values.ReasoningEffortRaw)
 	values.ToolsEmulationMode = firstNonEmpty(strings.TrimSpace(effectiveLLM.ToolsEmulationMode), values.ToolsEmulationMode)
-	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
-	if err != nil {
+	if err := validateAgentLLMRoute(values, llmutil.RoutePurposeMainLoop); err != nil {
 		return nil, err
 	}
-	if _, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values); err != nil {
-		return nil, err
+	for _, profile := range effectiveLLM.Profiles {
+		name := strings.TrimSpace(profile.Name)
+		if name == "" {
+			continue
+		}
+		profileValues := values
+		profileValues.Routes.MainLoop = name
+		if err := validateAgentLLMRoute(profileValues, llmutil.RoutePurposeMainLoop); err != nil {
+			return nil, err
+		}
 	}
 	return tmp, nil
 }
 
 func settingsFromCurrentRuntime() llmSettingsPayload {
-	values := currentConsoleLLMRuntimeValues()
-	provider := strings.TrimSpace(values.Provider)
-	cloudflareAPIToken := strings.TrimSpace(values.CloudflareAPIToken)
-	if cloudflareAPIToken == "" && strings.EqualFold(provider, "cloudflare") {
-		cloudflareAPIToken = llmutil.APIKeyForProviderWithValues(provider, values)
-	}
-	return llmSettingsPayload{
-		Provider:            provider,
-		Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
-		Model:               llmutil.ModelForProviderWithValues(provider, values),
-		APIKey:              strings.TrimSpace(values.APIKey),
-		CloudflareAPIToken:  cloudflareAPIToken,
-		CloudflareAccountID: strings.TrimSpace(values.CloudflareAccountID),
-		ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
-		ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
-	}
+	return llmSettingsPayloadFromRuntimeValues(currentConsoleLLMRuntimeValues())
 }
 
 func resolveAgentSettingsLLM(overrides llmSettingsUpdatePayload) llmSettingsPayload {
@@ -547,6 +566,12 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	if incoming.ToolsEmulationMode != nil {
 		merged.ToolsEmulationMode = strings.TrimSpace(*incoming.ToolsEmulationMode)
 	}
+	if incoming.Profiles != nil {
+		merged.Profiles = append([]llmProfileSettingsPayload(nil), (*incoming.Profiles)...)
+	}
+	if incoming.FallbackProfiles != nil {
+		merged.FallbackProfiles = normalizeNamedProfileSequence(*incoming.FallbackProfiles)
+	}
 	if strings.EqualFold(strings.TrimSpace(merged.Provider), "cloudflare") {
 		merged.APIKey = ""
 	} else {
@@ -558,14 +583,18 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 
 func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
 	return llmSettingsUpdatePayload{
-		Provider:            stringPointer(values.Provider),
-		Endpoint:            stringPointer(values.Endpoint),
-		Model:               stringPointer(values.Model),
-		APIKey:              stringPointer(values.APIKey),
-		CloudflareAPIToken:  stringPointer(values.CloudflareAPIToken),
-		CloudflareAccountID: stringPointer(values.CloudflareAccountID),
-		ReasoningEffort:     stringPointer(values.ReasoningEffort),
-		ToolsEmulationMode:  stringPointer(values.ToolsEmulationMode),
+		llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
+			Provider:            stringPointer(values.Provider),
+			Endpoint:            stringPointer(values.Endpoint),
+			Model:               stringPointer(values.Model),
+			APIKey:              stringPointer(values.APIKey),
+			CloudflareAPIToken:  stringPointer(values.CloudflareAPIToken),
+			CloudflareAccountID: stringPointer(values.CloudflareAccountID),
+			ReasoningEffort:     stringPointer(values.ReasoningEffort),
+			ToolsEmulationMode:  stringPointer(values.ToolsEmulationMode),
+		},
+		Profiles:         profileSettingsPointer(values.Profiles),
+		FallbackProfiles: stringSlicePointer(values.FallbackProfiles),
 	}
 }
 
@@ -603,28 +632,373 @@ func stringPointer(value string) *string {
 	return &next
 }
 
-func llmSettingsPayloadToMap(values llmSettingsPayload) map[string]any {
-	out := map[string]any{
-		"provider":             strings.TrimSpace(values.Provider),
-		"endpoint":             strings.TrimSpace(values.Endpoint),
-		"model":                strings.TrimSpace(values.Model),
-		"reasoning_effort":     strings.TrimSpace(values.ReasoningEffort),
-		"tools_emulation_mode": strings.TrimSpace(values.ToolsEmulationMode),
+func stringSlicePointer(values []string) *[]string {
+	next := append([]string(nil), values...)
+	return &next
+}
+
+func profileSettingsPointer(values []llmProfileSettingsPayload) *[]llmProfileSettingsPayload {
+	next := append([]llmProfileSettingsPayload(nil), values...)
+	return &next
+}
+
+func validateAgentLLMRoute(values llmutil.RuntimeValues, purpose string) error {
+	route, err := llmutil.ResolveRoute(values, purpose)
+	if err != nil {
+		return err
 	}
-	if !strings.EqualFold(strings.TrimSpace(values.Provider), "cloudflare") {
-		out["api_key"] = strings.TrimSpace(values.APIKey)
+	_, err = llmutil.BuildRouteClient(route, nil, llmutil.ClientFromConfigWithValues, nil, nil)
+	return err
+}
+
+func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettingsPayload {
+	provider := strings.TrimSpace(values.Provider)
+	return llmSettingsPayload{
+		llmConfigFieldsPayload: llmConfigFieldsPayload{
+			Provider:            provider,
+			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
+			Model:               llmutil.ModelForProviderWithValues(provider, values),
+			APIKey:              strings.TrimSpace(values.APIKey),
+			CloudflareAPIToken:  resolvedCloudflareToken(provider, strings.TrimSpace(values.APIKey), strings.TrimSpace(values.CloudflareAPIToken)),
+			CloudflareAccountID: strings.TrimSpace(values.CloudflareAccountID),
+			ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
+			ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
+		},
+		Profiles:         llmProfileSettingsPayloadsFromMap(values.Profiles, provider),
+		FallbackProfiles: normalizeNamedProfileSequence(values.FallbackProfiles),
 	}
-	if strings.EqualFold(strings.TrimSpace(values.Provider), "cloudflare") &&
-		(strings.TrimSpace(values.CloudflareAccountID) != "" || strings.TrimSpace(values.CloudflareAPIToken) != "") {
-		out["cloudflare"] = map[string]any{}
-		if accountID := strings.TrimSpace(values.CloudflareAccountID); accountID != "" {
-			out["cloudflare"].(map[string]any)["account_id"] = accountID
+}
+
+func llmProfileSettingsPayloadsFromMap(profiles map[string]llmutil.ProfileConfig, defaultProvider string) []llmProfileSettingsPayload {
+	if len(profiles) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		if trimmed := strings.TrimSpace(name); trimmed != "" {
+			names = append(names, trimmed)
 		}
-		if apiToken := strings.TrimSpace(values.CloudflareAPIToken); apiToken != "" {
-			out["cloudflare"].(map[string]any)["api_token"] = apiToken
-		}
+	}
+	sort.Strings(names)
+	out := make([]llmProfileSettingsPayload, 0, len(names))
+	for _, name := range names {
+		out = append(out, llmProfileSettingsPayloadFromConfig(name, profiles[name], defaultProvider))
 	}
 	return out
+}
+
+func llmProfileSettingsPayloadFromConfig(name string, cfg llmutil.ProfileConfig, defaultProvider string) llmProfileSettingsPayload {
+	effectiveProvider := firstNonEmpty(strings.TrimSpace(cfg.Provider), defaultProvider)
+	return llmProfileSettingsPayload{
+		Name: strings.TrimSpace(name),
+		llmConfigFieldsPayload: llmConfigFieldsPayload{
+			Provider:            strings.TrimSpace(cfg.Provider),
+			Endpoint:            strings.TrimSpace(cfg.Endpoint),
+			Model:               strings.TrimSpace(cfg.Model),
+			APIKey:              strings.TrimSpace(cfg.APIKey),
+			CloudflareAPIToken:  resolvedCloudflareToken(effectiveProvider, strings.TrimSpace(cfg.APIKey), strings.TrimSpace(cfg.Cloudflare.APIToken)),
+			CloudflareAccountID: strings.TrimSpace(cfg.Cloudflare.AccountID),
+			ReasoningEffort:     strings.TrimSpace(cfg.ReasoningEffortRaw),
+			ToolsEmulationMode:  strings.TrimSpace(cfg.ToolsEmulationMode),
+		},
+	}
+}
+
+func resolvedCloudflareToken(provider, apiKey, apiToken string) string {
+	if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
+		return firstNonEmpty(apiToken, apiKey)
+	}
+	return strings.TrimSpace(apiToken)
+}
+
+func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmProfileSettingsPayload, error) {
+	if len(profiles) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(profiles))
+	out := make([]llmProfileSettingsPayload, 0, len(profiles))
+	for _, profile := range profiles {
+		name := strings.TrimSpace(profile.Name)
+		if name == "" {
+			return nil, fmt.Errorf("profile name is required")
+		}
+		if strings.EqualFold(name, llmutil.RouteProfileDefault) {
+			return nil, fmt.Errorf("profile name %q is reserved", name)
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("duplicate profile %q", name)
+		}
+		seen[key] = struct{}{}
+		normalized := llmProfileSettingsPayload{
+			Name: name,
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider:            strings.TrimSpace(profile.Provider),
+				Endpoint:            strings.TrimSpace(profile.Endpoint),
+				Model:               strings.TrimSpace(profile.Model),
+				APIKey:              strings.TrimSpace(profile.APIKey),
+				CloudflareAPIToken:  strings.TrimSpace(profile.CloudflareAPIToken),
+				CloudflareAccountID: strings.TrimSpace(profile.CloudflareAccountID),
+				ReasoningEffort:     strings.TrimSpace(profile.ReasoningEffort),
+				ToolsEmulationMode:  strings.TrimSpace(profile.ToolsEmulationMode),
+			},
+		}
+		switch {
+		case strings.EqualFold(normalized.Provider, "cloudflare"):
+			normalized.CloudflareAPIToken = firstNonEmpty(normalized.CloudflareAPIToken, normalized.APIKey)
+			normalized.APIKey = ""
+		case normalized.Provider != "":
+			normalized.CloudflareAPIToken = ""
+			normalized.CloudflareAccountID = ""
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func normalizeNamedProfileSequence(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func llmProfileSettingsAsUpdate(profile llmProfileSettingsPayload) llmConfigFieldsUpdatePayload {
+	return llmConfigFieldsUpdatePayload{
+		Provider:            stringPointer(profile.Provider),
+		Endpoint:            stringPointer(profile.Endpoint),
+		Model:               stringPointer(profile.Model),
+		APIKey:              stringPointer(profile.APIKey),
+		CloudflareAPIToken:  stringPointer(profile.CloudflareAPIToken),
+		CloudflareAccountID: stringPointer(profile.CloudflareAccountID),
+		ReasoningEffort:     stringPointer(profile.ReasoningEffort),
+		ToolsEmulationMode:  stringPointer(profile.ToolsEmulationMode),
+	}
+}
+
+func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayload, update llmConfigFieldsUpdatePayload) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	if update.Provider != nil {
+		setOrDeleteMappingScalar(node, "provider", *update.Provider)
+	}
+	if update.Endpoint != nil {
+		setOrDeleteMappingScalar(node, "endpoint", *update.Endpoint)
+	}
+	if update.Model != nil {
+		setOrDeleteMappingScalar(node, "model", *update.Model)
+	}
+	if update.ReasoningEffort != nil {
+		setOrDeleteMappingScalar(node, "reasoning_effort", *update.ReasoningEffort)
+	}
+	if update.ToolsEmulationMode != nil {
+		setOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
+	}
+	if strings.EqualFold(strings.TrimSpace(effective.Provider), "cloudflare") {
+		setOrDeleteMappingScalar(node, "api_key", "")
+		cloudflareNode := findMappingValue(node, "cloudflare")
+		if cloudflareNode != nil && cloudflareNode.Kind != yaml.MappingNode {
+			cloudflareNode = ensureMappingValue(node, "cloudflare")
+		}
+		if update.CloudflareAccountID != nil || update.CloudflareAPIToken != nil {
+			if cloudflareNode == nil {
+				cloudflareNode = ensureMappingValue(node, "cloudflare")
+			}
+			if update.CloudflareAccountID != nil {
+				setOrDeleteMappingScalar(cloudflareNode, "account_id", *update.CloudflareAccountID)
+			}
+			if update.CloudflareAPIToken != nil {
+				setOrDeleteMappingScalar(cloudflareNode, "api_token", *update.CloudflareAPIToken)
+			}
+		}
+		if cloudflareNode != nil && len(cloudflareNode.Content) == 0 {
+			deleteMappingKey(node, "cloudflare")
+		}
+		return
+	}
+	if update.APIKey != nil {
+		setOrDeleteMappingScalar(node, "api_key", *update.APIKey)
+	}
+	deleteMappingKey(node, "cloudflare")
+}
+
+func setLLMProfilesNode(llmNode *yaml.Node, profiles []llmProfileSettingsPayload, defaultProvider string) error {
+	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
+		return nil
+	}
+	if len(profiles) == 0 {
+		deleteMappingKey(llmNode, "profiles")
+		return nil
+	}
+	existingProfiles := findMappingValue(llmNode, "profiles")
+	existingNodes := make(map[string]*yaml.Node, len(profiles))
+	if existingProfiles != nil && existingProfiles.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(existingProfiles.Content); i += 2 {
+			name := strings.TrimSpace(existingProfiles.Content[i].Value)
+			if name == "" {
+				continue
+			}
+			existingNodes[name] = existingProfiles.Content[i+1]
+		}
+	}
+	profilesNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, profile := range profiles {
+		name := strings.TrimSpace(profile.Name)
+		if name == "" {
+			return fmt.Errorf("profile name is required")
+		}
+		profileNode := existingNodes[name]
+		if profileNode == nil || profileNode.Kind != yaml.MappingNode {
+			profileNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		}
+		effective := profile.llmConfigFieldsPayload
+		effective.Provider = firstNonEmpty(profile.Provider, defaultProvider)
+		applyLLMConfigFieldsUpdate(profileNode, effective, llmProfileSettingsAsUpdate(profile))
+		profilesNode.Content = append(profilesNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+			profileNode,
+		)
+	}
+	for i := 0; i+1 < len(llmNode.Content); i += 2 {
+		if !strings.EqualFold(strings.TrimSpace(llmNode.Content[i].Value), "profiles") {
+			continue
+		}
+		llmNode.Content[i+1] = profilesNode
+		return nil
+	}
+	llmNode.Content = append(llmNode.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "profiles"},
+		profilesNode,
+	)
+	return nil
+}
+
+func setMappingOrderedStringList(node *yaml.Node, key string, values []string) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	values = normalizeNamedProfileSequence(values)
+	if len(values) == 0 {
+		deleteMappingKey(node, key)
+		return
+	}
+	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for _, value := range values {
+		list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
+			continue
+		}
+		node.Content[i+1] = list
+		return
+	}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		list,
+	)
+}
+
+func mergeLLMSettingsMap(base map[string]any, values llmSettingsPayload) map[string]any {
+	out := cloneStringAnyMap(base)
+	mergeLLMConfigFieldsMap(out, values.llmConfigFieldsPayload, values.Provider)
+
+	if len(values.Profiles) == 0 {
+		delete(out, "profiles")
+	} else {
+		existingProfiles := mapValueAsStringAnyMap(out["profiles"])
+		profiles := make(map[string]any, len(values.Profiles))
+		for _, profile := range values.Profiles {
+			name := strings.TrimSpace(profile.Name)
+			if name == "" {
+				continue
+			}
+			profileMap := cloneStringAnyMap(mapValueAsStringAnyMap(existingProfiles[name]))
+			mergeLLMConfigFieldsMap(profileMap, profile.llmConfigFieldsPayload, firstNonEmpty(profile.Provider, values.Provider))
+			profiles[name] = profileMap
+		}
+		out["profiles"] = profiles
+	}
+
+	if fallbacks := normalizeNamedProfileSequence(values.FallbackProfiles); len(fallbacks) > 0 {
+		out["fallback_profiles"] = fallbacks
+	} else {
+		delete(out, "fallback_profiles")
+	}
+	return out
+}
+
+func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, effectiveProvider string) {
+	if dst == nil {
+		return
+	}
+	setOrDeleteStringMapValue(dst, "provider", fields.Provider)
+	setOrDeleteStringMapValue(dst, "endpoint", fields.Endpoint)
+	setOrDeleteStringMapValue(dst, "model", fields.Model)
+	setOrDeleteStringMapValue(dst, "reasoning_effort", fields.ReasoningEffort)
+	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
+	if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
+		delete(dst, "api_key")
+		cloudflare := cloneStringAnyMap(mapValueAsStringAnyMap(dst["cloudflare"]))
+		setOrDeleteStringMapValue(cloudflare, "account_id", fields.CloudflareAccountID)
+		setOrDeleteStringMapValue(cloudflare, "api_token", firstNonEmpty(fields.CloudflareAPIToken, fields.APIKey))
+		if len(cloudflare) == 0 {
+			delete(dst, "cloudflare")
+		} else {
+			dst["cloudflare"] = cloudflare
+		}
+		return
+	}
+	delete(dst, "cloudflare")
+	setOrDeleteStringMapValue(dst, "api_key", fields.APIKey)
+}
+
+func cloneStringAnyMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(src))
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
+}
+
+func mapValueAsStringAnyMap(value any) map[string]any {
+	out, ok := value.(map[string]any)
+	if !ok || len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func setOrDeleteStringMapValue(dst map[string]any, key, value string) {
+	if dst == nil {
+		return
+	}
+	if value = strings.TrimSpace(value); value == "" {
+		delete(dst, key)
+		return
+	}
+	dst[key] = value
 }
 
 func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
@@ -1210,7 +1584,281 @@ func normalizeAgentSettingsConfigView(settings agentSettingsPayload, doc *yaml.N
 	if !agentSettingsYAMLHasLLMKey(doc, "model") {
 		settings.LLM.Model = ""
 	}
+	settings.LLM.Profiles = sortAgentSettingsProfilesByYAMLOrder(settings.LLM.Profiles, doc)
 	return settings
+}
+
+func buildAgentSettingsResponseView(
+	settings agentSettingsPayload,
+	doc *yaml.Node,
+	runtimeProvider string,
+) (agentSettingsPayload, agentSettingsEnvManagedPayload) {
+	settings = normalizeAgentSettingsConfigView(settings, doc)
+	envManaged := currentAgentSettingsEnvManaged(runtimeProvider)
+	llmNode := agentSettingsYAMLLLMNode(doc)
+	defaultProvider := strings.TrimSpace(settings.LLM.Provider)
+	if field, ok := envManaged.LLM["provider"]; ok && strings.TrimSpace(field.Value) != "" {
+		defaultProvider = strings.TrimSpace(field.Value)
+	}
+	envManaged.LLM = applyAgentSettingsYAMLEnvManaged(
+		&settings.LLM.llmConfigFieldsPayload,
+		envManaged.LLM,
+		llmNode,
+		defaultProvider,
+	)
+	settings.LLM.Profiles, envManaged.LLMProfiles = buildAgentSettingsProfileResponseView(
+		settings.LLM.Profiles,
+		llmNode,
+		defaultProvider,
+	)
+	if len(envManaged.LLM) == 0 {
+		envManaged.LLM = nil
+	}
+	if len(envManaged.LLMProfiles) == 0 {
+		envManaged.LLMProfiles = nil
+	}
+	return settings, envManaged
+}
+
+func buildAgentSettingsProfileResponseView(
+	profiles []llmProfileSettingsPayload,
+	llmNode *yaml.Node,
+	defaultProvider string,
+) ([]llmProfileSettingsPayload, map[string]map[string]agentSettingsEnvManagedField) {
+	if len(profiles) == 0 {
+		return profiles, nil
+	}
+	profilesNode := findMappingValue(llmNode, "profiles")
+	out := append([]llmProfileSettingsPayload(nil), profiles...)
+	envManaged := map[string]map[string]agentSettingsEnvManagedField{}
+	for i := range out {
+		name := strings.TrimSpace(out[i].Name)
+		if name == "" {
+			continue
+		}
+		profileNode := findMappingValue(profilesNode, name)
+		profileProvider := firstNonEmpty(strings.TrimSpace(out[i].Provider), defaultProvider)
+		fields := applyAgentSettingsYAMLEnvManaged(
+			&out[i].llmConfigFieldsPayload,
+			nil,
+			profileNode,
+			profileProvider,
+		)
+		if len(fields) == 0 {
+			continue
+		}
+		envManaged[name] = fields
+	}
+	if len(envManaged) == 0 {
+		return out, nil
+	}
+	return out, envManaged
+}
+
+func applyAgentSettingsYAMLEnvManaged(
+	fields *llmConfigFieldsPayload,
+	envManaged map[string]agentSettingsEnvManagedField,
+	node *yaml.Node,
+	defaultProvider string,
+) map[string]agentSettingsEnvManagedField {
+	if fields == nil {
+		return envManaged
+	}
+	if _, ok := envManaged["provider"]; !ok {
+		if field, ok := agentSettingsYAMLManagedField(node, defaultProvider, "provider"); ok {
+			if envManaged == nil {
+				envManaged = map[string]agentSettingsEnvManagedField{}
+			}
+			envManaged["provider"] = field
+		}
+	}
+	effectiveProvider := firstNonEmpty(strings.TrimSpace(fields.Provider), defaultProvider)
+	if field, ok := envManaged["provider"]; ok && strings.TrimSpace(field.Value) != "" {
+		effectiveProvider = strings.TrimSpace(field.Value)
+	}
+	for _, fieldName := range []string{
+		"endpoint",
+		"model",
+		"api_key",
+		"cloudflare_api_token",
+		"cloudflare_account_id",
+		"reasoning_effort",
+		"tools_emulation_mode",
+	} {
+		if _, ok := envManaged[fieldName]; ok {
+			continue
+		}
+		field, ok := agentSettingsYAMLManagedField(node, effectiveProvider, fieldName)
+		if !ok {
+			continue
+		}
+		if envManaged == nil {
+			envManaged = map[string]agentSettingsEnvManagedField{}
+		}
+		envManaged[fieldName] = field
+	}
+	sanitizeAgentSettingsManagedLLMFields(fields, envManaged, effectiveProvider)
+	if len(envManaged) == 0 {
+		return nil
+	}
+	return envManaged
+}
+
+func sanitizeAgentSettingsManagedLLMFields(
+	fields *llmConfigFieldsPayload,
+	envManaged map[string]agentSettingsEnvManagedField,
+	effectiveProvider string,
+) {
+	if fields == nil {
+		return
+	}
+	if _, ok := envManaged["api_key"]; ok {
+		fields.APIKey = ""
+	}
+	if _, ok := envManaged["cloudflare_api_token"]; ok {
+		fields.CloudflareAPIToken = ""
+		if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
+			fields.APIKey = ""
+		}
+	}
+}
+
+func agentSettingsYAMLManagedField(
+	node *yaml.Node,
+	provider string,
+	field string,
+) (agentSettingsEnvManagedField, bool) {
+	fieldPathSets := [][]string{}
+	switch strings.TrimSpace(field) {
+	case "provider":
+		fieldPathSets = [][]string{{"provider"}}
+	case "endpoint":
+		fieldPathSets = [][]string{{"endpoint"}}
+	case "model":
+		fieldPathSets = [][]string{{"model"}}
+		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
+			fieldPathSets = append([][]string{{"azure", "deployment"}}, fieldPathSets...)
+		}
+	case "api_key":
+		if !strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
+			fieldPathSets = [][]string{{"api_key"}}
+		}
+	case "cloudflare_api_token":
+		fieldPathSets = [][]string{{"cloudflare", "api_token"}}
+		if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
+			fieldPathSets = append(fieldPathSets, []string{"api_key"})
+		}
+	case "cloudflare_account_id":
+		fieldPathSets = [][]string{{"cloudflare", "account_id"}}
+	case "reasoning_effort":
+		fieldPathSets = [][]string{{"reasoning_effort"}}
+	case "tools_emulation_mode":
+		fieldPathSets = [][]string{{"tools_emulation_mode"}}
+	}
+	for _, path := range fieldPathSets {
+		current := node
+		for _, key := range path {
+			current = findMappingValue(current, key)
+			if current == nil {
+				break
+			}
+		}
+		entry, ok := agentSettingsYAMLPlaceholderField(current, field)
+		if ok {
+			return entry, true
+		}
+	}
+	return agentSettingsEnvManagedField{}, false
+}
+
+func agentSettingsYAMLPlaceholderField(
+	node *yaml.Node,
+	field string,
+) (agentSettingsEnvManagedField, bool) {
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return agentSettingsEnvManagedField{}, false
+	}
+	value := strings.TrimSpace(node.Value)
+	matches := agentSettingsEnvRefPattern.FindStringSubmatch(value)
+	if len(matches) != 2 {
+		return agentSettingsEnvManagedField{}, false
+	}
+	envName := strings.TrimSpace(matches[1])
+	if envName == "" {
+		return agentSettingsEnvManagedField{}, false
+	}
+	out := agentSettingsEnvManagedField{EnvName: envName}
+	switch strings.TrimSpace(field) {
+	case "api_key", "cloudflare_api_token":
+	default:
+		if resolved, ok := os.LookupEnv(envName); ok {
+			out.Value = strings.TrimSpace(resolved)
+		}
+	}
+	out.RawValue = value
+	return out, true
+}
+
+func agentSettingsYAMLLLMNode(doc *yaml.Node) *yaml.Node {
+	root, err := documentMapping(doc)
+	if err != nil {
+		return nil
+	}
+	return findMappingValue(root, llmSettingsKey)
+}
+
+func sortAgentSettingsProfilesByYAMLOrder(profiles []llmProfileSettingsPayload, doc *yaml.Node) []llmProfileSettingsPayload {
+	if len(profiles) <= 1 {
+		return profiles
+	}
+	order := agentSettingsYAMLProfileOrder(doc)
+	if len(order) == 0 {
+		return profiles
+	}
+	indexByName := make(map[string]int, len(order))
+	for idx, name := range order {
+		indexByName[name] = idx
+	}
+	out := append([]llmProfileSettingsPayload(nil), profiles...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := strings.TrimSpace(out[i].Name)
+		right := strings.TrimSpace(out[j].Name)
+		leftIndex, leftOK := indexByName[left]
+		rightIndex, rightOK := indexByName[right]
+		switch {
+		case leftOK && rightOK:
+			return leftIndex < rightIndex
+		case leftOK:
+			return true
+		case rightOK:
+			return false
+		default:
+			return left < right
+		}
+	})
+	return out
+}
+
+func agentSettingsYAMLProfileOrder(doc *yaml.Node) []string {
+	root, err := documentMapping(doc)
+	if err != nil {
+		return nil
+	}
+	llmNode := findMappingValue(root, llmSettingsKey)
+	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
+		return nil
+	}
+	profilesNode := findMappingValue(llmNode, "profiles")
+	if profilesNode == nil || profilesNode.Kind != yaml.MappingNode {
+		return nil
+	}
+	order := make([]string, 0, len(profilesNode.Content)/2)
+	for i := 0; i+1 < len(profilesNode.Content); i += 2 {
+		if name := strings.TrimSpace(profilesNode.Content[i].Value); name != "" {
+			order = append(order, name)
+		}
+	}
+	return order
 }
 
 func agentSettingsYAMLHasLLMKey(doc *yaml.Node, key string) bool {
@@ -1233,22 +1881,9 @@ func readAgentSettingsFromReader(r interface {
 	if r == nil {
 		return agentSettingsPayload{}
 	}
-	provider := strings.TrimSpace(r.GetString("llm.provider"))
-	cloudflareAPIToken := strings.TrimSpace(r.GetString("llm.cloudflare.api_token"))
-	if strings.EqualFold(provider, "cloudflare") {
-		cloudflareAPIToken = firstNonEmpty(cloudflareAPIToken, strings.TrimSpace(r.GetString("llm.api_key")))
-	}
+	values := llmutil.RuntimeValuesFromReader(r)
 	return agentSettingsPayload{
-		LLM: llmSettingsPayload{
-			Provider:            provider,
-			Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
-			Model:               strings.TrimSpace(r.GetString("llm.model")),
-			APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
-			CloudflareAPIToken:  cloudflareAPIToken,
-			CloudflareAccountID: strings.TrimSpace(r.GetString("llm.cloudflare.account_id")),
-			ReasoningEffort:     strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-			ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		},
+		LLM: llmSettingsPayloadFromRuntimeValues(values),
 		Multimodal: multimodalSettingsPayload{
 			ImageSources: sanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),
 		},

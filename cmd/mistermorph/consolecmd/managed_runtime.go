@@ -15,6 +15,7 @@ import (
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -328,11 +329,15 @@ func buildManagedRuntimeDeps(logger *slog.Logger) (depsutil.CommonDependencies, 
 			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
-			if err != nil {
-				return nil, err
-			}
-			return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger), nil
+			return llmutil.BuildRouteClient(
+				route,
+				nil,
+				llmutil.ClientFromConfigWithValues,
+				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+				},
+				logger,
+			)
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
 		Registry: func() *tools.Registry {

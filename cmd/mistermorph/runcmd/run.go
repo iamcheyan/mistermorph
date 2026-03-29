@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -94,11 +95,6 @@ func New(deps Dependencies) *cobra.Command {
 				mainCfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
 			}
 
-			baseClient, err := llmutil.ClientFromConfigWithValues(mainCfg, mainRoute.Values)
-			if err != nil {
-				return err
-			}
-
 			timeout := configutil.FlagOrViperDuration(cmd, "timeout", "timeout")
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
@@ -108,7 +104,18 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
-			client := llmstats.WrapRuntimeClient(baseClient, mainCfg.Provider, mainCfg.Endpoint, mainCfg.Model, logger)
+			client, err := llmutil.BuildRouteClient(
+				mainRoute,
+				&mainCfg,
+				llmutil.ClientFromConfigWithValues,
+				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+				},
+				logger,
+			)
+			if err != nil {
+				return err
+			}
 
 			logOpts := logutil.LogOptionsFromViper()
 			var requestInspector *llminspect.RequestInspector
@@ -154,11 +161,18 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			if !planRoute.SameProfile(mainRoute) {
-				planBaseClient, err := llmutil.ClientFromConfigWithValues(planRoute.ClientConfig, planRoute.Values)
+				planClient, err = llmutil.BuildRouteClient(
+					planRoute,
+					nil,
+					llmutil.ClientFromConfigWithValues,
+					func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+						return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+					},
+					logger,
+				)
 				if err != nil {
 					return err
 				}
-				planClient = llmstats.WrapRuntimeClient(planBaseClient, planRoute.ClientConfig.Provider, planRoute.ClientConfig.Endpoint, planRoute.ClientConfig.Model, logger)
 				planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
 					PromptInspector:  promptInspector,
 					RequestInspector: requestInspector,

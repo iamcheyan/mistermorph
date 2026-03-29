@@ -9,6 +9,8 @@ Add first-class support for routing different internal LLM flows to different LL
 - implemented
 - `go test ./...` passes
 
+Later follow-up: the implicit default profile also supports ordered transient-error fallback via `llm.fallback_profiles`.
+
 This is for two concrete needs:
 
 1. Different flows have different quality/cost/latency needs.

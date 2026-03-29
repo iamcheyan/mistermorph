@@ -102,6 +102,147 @@
   gap: 16px;
 }
 
+.settings-agent-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-agent-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
+}
+
+.settings-agent-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-agent-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-agent-section-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-agent-empty {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-profile-add {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.settings-profile-placeholder {
+  width: 100%;
+  gap: 8px;
+  justify-content: center;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--line) 78%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--q-bg-paper) 96%, transparent), color-mix(in srgb, var(--q-bg-paper) 90%, transparent)),
+    repeating-linear-gradient(
+      135deg,
+      transparent,
+      transparent 10px,
+      color-mix(in srgb, var(--line-soft) 30%, transparent) 10px,
+      color-mix(in srgb, var(--line-soft) 30%, transparent) 11px
+    );
+  color: var(--text-1);
+}
+
+.settings-profile-placeholder:hover:not(:disabled),
+.settings-profile-placeholder:focus-visible {
+  border-color: color-mix(in srgb, var(--text-2) 26%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--q-bg-paper) 98%, transparent), color-mix(in srgb, var(--q-bg-paper) 92%, transparent)),
+    repeating-linear-gradient(
+      135deg,
+      transparent,
+      transparent 10px,
+      color-mix(in srgb, var(--line-soft) 38%, transparent) 10px,
+      color-mix(in srgb, var(--line-soft) 38%, transparent) 11px
+    );
+}
+
+.settings-profile-list,
+.settings-fallback-list {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-profile-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
+}
+
+.settings-profile-head {
+  display: block;
+}
+
+.settings-profile-name {
+  min-width: 0;
+}
+
+.settings-profile-name-control {
+  align-items: center;
+}
+
+.settings-profile-delete {
+  flex: 0 0 auto;
+}
+
+.settings-fallback-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
+}
+
+.settings-fallback-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-fallback-index {
+  min-width: 20px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+.settings-fallback-picker {
+  min-width: 0;
+}
+
+.settings-fallback-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.settings-fallback-action {
+  flex: 0 0 auto;
+}
+
 .settings-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -297,6 +438,7 @@
 
 @media (max-width: 760px) {
   .settings-panel-head,
+  .settings-agent-section-head,
   .settings-console-row,
   .settings-toggle-row {
     flex-direction: column;
@@ -309,7 +451,10 @@
   }
 
   .settings-panel-actions,
-  .settings-console-control {
+  .settings-console-control,
+  .settings-profile-add,
+  .settings-profile-placeholder,
+  .settings-fallback-actions {
     width: 100%;
   }
 
@@ -318,10 +463,23 @@
   }
 
   .settings-panel-actions .q-button,
+  .settings-agent-section-head .q-button,
   .settings-agent-actions .q-button,
   .settings-console-row .q-button,
   .settings-console-row .settings-console-control {
     width: 100%;
+  }
+
+  .settings-fallback-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-profile-delete {
+    width: auto;
+  }
+
+  .settings-fallback-index {
+    text-align: left;
   }
 
 }

@@ -54,11 +54,18 @@ type RoutesConfig struct {
 	PurposeRoutes `mapstructure:",squash"`
 }
 
+type ResolvedFallback struct {
+	Profile      string
+	Values       RuntimeValues
+	ClientConfig llmconfig.ClientConfig
+}
+
 type ResolvedRoute struct {
 	Purpose      string
 	Profile      string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
+	Fallbacks    []ResolvedFallback
 }
 
 func (r ResolvedRoute) SameProfile(other ResolvedRoute) bool {
@@ -75,32 +82,24 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		profileName = RouteProfileDefault
 	}
 
-	resolvedValues := cloneRuntimeValuesForRoute(values)
-	if profileName != RouteProfileDefault {
-		override, ok := values.Profiles[profileName]
-		if !ok {
-			return ResolvedRoute{}, fmt.Errorf("llm route %s targets missing profile %q", purpose, profileName)
-		}
-		resolvedValues = applyProfileOverride(resolvedValues, override)
-	}
-
-	requestTimeout, err := requestTimeoutFromValue(resolvedValues.RequestTimeoutRaw, "llm.request_timeout")
+	resolvedValues, err := resolveProfileValues(values, profileName)
 	if err != nil {
 		return ResolvedRoute{}, err
 	}
-	provider := normalizeProvider(resolvedValues.Provider)
-	cfg := llmconfig.ClientConfig{
-		Provider:       provider,
-		Endpoint:       EndpointForProviderWithValues(provider, resolvedValues),
-		APIKey:         APIKeyForProviderWithValues(provider, resolvedValues),
-		Model:          ModelForProviderWithValues(provider, resolvedValues),
-		RequestTimeout: requestTimeout,
+	cfg, err := resolvedClientConfig(resolvedValues)
+	if err != nil {
+		return ResolvedRoute{}, err
+	}
+	fallbacks, err := resolveFallbacks(values, profileName)
+	if err != nil {
+		return ResolvedRoute{}, err
 	}
 	return ResolvedRoute{
 		Purpose:      purpose,
 		Profile:      profileName,
 		Values:       resolvedValues,
 		ClientConfig: cfg,
+		Fallbacks:    fallbacks,
 	}, nil
 }
 
@@ -217,6 +216,7 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 	out := values
 	out.Profiles = nil
 	out.Routes = RoutesConfig{}
+	out.FallbackProfiles = nil
 	return out
 }
 
@@ -250,3 +250,83 @@ func applyStringOverride(dst *string, value string) {
 	}
 }
 
+func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValues, error) {
+	resolvedValues := cloneRuntimeValuesForRoute(values)
+	if profileName == "" || profileName == RouteProfileDefault {
+		return resolvedValues, nil
+	}
+	override, ok := values.Profiles[profileName]
+	if !ok {
+		return RuntimeValues{}, fmt.Errorf("missing profile %q", profileName)
+	}
+	return applyProfileOverride(resolvedValues, override), nil
+}
+
+func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) {
+	requestTimeout, err := requestTimeoutFromValue(values.RequestTimeoutRaw, "llm.request_timeout")
+	if err != nil {
+		return llmconfig.ClientConfig{}, err
+	}
+	provider := normalizeProvider(values.Provider)
+	return llmconfig.ClientConfig{
+		Provider:       provider,
+		Endpoint:       EndpointForProviderWithValues(provider, values),
+		APIKey:         APIKeyForProviderWithValues(provider, values),
+		Model:          ModelForProviderWithValues(provider, values),
+		RequestTimeout: requestTimeout,
+	}, nil
+}
+
+func resolveFallbacks(values RuntimeValues, routeProfile string) ([]ResolvedFallback, error) {
+	if routeProfile != "" && routeProfile != RouteProfileDefault {
+		return nil, nil
+	}
+	names := normalizeProfileNames(values.FallbackProfiles)
+	if len(names) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(names))
+	out := make([]ResolvedFallback, 0, len(names))
+	for _, name := range names {
+		if name == RouteProfileDefault {
+			return nil, fmt.Errorf("llm.fallback_profiles cannot include %q", RouteProfileDefault)
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		resolvedValues, err := resolveProfileValues(values, name)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := resolvedClientConfig(resolvedValues)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ResolvedFallback{
+			Profile:      name,
+			Values:       resolvedValues,
+			ClientConfig: cfg,
+		})
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func normalizeProfileNames(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

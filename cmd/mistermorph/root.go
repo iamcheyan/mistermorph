@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -269,11 +270,15 @@ func (r *llmRuntimeResolver) Values() llmutil.RuntimeValues {
 }
 
 func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Client, error) {
-	base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
-	if err != nil {
-		return nil, err
-	}
-	return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, slog.Default()), nil
+	return llmutil.BuildRouteClient(
+		route,
+		nil,
+		llmutil.ClientFromConfigWithValues,
+		func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+			return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, slog.Default())
+		},
+		slog.Default(),
+	)
 }
 
 func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {

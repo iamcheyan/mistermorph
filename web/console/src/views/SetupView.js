@@ -12,6 +12,15 @@ import {
   setSelectedEndpointRef,
   translate,
 } from "../core/context";
+import {
+  hasLLMFieldValue as hasManagedLLMFieldValue,
+  isLLMFieldEnvManaged as isManagedLLMField,
+  llmFieldEnvName as managedLLMFieldEnvName,
+  llmFieldEnvValue as managedLLMFieldEnvValue,
+  llmFieldManagedDisplayValue as managedLLMFieldDisplayValue,
+  llmFieldManagedHeadline as managedLLMFieldHeadline,
+  llmFieldValue as managedLLMFieldValue,
+} from "../core/llm-env-managed";
 import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
 import {
   consoleSetupTargetEndpointRef,
@@ -605,59 +614,31 @@ const SetupView = {
     }
 
     function llmFieldEnvName(field) {
-      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
-      return typeof entry.env_name === "string" ? entry.env_name : "";
+      return managedLLMFieldEnvName(llmEnvManaged.value, field);
     }
 
     function llmFieldEnvValue(field) {
-      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
-      return typeof entry.value === "string" ? entry.value.trim() : "";
+      return managedLLMFieldEnvValue(llmEnvManaged.value, field);
     }
 
     function isLLMFieldEnvManaged(field) {
-      return llmFieldEnvName(field) !== "";
+      return isManagedLLMField(llmEnvManaged.value, field);
     }
 
     function llmFieldValue(field) {
-      const key = String(field || "").trim();
-      if (!key) {
-        return "";
-      }
-      if (isLLMFieldEnvManaged(key)) {
-        return llmFieldEnvValue(key);
-      }
-      const value = llmForm && typeof llmForm === "object" ? llmForm[key] : "";
-      return typeof value === "string" ? value.trim() : "";
+      return managedLLMFieldValue(llmForm, llmEnvManaged.value, field);
     }
 
     function hasLLMFieldValue(field) {
-      return llmFieldValue(field) !== "" || isLLMFieldEnvManaged(field);
+      return hasManagedLLMFieldValue(llmForm, llmEnvManaged.value, field);
     }
 
     function llmFieldManagedDisplayValue(field) {
-      const envValue = llmFieldEnvValue(field);
-      if (envValue !== "") {
-        return envValue;
-      }
-      if (["api_key", "cloudflare_api_token"].includes(String(field || "").trim())) {
-        return "";
-      }
-      return isLLMFieldEnvManaged(field) ? llmFieldValue(field) : "";
+      return managedLLMFieldDisplayValue(llmForm, llmEnvManaged.value, field);
     }
 
     function llmFieldManagedHeadline(field) {
-      const envName = llmFieldEnvName(field);
-      if (envName === "") {
-        return "";
-      }
-      const value = llmFieldManagedDisplayValue(field);
-      return value === "" ? envName : `${envName}=${value}`;
+      return managedLLMFieldHeadline(llmForm, llmEnvManaged.value, field);
     }
 
     async function loadLLMForm() {

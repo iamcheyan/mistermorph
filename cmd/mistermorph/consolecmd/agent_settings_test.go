@@ -19,7 +19,7 @@ import (
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n"+
+		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  fallback_profiles:\n    - cheap\n    - burst\n"+
 			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
 			"tools:\n  bash:\n    enabled: false\n",
 	), 0o600); err != nil {
@@ -38,6 +38,18 @@ func TestReadAgentSettings(t *testing.T) {
 	}
 	if got.LLM.CloudflareAPIToken != "legacy-cf-token" {
 		t.Fatalf("got.LLM.CloudflareAPIToken = %q, want legacy-cf-token", got.LLM.CloudflareAPIToken)
+	}
+	if len(got.LLM.Profiles) != 2 || got.LLM.Profiles[0].Name != "cheap" || got.LLM.Profiles[1].Name != "burst" {
+		t.Fatalf("got.LLM.Profiles = %+v", got.LLM.Profiles)
+	}
+	if got.LLM.Profiles[0].Model != "gpt-4.1-mini" {
+		t.Fatalf("got.LLM.Profiles[0] = %+v", got.LLM.Profiles[0])
+	}
+	if got.LLM.Profiles[1].Provider != "openai" || got.LLM.Profiles[1].APIKey != "sk-profile" {
+		t.Fatalf("got.LLM.Profiles[1] = %+v", got.LLM.Profiles[1])
+	}
+	if len(got.LLM.FallbackProfiles) != 2 || got.LLM.FallbackProfiles[0] != "cheap" || got.LLM.FallbackProfiles[1] != "burst" {
+		t.Fatalf("got.LLM.FallbackProfiles = %+v", got.LLM.FallbackProfiles)
 	}
 	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
 		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
@@ -63,10 +75,12 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider:            "anthropic",
-			Model:               "claude-3-7-sonnet",
-			CloudflareAccountID: "acc-next",
-			ToolsEmulationMode:  "fallback",
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider:            "anthropic",
+				Model:               "claude-3-7-sonnet",
+				CloudflareAccountID: "acc-next",
+				ToolsEmulationMode:  "fallback",
+			},
 		},
 		Multimodal: multimodalSettingsPayload{
 			ImageSources: []string{"telegram", "remote_download"},
@@ -436,10 +450,12 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider:            "cloudflare",
-			Model:               "@cf/meta/llama-3.1-8b-instruct",
-			CloudflareAPIToken:  "cf-new-token",
-			CloudflareAccountID: "acc-live",
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider:            "cloudflare",
+				Model:               "@cf/meta/llama-3.1-8b-instruct",
+				CloudflareAPIToken:  "cf-new-token",
+				CloudflareAccountID: "acc-live",
+			},
 		},
 	})
 	if err != nil {
@@ -454,6 +470,163 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 	}
 	if strings.Contains(out, "api_key: sk-old") {
 		t.Fatalf("serialized config should remove generic api_key for cloudflare provider: %s", out)
+	}
+}
+
+func TestWriteAgentSettingsPersistsProfilesAndFallbacks(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  model: gpt-5.2\n  routes:\n    heartbeat: cheap\n  profiles:\n    old:\n      model: stale\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
+		LLM: llmSettingsPayload{
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider: "openai",
+				Model:    "gpt-5.2",
+			},
+			Profiles: []llmProfileSettingsPayload{
+				{
+					Name: "cheap",
+					llmConfigFieldsPayload: llmConfigFieldsPayload{
+						Model: "gpt-4.1-mini",
+					},
+				},
+				{
+					Name: "cloudburst",
+					llmConfigFieldsPayload: llmConfigFieldsPayload{
+						Provider:            "cloudflare",
+						Model:               "@cf/meta/llama-3.1-8b-instruct",
+						CloudflareAccountID: "acc-456",
+						CloudflareAPIToken:  "cf-profile-token",
+					},
+				},
+			},
+			FallbackProfiles: []string{"cheap", "cloudburst"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettings() error = %v", err)
+	}
+	out := string(serialized)
+	if !strings.Contains(out, "heartbeat: cheap") {
+		t.Fatalf("serialized config should preserve llm.routes: %s", out)
+	}
+	if !strings.Contains(out, "profiles:") || !strings.Contains(out, "cheap:") || !strings.Contains(out, "cloudburst:") {
+		t.Fatalf("serialized config missing profiles block: %s", out)
+	}
+	if !strings.Contains(out, "fallback_profiles:") || !strings.Contains(out, "- cheap") || !strings.Contains(out, "- cloudburst") {
+		t.Fatalf("serialized config missing fallback profile sequence: %s", out)
+	}
+	if !strings.Contains(out, "account_id: acc-456") || !strings.Contains(out, "api_token: cf-profile-token") {
+		t.Fatalf("serialized config missing cloudflare profile credentials: %s", out)
+	}
+	if strings.Contains(out, "old:") {
+		t.Fatalf("serialized config should remove deleted profiles: %s", out)
+	}
+}
+
+func TestHandleAgentSettingsPutRejectsDuplicateProfiles(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{
+			"provider":"openai",
+			"profiles":[
+				{"name":"cheap","model":"gpt-4.1-mini"},
+				{"name":"Cheap","model":"gpt-4.1"}
+			],
+			"fallback_profiles":["cheap"]
+		},
+		"multimodal":{"image_sources":[]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "duplicate profile") {
+		t.Fatalf("response should mention duplicate profiles: %s", rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  model: gpt-5.2\n  routes:\n    heartbeat: burst\n  profiles:\n    burst:\n      model: gpt-4.1\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{
+			"provider":"openai",
+			"model":"gpt-5.2",
+			"profiles":[
+				{"name":"cheap","model":"gpt-4.1-mini"}
+			],
+			"fallback_profiles":["cheap"]
+		},
+		"multimodal":{"image_sources":["telegram"]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := viper.GetString("llm.routes.heartbeat"); got != "burst" {
+		t.Fatalf("viper llm.routes.heartbeat = %q, want burst", got)
+	}
+	if got := viper.GetStringSlice("llm.fallback_profiles"); len(got) != 1 || got[0] != "cheap" {
+		t.Fatalf("viper llm.fallback_profiles = %#v", got)
+	}
+	if got := viper.GetString("llm.profiles.cheap.model"); got != "gpt-4.1-mini" {
+		t.Fatalf("viper llm.profiles.cheap.model = %q, want gpt-4.1-mini", got)
 	}
 }
 
@@ -647,6 +820,145 @@ func TestHandleAgentSettingsGetIncludesCloudflareTokenEnvManagedWithoutCloudflar
 	}
 }
 
+func TestHandleAgentSettingsGetIncludesProfileEnvManagedPlaceholders(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  model: ${OPENAI_MODEL}\n  api_key: ${OPENAI_API_KEY}\n  profiles:\n    cheap:\n      model: ${CHEAP_MODEL}\n    edge:\n      provider: cloudflare\n      cloudflare:\n        account_id: ${CF_ACCOUNT_ID}\n        api_token: ${CF_API_TOKEN}\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("OPENAI_MODEL", "gpt-5.2")
+	t.Setenv("OPENAI_API_KEY", "sk-openai-env")
+	t.Setenv("CHEAP_MODEL", "gpt-4.1-mini")
+	t.Setenv("CF_ACCOUNT_ID", "acc-edge")
+	t.Setenv("CF_API_TOKEN", "cf-secret")
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		LLM        llmSettingsPayload             `json:"llm"`
+		EnvManaged agentSettingsEnvManagedPayload `json:"env_managed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := payload.EnvManaged.LLM["model"]; got.EnvName != "OPENAI_MODEL" || got.Value != "gpt-5.2" {
+		t.Fatalf("top-level model env-managed = %+v, want OPENAI_MODEL/gpt-5.2", got)
+	}
+	if got := payload.EnvManaged.LLM["api_key"]; got.EnvName != "OPENAI_API_KEY" {
+		t.Fatalf("top-level api key env-managed = %+v, want OPENAI_API_KEY", got)
+	}
+	if payload.LLM.APIKey != "" {
+		t.Fatalf("payload.LLM.APIKey = %q, want empty", payload.LLM.APIKey)
+	}
+	if got := payload.EnvManaged.LLMProfiles["cheap"]["model"]; got.EnvName != "CHEAP_MODEL" || got.Value != "gpt-4.1-mini" {
+		t.Fatalf("cheap profile model env-managed = %+v, want CHEAP_MODEL/gpt-4.1-mini", got)
+	}
+	if got := payload.EnvManaged.LLMProfiles["edge"]["cloudflare_api_token"]; got.EnvName != "CF_API_TOKEN" {
+		t.Fatalf("edge profile token env-managed = %+v, want CF_API_TOKEN", got)
+	}
+	if got := payload.EnvManaged.LLMProfiles["edge"]["cloudflare_account_id"]; got.EnvName != "CF_ACCOUNT_ID" || got.Value != "acc-edge" {
+		t.Fatalf("edge profile account env-managed = %+v, want CF_ACCOUNT_ID/acc-edge", got)
+	}
+	for _, profile := range payload.LLM.Profiles {
+		if profile.Name == "edge" && profile.CloudflareAPIToken != "" {
+			t.Fatalf("edge profile cloudflare token should be blank in payload, got %q", profile.CloudflareAPIToken)
+		}
+	}
+}
+
+func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-anthropic-env")
+	t.Setenv("CHEAP_API_KEY", "sk-cheap-env")
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"llm":{
+			"provider":"anthropic",
+			"model":"claude-3-7-sonnet",
+			"api_key":"${ANTHROPIC_API_KEY}",
+			"profiles":[
+				{"name":"cheap","provider":"openai","model":"gpt-4.1-mini","api_key":"${CHEAP_API_KEY}"}
+			],
+			"fallback_profiles":["cheap"]
+		},
+		"multimodal":{"image_sources":["telegram"]},
+		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := viper.GetString("llm.api_key"); got != "sk-anthropic-env" {
+		t.Fatalf("viper llm.api_key = %q, want expanded env value", got)
+	}
+	if got := viper.GetString("llm.profiles.cheap.api_key"); got != "sk-cheap-env" {
+		t.Fatalf("viper llm.profiles.cheap.api_key = %q, want expanded env value", got)
+	}
+	var payload struct {
+		LLM        llmSettingsPayload             `json:"llm"`
+		EnvManaged agentSettingsEnvManagedPayload `json:"env_managed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := payload.EnvManaged.LLMProfiles["cheap"]["api_key"]; got.EnvName != "CHEAP_API_KEY" {
+		t.Fatalf("cheap profile api key env-managed = %+v, want CHEAP_API_KEY", got)
+	}
+	for _, profile := range payload.LLM.Profiles {
+		if profile.Name == "cheap" && profile.APIKey != "" {
+			t.Fatalf("cheap profile api key should be blank in payload, got %q", profile.APIKey)
+		}
+	}
+}
+
 func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte("llm: [\n"), 0o600); err != nil {
@@ -655,9 +967,11 @@ func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			Provider: "openai",
-			Model:    "gpt-5.2",
-			APIKey:   "sk-test",
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider: "openai",
+				Model:    "gpt-5.2",
+				APIKey:   "sk-test",
+			},
 		},
 	})
 	if err != nil {

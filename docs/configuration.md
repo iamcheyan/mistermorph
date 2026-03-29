@@ -152,6 +152,7 @@ Core LLM:
 - Bedrock uses `llm.bedrock.*`.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
+- `llm.fallback_profiles` defines an ordered fallback chain for the implicit default profile when it hits transient errors (`timeout`, `429`, `529`).
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, `plan_create`, and `memory_draft`.
 
 Logging and runtime limits:

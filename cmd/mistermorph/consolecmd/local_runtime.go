@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -130,12 +131,20 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
-			if err != nil {
-				return nil, err
-			}
-			client := llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger)
-			return inspectors.Wrap(client, route), nil
+			return llmutil.BuildRouteClient(
+				route,
+				nil,
+				llmutil.ClientFromConfigWithValues,
+				func(client llm.Client, cfg llmconfig.ClientConfig, profile string) llm.Client {
+					wrappedRoute := route
+					wrappedRoute.Profile = strings.TrimSpace(profile)
+					wrappedRoute.ClientConfig = cfg
+					wrappedRoute.Fallbacks = nil
+					wrapped := llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+					return inspectors.Wrap(wrapped, wrappedRoute)
+				},
+				logger,
+			)
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
 		Registry: func() *tools.Registry {

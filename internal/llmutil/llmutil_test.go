@@ -237,6 +237,9 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 	if resolved.Values.TemperatureRaw != "0.2" {
 		t.Fatalf("temperature raw = %q, want 0.2", resolved.Values.TemperatureRaw)
 	}
+	if len(resolved.Fallbacks) != 0 {
+		t.Fatalf("fallbacks = %d, want 0", len(resolved.Fallbacks))
+	}
 }
 
 func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
@@ -266,6 +269,46 @@ func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
 	}
 	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
 		t.Fatalf("model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
+	}
+}
+
+func TestResolveRoute_DefaultFallbackProfiles(t *testing.T) {
+	values := RuntimeValues{
+		Provider:          "openai",
+		Endpoint:          "https://api.openai.com",
+		APIKey:            "base-key",
+		Model:             "gpt-5.2",
+		RequestTimeoutRaw: "90s",
+		FallbackProfiles:  []string{"cheap", "reasoning", "cheap"},
+		Profiles: map[string]ProfileConfig{
+			"cheap": {
+				Model: "gpt-4.1-mini",
+			},
+			"reasoning": {
+				Provider: "xai",
+				Model:    "grok-4.1-fast-reasoning",
+				APIKey:   "xai-key",
+			},
+		},
+	}
+	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if got := len(resolved.Fallbacks); got != 2 {
+		t.Fatalf("fallback count = %d, want 2", got)
+	}
+	if resolved.Fallbacks[0].Profile != "cheap" {
+		t.Fatalf("fallback[0].profile = %q, want cheap", resolved.Fallbacks[0].Profile)
+	}
+	if resolved.Fallbacks[0].ClientConfig.Model != "gpt-4.1-mini" {
+		t.Fatalf("fallback[0].model = %q, want gpt-4.1-mini", resolved.Fallbacks[0].ClientConfig.Model)
+	}
+	if resolved.Fallbacks[1].Profile != "reasoning" {
+		t.Fatalf("fallback[1].profile = %q, want reasoning", resolved.Fallbacks[1].Profile)
+	}
+	if resolved.Fallbacks[1].ClientConfig.Provider != "xai" {
+		t.Fatalf("fallback[1].provider = %q, want xai", resolved.Fallbacks[1].ClientConfig.Provider)
 	}
 }
 
@@ -337,6 +380,36 @@ func TestResolveRoute_MissingProfile(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_InvalidFallbackProfile(t *testing.T) {
+	values := RuntimeValues{
+		Provider:         "openai",
+		Model:            "gpt-5.2",
+		FallbackProfiles: []string{"missing"},
+	}
+	_, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err == nil {
+		t.Fatalf("expected invalid fallback profile error")
+	}
+	if !strings.Contains(err.Error(), `missing profile "missing"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveRoute_DefaultCannotBeFallbackProfile(t *testing.T) {
+	values := RuntimeValues{
+		Provider:         "openai",
+		Model:            "gpt-5.2",
+		FallbackProfiles: []string{"default"},
+	}
+	_, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err == nil {
+		t.Fatalf("expected default fallback profile error")
+	}
+	if !strings.Contains(err.Error(), "llm.fallback_profiles") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v := viper.New()
 	v.Set("llm.provider", "openai")
@@ -362,6 +435,7 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		"plan_create":  "reasoning",
 		"memory_draft": "cheap",
 	})
+	v.Set("llm.fallback_profiles", []string{"cheap", "reasoning"})
 
 	values := RuntimeValuesFromReader(v)
 	if values.Profiles["cheap"].Model != "gpt-4.1-mini" {
@@ -381,5 +455,11 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.MemoryDraft != "cheap" {
 		t.Fatalf("memory draft route = %q, want cheap", values.Routes.MemoryDraft)
+	}
+	if got := len(values.FallbackProfiles); got != 2 {
+		t.Fatalf("fallback profiles count = %d, want 2", got)
+	}
+	if values.FallbackProfiles[0] != "cheap" || values.FallbackProfiles[1] != "reasoning" {
+		t.Fatalf("fallback profiles = %#v, want [cheap reasoning]", values.FallbackProfiles)
 	}
 }

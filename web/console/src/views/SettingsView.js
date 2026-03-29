@@ -3,6 +3,7 @@ import { useRouter } from "vue-router";
 import "./SettingsView.css";
 
 import AppPage from "../components/AppPage";
+import LLMConfigForm from "../components/LLMConfigForm";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import {
@@ -16,15 +17,18 @@ import {
   translate,
 } from "../core/context";
 import {
+  hasLLMFieldValue,
+  isLLMFieldEnvManaged,
+  llmFieldEnvRawValue,
+  llmFieldValue,
+} from "../core/llm-env-managed";
+import {
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
-  defaultEndpointForSetupProvider,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
-  resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
-  setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 
 function tuiKicker(left, right) {
@@ -63,17 +67,88 @@ const MANAGED_RUNTIME_ITEMS = [
 ];
 
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
+let llmProfileKeySeed = 0;
+
+function buildEmptyLLMForm() {
+  return {
+    provider: "",
+    endpoint: "",
+    model: "",
+    api_key: "",
+    cloudflare_api_token: "",
+    cloudflare_account_id: "",
+    reasoning_effort: "",
+    tools_emulation_mode: "",
+  };
+}
+
+function nextLLMProfileKey() {
+  llmProfileKeySeed += 1;
+  return `llm-profile-${Date.now()}-${llmProfileKeySeed}`;
+}
+
+function buildLLMProfileState(data = {}) {
+  return {
+    _key: nextLLMProfileKey(),
+    _envManaged: {},
+    name: "",
+    ...buildEmptyLLMForm(),
+    ...(data && typeof data === "object" ? data : {}),
+  };
+}
+
+function trimText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeNamedList(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const name = trimText(value);
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+function serializeLLMProfile(profile) {
+  return {
+    name: trimText(profile?.name),
+    provider: trimText(profile?.provider),
+    endpoint: trimText(profile?.endpoint),
+    model: trimText(profile?.model),
+    api_key: trimText(profile?.api_key),
+    cloudflare_api_token: trimText(profile?.cloudflare_api_token),
+    cloudflare_account_id: trimText(profile?.cloudflare_account_id),
+    reasoning_effort: trimText(profile?.reasoning_effort),
+    tools_emulation_mode: trimText(profile?.tools_emulation_mode),
+  };
+}
+
 function buildAgentSnapshot(state) {
   return JSON.stringify({
     llm: {
-      provider: String(state.llm.provider || "").trim(),
-      endpoint: String(state.llm.endpoint || "").trim(),
-      model: String(state.llm.model || "").trim(),
-      api_key: String(state.llm.api_key || "").trim(),
-      cloudflare_api_token: String(state.llm.cloudflare_api_token || "").trim(),
-      cloudflare_account_id: String(state.llm.cloudflare_account_id || "").trim(),
-      reasoning_effort: String(state.llm.reasoning_effort || "").trim(),
-      tools_emulation_mode: String(state.llm.tools_emulation_mode || "").trim(),
+      provider: trimText(state.llm.provider),
+      endpoint: trimText(state.llm.endpoint),
+      model: trimText(state.llm.model),
+      api_key: trimText(state.llm.api_key),
+      cloudflare_api_token: trimText(state.llm.cloudflare_api_token),
+      cloudflare_account_id: trimText(state.llm.cloudflare_account_id),
+      reasoning_effort: trimText(state.llm.reasoning_effort),
+      tools_emulation_mode: trimText(state.llm.tools_emulation_mode),
+      profiles: Array.isArray(state.llm.profiles) ? state.llm.profiles.map((profile) => serializeLLMProfile(profile)) : [],
+      fallback_profiles: normalizeNamedList(state.llm.fallback_profiles),
     },
     multimodal: {
       telegram: !!state.multimodal.telegram,
@@ -105,6 +180,7 @@ function buildConsoleSnapshot(state) {
 const SettingsView = {
   components: {
     AppPage,
+    LLMConfigForm,
     SetupConnectionTestDialog,
     SetupPickerDialog,
   },
@@ -117,6 +193,9 @@ const SettingsView = {
     const agentSaving = ref(false);
     const agentErr = ref("");
     const agentOk = ref("");
+    const agentValidationVisible = ref(false);
+    const deleteProfileDialogOpen = ref(false);
+    const deleteProfileTargetKey = ref("");
     const llmConfigPath = ref("");
     const loadedSnapshot = ref("");
     const llmEnvManaged = ref({});
@@ -145,14 +224,9 @@ const SettingsView = {
 
     const state = reactive({
       llm: {
-        provider: "",
-        endpoint: "",
-        model: "",
-        api_key: "",
-        cloudflare_api_token: "",
-        cloudflare_account_id: "",
-        reasoning_effort: "",
-        tools_emulation_mode: "",
+        ...buildEmptyLLMForm(),
+        profiles: [],
+        fallback_profiles: [],
       },
       multimodal: {
         telegram: false,
@@ -175,34 +249,11 @@ const SettingsView = {
       },
     });
 
-    const providerItems = computed(() => SETUP_PROVIDER_OPTIONS);
-    const providerItem = computed(
-      () => providerItems.value.find((item) => item.value === state.llm.provider) || null
-    );
-    const showCloudflareAccountField = computed(
-      () => normalizeSetupProviderChoice(llmFieldValue("provider")) === SETUP_PROVIDER_CLOUDFLARE
-    );
-    const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
-    const credentialLabelKey = computed(() =>
-      showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label"
-    );
-    const credentialPlaceholderKey = computed(() =>
-      showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_placeholder" : "settings_agent_api_key_placeholder"
-    );
-    const credentialHintKey = computed(() =>
-      showCloudflareAccountField.value ? "setup_llm_api_token_hint" : "setup_llm_api_key_hint"
-    );
-    const credentialHintPlainKey = computed(() =>
-      showCloudflareAccountField.value ? "setup_llm_api_token_hint_plain" : "setup_llm_api_key_hint_plain"
-    );
-    const showOpenAICompatibleHelpers = computed(() => setupProviderSupportsModelLookup(llmFieldValue("provider")));
-    const modelLookupDisabled = computed(
-      () =>
-        agentLoading.value ||
-        agentSaving.value ||
-        !showOpenAICompatibleHelpers.value ||
-        !hasLLMFieldValue("api_key")
-    );
+    const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
+    const profileProviderItems = computed(() => [
+      { title: t("settings_agent_provider_inherit"), value: "" },
+      ...SETUP_PROVIDER_OPTIONS,
+    ]);
     const apiBasePickerItems = computed(() =>
       OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
         id: item.id,
@@ -211,31 +262,6 @@ const SettingsView = {
         note: "",
       }))
     );
-    const credentialHelp = computed(() => {
-      const provider = llmFieldValue("provider");
-      if (provider === "" || isLLMFieldEnvManaged(credentialFieldName.value)) {
-        return null;
-      }
-      return resolveSetupAPIKeyHelp(provider, llmFieldValue("endpoint"));
-    });
-    const credentialHelpParts = computed(() => {
-      if (!credentialHelp.value) {
-        return null;
-      }
-      const marker = "__PROVIDER__";
-      const template = String(t(credentialHintKey.value, { provider: marker }) || "");
-      const index = template.indexOf(marker);
-      if (index === -1) {
-        return {
-          before: template.trim(),
-          after: "",
-        };
-      }
-      return {
-        before: template.slice(0, index),
-        after: template.slice(index + marker.length),
-      };
-    });
     const reasoningEffortItems = computed(() => [
       { title: t("settings_llm_reasoning_none"), value: "" },
       { title: t("settings_llm_reasoning_minimal"), value: "minimal" },
@@ -245,19 +271,19 @@ const SettingsView = {
       { title: t("settings_llm_reasoning_max"), value: "max" },
       { title: t("settings_llm_reasoning_xhigh"), value: "xhigh" },
     ]);
-    const reasoningEffortItem = computed(
-      () => reasoningEffortItems.value.find((item) => item.value === state.llm.reasoning_effort) || reasoningEffortItems.value[0]
-    );
+    const profileReasoningEffortItems = computed(() => [
+      { title: t("settings_agent_provider_inherit"), value: "" },
+      ...reasoningEffortItems.value.filter((item) => item.value !== ""),
+    ]);
     const toolsEmulationItems = computed(() => [
       { title: t("settings_llm_tools_emulation_off"), value: "off" },
       { title: t("settings_llm_tools_emulation_fallback"), value: "fallback" },
       { title: t("settings_llm_tools_emulation_force"), value: "force" },
     ]);
-    const toolsEmulationItem = computed(
-      () =>
-        toolsEmulationItems.value.find((item) => item.value === state.llm.tools_emulation_mode) ||
-        toolsEmulationItems.value[0]
-    );
+    const profileToolsEmulationItems = computed(() => [
+      { title: t("settings_agent_provider_inherit"), value: "" },
+      ...toolsEmulationItems.value,
+    ]);
     const multimodalItems = computed(() => MULTIMODAL_SOURCES);
     const toolItems = computed(() => TOOL_ITEMS);
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
@@ -342,26 +368,101 @@ const SettingsView = {
       mobileShowBack.value ? selectedSection.value?.title || t("settings_title") : t("settings_title")
     );
     const pageClass = computed(() => (isMobile.value ? "settings-page settings-page-mobile-split" : "settings-page"));
+    const profileBaseProvider = computed(() => llmFieldValue(state.llm, llmEnvManaged.value, "provider"));
+    const defaultProviderChoice = computed(() =>
+      normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
+    );
+    const defaultShowCloudflareAccountField = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
+    const defaultCredentialFieldName = computed(() =>
+      defaultShowCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"
+    );
+    const profileOptions = computed(() =>
+      state.llm.profiles
+        .map((profile) => ({
+          id: profile._key,
+          title: trimText(profile.name) || t("settings_agent_profile_placeholder"),
+          value: trimText(profile.name),
+          note: trimText(profile.model),
+        }))
+        .filter((item) => item.value !== "")
+    );
+    const agentValidationError = computed(() => {
+      if (!hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider")) {
+        return "";
+      }
+      const seen = new Set();
+      for (const profile of state.llm.profiles) {
+        const name = trimText(profile.name);
+        if (!name) {
+          return t("settings_agent_profile_name_required");
+        }
+        const key = name.toLowerCase();
+        if (key === "default") {
+          return t("settings_agent_profile_name_reserved");
+        }
+        if (seen.has(key)) {
+          return t("settings_agent_profile_name_duplicate", { name });
+        }
+        seen.add(key);
+      }
+      for (const fallback of state.llm.fallback_profiles) {
+        const name = trimText(fallback);
+        if (!name) {
+          return t("settings_agent_fallback_required");
+        }
+        if (!seen.has(name.toLowerCase())) {
+          return t("settings_agent_fallback_unknown", { name });
+        }
+      }
+      return "";
+    });
+    const deleteProfileTarget = computed(() =>
+      state.llm.profiles.find((item) => item._key === deleteProfileTargetKey.value) || null
+    );
+    const deleteProfileDialogText = computed(() =>
+      t("settings_agent_profile_delete_confirm", {
+        name: trimText(deleteProfileTarget.value?.name) || t("settings_agent_profile_placeholder"),
+      })
+    );
+    const deleteProfileDialogActions = computed(() => [
+      {
+        name: "cancel",
+        label: t("action_cancel"),
+        class: "outlined",
+        action: closeDeleteProfileDialog,
+      },
+      {
+        name: "delete",
+        label: t("action_delete"),
+        class: "danger",
+        action: deleteLLMProfile,
+      },
+    ]);
     const testConnectionDisabled = computed(
       () =>
         testConnectionLoading.value ||
         agentLoading.value ||
         agentSaving.value ||
-        !hasLLMFieldValue("provider") ||
-        !hasLLMFieldValue("model") ||
-        (setupProviderRequiresAPIKey(llmFieldValue("provider")) && !hasLLMFieldValue(credentialFieldName.value)) ||
-        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_api_token")) ||
-        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
+        !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
+        !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
+        (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+        (defaultShowCloudflareAccountField.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
+        (defaultShowCloudflareAccountField.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
       () =>
         agentLoading.value ||
         agentSaving.value ||
-        !hasLLMFieldValue("provider") ||
+        !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !agentDirty.value ||
-        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_api_token")) ||
-        (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
+        (defaultShowCloudflareAccountField.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
+        (defaultShowCloudflareAccountField.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
     const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
     const consoleSaveDisabled = computed(() => consoleLoading.value || consoleSaving.value || !consoleDirty.value);
@@ -371,20 +472,45 @@ const SettingsView = {
       const envManagedPayload = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
       const llmEnvManagedPayload =
         envManagedPayload?.llm && typeof envManagedPayload.llm === "object" ? envManagedPayload.llm : {};
+      const llmProfileEnvManagedPayload =
+        envManagedPayload?.llm_profiles && typeof envManagedPayload.llm_profiles === "object"
+          ? envManagedPayload.llm_profiles
+          : {};
       const multimodal = data?.multimodal && typeof data.multimodal === "object" ? data.multimodal : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const imageSources = Array.isArray(multimodal.image_sources) ? multimodal.image_sources : [];
+      const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
 
-      state.llm.provider = normalizeSetupProviderChoice(llm.provider);
+      state.llm.provider = normalizeSetupProviderChoice(llm.provider, { allowEmpty: true });
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.api_key = typeof llm.api_key === "string" ? llm.api_key : "";
-      state.llm.cloudflare_api_token =
-        typeof llm.cloudflare_api_token === "string" ? llm.cloudflare_api_token : "";
+      state.llm.cloudflare_api_token = typeof llm.cloudflare_api_token === "string" ? llm.cloudflare_api_token : "";
       state.llm.cloudflare_account_id = typeof llm.cloudflare_account_id === "string" ? llm.cloudflare_account_id : "";
       state.llm.reasoning_effort = typeof llm.reasoning_effort === "string" ? llm.reasoning_effort : "";
-      state.llm.tools_emulation_mode =
-        typeof llm.tools_emulation_mode === "string" ? llm.tools_emulation_mode : "off";
+      state.llm.tools_emulation_mode = typeof llm.tools_emulation_mode === "string" ? llm.tools_emulation_mode : "off";
+      state.llm.profiles = profiles.map((profile) =>
+        buildLLMProfileState({
+          name: trimText(profile?.name),
+          _envManaged:
+            llmProfileEnvManagedPayload?.[trimText(profile?.name)] &&
+            typeof llmProfileEnvManagedPayload[trimText(profile?.name)] === "object"
+              ? llmProfileEnvManagedPayload[trimText(profile?.name)]
+              : {},
+          provider: normalizeSetupProviderChoice(profile?.provider, { allowEmpty: true }),
+          endpoint: typeof profile?.endpoint === "string" ? profile.endpoint : "",
+          model: typeof profile?.model === "string" ? profile.model : "",
+          api_key: typeof profile?.api_key === "string" ? profile.api_key : "",
+          cloudflare_api_token:
+            typeof profile?.cloudflare_api_token === "string" ? profile.cloudflare_api_token : "",
+          cloudflare_account_id:
+            typeof profile?.cloudflare_account_id === "string" ? profile.cloudflare_account_id : "",
+          reasoning_effort: typeof profile?.reasoning_effort === "string" ? profile.reasoning_effort : "",
+          tools_emulation_mode:
+            typeof profile?.tools_emulation_mode === "string" ? profile.tools_emulation_mode : "",
+        }),
+      );
+      state.llm.fallback_profiles = normalizeNamedList(llm.fallback_profiles);
       for (const item of MULTIMODAL_SOURCES) {
         state.multimodal[item.id] = imageSources.includes(item.id);
       }
@@ -397,63 +523,149 @@ const SettingsView = {
       state.tools.bash = !!tools.bash_enabled;
       llmEnvManaged.value = llmEnvManagedPayload;
 
+      agentValidationVisible.value = false;
       loadedSnapshot.value = buildAgentSnapshot(state);
     }
 
-    function llmFieldEnvName(field) {
-      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
-      if (!entry || typeof entry !== "object") {
+    function llmProfileEnvManaged(profile) {
+      return profile?._envManaged && typeof profile._envManaged === "object" ? profile._envManaged : {};
+    }
+
+    function normalizeProviderForSave(choice, endpoint, allowEmpty = false) {
+      const provider = normalizeSetupProviderChoice(choice, { allowEmpty });
+      if (provider === "" && allowEmpty) {
         return "";
       }
-      return typeof entry.env_name === "string" ? entry.env_name : "";
+      return normalizeSetupProviderForSave(choice, endpoint);
     }
 
-    function llmFieldEnvValue(field) {
-      const entry = llmEnvManaged.value && typeof llmEnvManaged.value === "object" ? llmEnvManaged.value[field] : null;
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
-      return typeof entry.value === "string" ? entry.value.trim() : "";
-    }
-
-    function isLLMFieldEnvManaged(field) {
-      return llmFieldEnvName(field) !== "";
-    }
-
-    function llmFieldValue(field) {
+    function updateDefaultLLMField({ field, value }) {
       const key = String(field || "").trim();
-      if (!key) {
-        return "";
+      if (!key || !Object.prototype.hasOwnProperty.call(state.llm, key)) {
+        return;
       }
-      if (isLLMFieldEnvManaged(key)) {
-        return llmFieldEnvValue(key);
-      }
-      const value = state.llm && typeof state.llm === "object" ? state.llm[key] : "";
-      return typeof value === "string" ? value.trim() : "";
+      state.llm[key] = String(value || "");
     }
 
-    function hasLLMFieldValue(field) {
-      return llmFieldValue(field) !== "" || isLLMFieldEnvManaged(field);
+    function updateProfileField(profileKey, { field, value }) {
+      const profile = state.llm.profiles.find((item) => item._key === profileKey);
+      const key = String(field || "").trim();
+      if (!profile || !key || !Object.prototype.hasOwnProperty.call(profile, key)) {
+        return;
+      }
+      const previousName = trimText(profile.name);
+      profile[key] = String(value || "");
+      if (key !== "name") {
+        return;
+      }
+      const nextName = trimText(profile.name);
+      if (!previousName || previousName === nextName) {
+        return;
+      }
+      state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
+        trimText(item) === previousName ? nextName : item,
+      );
     }
 
-    function llmFieldManagedDisplayValue(field) {
-      const envValue = llmFieldEnvValue(field);
-      if (envValue !== "") {
-        return envValue;
-      }
-      if (["api_key", "cloudflare_api_token"].includes(String(field || "").trim())) {
-        return "";
-      }
-      return isLLMFieldEnvManaged(field) ? llmFieldValue(field) : "";
+    function addLLMProfile() {
+      state.llm.profiles.push(buildLLMProfileState());
     }
 
-    function llmFieldManagedHeadline(field) {
-      const envName = llmFieldEnvName(field);
-      if (envName === "") {
-        return "";
+    function confirmRemoveLLMProfile(profileKey) {
+      deleteProfileTargetKey.value = String(profileKey || "").trim();
+      deleteProfileDialogOpen.value = deleteProfileTargetKey.value !== "";
+    }
+
+    function closeDeleteProfileDialog() {
+      deleteProfileDialogOpen.value = false;
+      deleteProfileTargetKey.value = "";
+    }
+
+    function removeLLMProfile(profileKey) {
+      const index = state.llm.profiles.findIndex((item) => item._key === profileKey);
+      if (index < 0) {
+        return;
       }
-      const value = llmFieldManagedDisplayValue(field);
-      return value === "" ? envName : `${envName}=${value}`;
+      const [removed] = state.llm.profiles.splice(index, 1);
+      const removedName = trimText(removed?.name);
+      if (!removedName) {
+        return;
+      }
+      state.llm.fallback_profiles = state.llm.fallback_profiles.filter((item) => trimText(item) !== removedName);
+    }
+
+    function deleteLLMProfile() {
+      const profileKey = deleteProfileTargetKey.value;
+      closeDeleteProfileDialog();
+      if (!profileKey) {
+        return;
+      }
+      removeLLMProfile(profileKey);
+    }
+
+    function addFallbackProfile() {
+      const firstProfile = profileOptions.value[0]?.value || "";
+      if (!firstProfile) {
+        return;
+      }
+      state.llm.fallback_profiles.push(firstProfile);
+    }
+
+    function updateFallbackProfile(index, item) {
+      if (index < 0 || index >= state.llm.fallback_profiles.length) {
+        return;
+      }
+      state.llm.fallback_profiles[index] = trimText(item?.value);
+    }
+
+    function removeFallbackProfile(index) {
+      if (index < 0 || index >= state.llm.fallback_profiles.length) {
+        return;
+      }
+      state.llm.fallback_profiles.splice(index, 1);
+    }
+
+    function moveFallbackProfile(index, delta) {
+      const nextIndex = index + delta;
+      if (index < 0 || index >= state.llm.fallback_profiles.length || nextIndex < 0 || nextIndex >= state.llm.fallback_profiles.length) {
+        return;
+      }
+      const items = [...state.llm.fallback_profiles];
+      const [current] = items.splice(index, 1);
+      items.splice(nextIndex, 0, current);
+      state.llm.fallback_profiles = items;
+    }
+
+    function buildProfilePayload(profile) {
+      const envManaged = llmProfileEnvManaged(profile);
+      const explicitProvider = normalizeSetupProviderChoice(llmFieldValue(profile, envManaged, "provider"), {
+        allowEmpty: true,
+      });
+      const effectiveProvider = explicitProvider || defaultProviderChoice.value;
+      const payload = {
+        name: trimText(profile.name),
+        provider:
+          llmFieldEnvRawValue(envManaged, "provider") ||
+          normalizeProviderForSave(profile.provider, profile.endpoint, true),
+        endpoint: llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
+        model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
+        reasoning_effort:
+          llmFieldEnvRawValue(envManaged, "reasoning_effort") || trimText(profile.reasoning_effort),
+        tools_emulation_mode:
+          llmFieldEnvRawValue(envManaged, "tools_emulation_mode") || trimText(profile.tools_emulation_mode),
+      };
+      if (effectiveProvider === SETUP_PROVIDER_CLOUDFLARE) {
+        payload.cloudflare_api_token =
+          llmFieldEnvRawValue(envManaged, "cloudflare_api_token") || trimText(profile.cloudflare_api_token);
+        payload.cloudflare_account_id =
+          llmFieldEnvRawValue(envManaged, "cloudflare_account_id") || trimText(profile.cloudflare_account_id);
+        payload.api_key = "";
+      } else {
+        payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+      }
+      return payload;
     }
 
     async function loadAgentSettings() {
@@ -517,81 +729,82 @@ const SettingsView = {
 
     function buildLLMSettingsPayload() {
       const payload = {};
-      const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
-      const useCloudflareCredentials = normalizeSetupProviderChoice(state.llm.provider) === SETUP_PROVIDER_CLOUDFLARE;
-      if (!isLLMFieldEnvManaged("provider")) {
+      const provider = normalizeSetupProviderChoice(llmFieldValue(state.llm, llmEnvManaged.value, "provider"), { allowEmpty: true });
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider")) {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
-      if (!isLLMFieldEnvManaged("endpoint")) {
-        payload.endpoint = String(state.llm.endpoint || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
+        payload.endpoint = trimText(state.llm.endpoint);
       }
-      if (!isLLMFieldEnvManaged("model")) {
-        payload.model = String(state.llm.model || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
+        payload.model = trimText(state.llm.model);
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
-        if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
-          payload.cloudflare_api_token = useCloudflareCredentials ? String(state.llm.cloudflare_api_token || "").trim() : "";
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
+          payload.cloudflare_api_token = trimText(state.llm.cloudflare_api_token);
         }
-        if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
-          payload.cloudflare_account_id = String(state.llm.cloudflare_account_id || "").trim();
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
+          payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
-      } else if (!isLLMFieldEnvManaged("api_key")) {
-        payload.api_key = String(state.llm.api_key || "").trim();
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
+        payload.api_key = trimText(state.llm.api_key);
       }
-      if (!isLLMFieldEnvManaged("reasoning_effort")) {
-        payload.reasoning_effort = String(state.llm.reasoning_effort || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
+        payload.reasoning_effort = trimText(state.llm.reasoning_effort);
       }
-      if (!isLLMFieldEnvManaged("tools_emulation_mode")) {
-        payload.tools_emulation_mode = String(state.llm.tools_emulation_mode || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
+        payload.tools_emulation_mode = trimText(state.llm.tools_emulation_mode);
       }
+      payload.profiles = state.llm.profiles.map((profile) => buildProfilePayload(profile));
+      payload.fallback_profiles = normalizeNamedList(state.llm.fallback_profiles);
       return payload;
     }
 
     function buildLLMTestPayload() {
       const payload = {};
-      const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
-      if (!isLLMFieldEnvManaged("provider") && provider !== "") {
+      const provider = normalizeSetupProviderChoice(llmFieldValue(state.llm, llmEnvManaged.value, "provider"), { allowEmpty: true });
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider") && provider !== "") {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
-      if (!isLLMFieldEnvManaged("endpoint")) {
-        const endpoint = String(state.llm.endpoint || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
+        const endpoint = trimText(state.llm.endpoint);
         if (endpoint !== "") {
           payload.endpoint = endpoint;
         }
       }
-      if (!isLLMFieldEnvManaged("model")) {
-        const model = String(state.llm.model || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
+        const model = trimText(state.llm.model);
         if (model !== "") {
           payload.model = model;
         }
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
-        if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
-          const token = String(state.llm.cloudflare_api_token || "").trim();
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
+          const token = trimText(state.llm.cloudflare_api_token);
           if (token !== "") {
             payload.cloudflare_api_token = token;
           }
         }
-        if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
-          const accountID = String(state.llm.cloudflare_account_id || "").trim();
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
+          const accountID = trimText(state.llm.cloudflare_account_id);
           if (accountID !== "") {
             payload.cloudflare_account_id = accountID;
           }
         }
-      } else if (!isLLMFieldEnvManaged("api_key")) {
-        const apiKey = String(state.llm.api_key || "").trim();
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
+        const apiKey = trimText(state.llm.api_key);
         if (apiKey !== "") {
           payload.api_key = apiKey;
         }
       }
-      if (!isLLMFieldEnvManaged("reasoning_effort")) {
-        const reasoningEffort = String(state.llm.reasoning_effort || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
+        const reasoningEffort = trimText(state.llm.reasoning_effort);
         if (reasoningEffort !== "") {
           payload.reasoning_effort = reasoningEffort;
         }
       }
-      if (!isLLMFieldEnvManaged("tools_emulation_mode")) {
-        const toolsEmulationMode = String(state.llm.tools_emulation_mode || "").trim();
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
+        const toolsEmulationMode = trimText(state.llm.tools_emulation_mode);
         if (toolsEmulationMode !== "") {
           payload.tools_emulation_mode = toolsEmulationMode;
         }
@@ -609,7 +822,14 @@ const SettingsView = {
       if (agentSaveDisabled.value) {
         return;
       }
+      if (agentValidationError.value !== "") {
+        agentValidationVisible.value = true;
+        agentErr.value = "";
+        agentOk.value = "";
+        return;
+      }
       agentSaving.value = true;
+      agentValidationVisible.value = false;
       agentErr.value = "";
       agentOk.value = "";
       try {
@@ -664,28 +884,8 @@ const SettingsView = {
       }
     }
 
-    function onProviderChange(item) {
-      if (!item || typeof item !== "object") {
-        return;
-      }
-      const nextProvider = String(item.value || "").trim();
-      const previousDefault = defaultEndpointForSetupProvider(state.llm.provider);
-      state.llm.provider = nextProvider;
-      if (String(state.llm.endpoint || "").trim() === "" || String(state.llm.endpoint || "").trim() === previousDefault) {
-        state.llm.endpoint = defaultEndpointForSetupProvider(nextProvider);
-      }
-    }
-
-    function openExternal(url) {
-      const target = String(url || "").trim();
-      if (!target) {
-        return;
-      }
-      window.open(target, "_blank", "noopener,noreferrer");
-    }
-
     function openAPIBasePicker() {
-      if (!showOpenAICompatibleHelpers.value || agentLoading.value || agentSaving.value) {
+      if (agentLoading.value || agentSaving.value) {
         return;
       }
       apiBasePickerOpen.value = true;
@@ -696,7 +896,7 @@ const SettingsView = {
     }
 
     async function openModelPicker() {
-      if (modelLookupDisabled.value) {
+      if (agentLoading.value || agentSaving.value) {
         return;
       }
       modelPickerOpen.value = true;
@@ -707,8 +907,8 @@ const SettingsView = {
         const payload = await apiFetch("/settings/agent/models", {
           method: "POST",
           body: {
-            endpoint: llmFieldValue("endpoint"),
-            api_key: llmFieldValue("api_key"),
+            endpoint: llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
+            api_key: llmFieldValue(state.llm, llmEnvManaged.value, "api_key"),
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -745,7 +945,10 @@ const SettingsView = {
       testConnectionLoading.value = true;
       testConnectionError.value = "";
       testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(llmFieldValue("provider"), llmFieldValue("endpoint"));
+      testConnectionMeta.provider = normalizeSetupProviderForSave(
+        llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
+        llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
+      );
       testConnectionMeta.model = String(nextPayload.model || "").trim();
       try {
         const payload = await apiFetch("/settings/agent/test", {
@@ -770,20 +973,6 @@ const SettingsView = {
       } finally {
         testConnectionLoading.value = false;
       }
-    }
-
-    function onReasoningEffortChange(item) {
-      if (!item || typeof item !== "object") {
-        return;
-      }
-      state.llm.reasoning_effort = String(item.value || "").trim();
-    }
-
-    function onToolsEmulationChange(item) {
-      if (!item || typeof item !== "object") {
-        return;
-      }
-      state.llm.tools_emulation_mode = String(item.value || "").trim();
     }
 
     function setMultimodalSource(id, value) {
@@ -870,6 +1059,12 @@ const SettingsView = {
       { immediate: true }
     );
 
+    watch(deleteProfileDialogOpen, (open) => {
+      if (!open) {
+        deleteProfileTargetKey.value = "";
+      }
+    });
+
     return {
       t,
       lang,
@@ -878,27 +1073,26 @@ const SettingsView = {
       agentSaving,
       agentErr,
       agentOk,
+      agentValidationVisible,
+      deleteProfileDialogOpen,
       consoleLoading,
       consoleSaving,
       consoleErr,
       consoleOk,
       state,
       llmEnvManaged,
-      providerItems,
-      providerItem,
-      showCloudflareAccountField,
+      defaultProviderItems,
+      profileProviderItems,
+      profileBaseProvider,
       reasoningEffortItems,
-      reasoningEffortItem,
+      profileReasoningEffortItems,
       toolsEmulationItems,
-      toolsEmulationItem,
-      showOpenAICompatibleHelpers,
-      modelLookupDisabled,
+      profileToolsEmulationItems,
+      profileOptions,
+      agentValidationError,
+      deleteProfileDialogText,
+      deleteProfileDialogActions,
       apiBasePickerItems,
-      credentialLabelKey,
-      credentialPlaceholderKey,
-      credentialHelp,
-      credentialHelpParts,
-      credentialHintPlainKey,
       multimodalItems,
       toolItems,
       managedRuntimeItems,
@@ -918,17 +1112,16 @@ const SettingsView = {
       logout,
       saveAgentSettings,
       saveConsoleSettings,
-      onProviderChange,
-      onReasoningEffortChange,
-      onToolsEmulationChange,
-      llmFieldEnvName,
-      llmFieldEnvValue,
-      isLLMFieldEnvManaged,
-      llmFieldValue,
-      hasLLMFieldValue,
-      llmFieldManagedDisplayValue,
-      llmFieldManagedHeadline,
-      openExternal,
+      updateDefaultLLMField,
+      updateProfileField,
+      llmProfileEnvManaged,
+      addLLMProfile,
+      confirmRemoveLLMProfile,
+      removeLLMProfile,
+      addFallbackProfile,
+      updateFallbackProfile,
+      removeFallbackProfile,
+      moveFallbackProfile,
       openAPIBasePicker,
       applyAPIBaseOption,
       openModelPicker,
@@ -1026,6 +1219,12 @@ const SettingsView = {
 
             <div class="settings-panel-notices">
               <QFence v-if="activeSaveKind === 'agent' && agentErr" type="danger" icon="QIconCloseCircle" :text="agentErr" />
+              <QFence
+                v-if="activeSaveKind === 'agent' && agentValidationVisible && !agentErr && agentValidationError"
+                type="danger"
+                icon="QIconCloseCircle"
+                :text="agentValidationError"
+              />
               <QFence v-if="activeSaveKind === 'agent' && agentOk" type="success" icon="QIconCheckCircle" :text="agentOk" />
               <QFence
                 v-if="activeSaveKind === 'console' && consoleErr"
@@ -1042,153 +1241,157 @@ const SettingsView = {
             </div>
 
             <div class="settings-panel-body">
-              <div v-if="selectedSection.id === 'agent'" class="settings-form-grid">
-                <label class="settings-field is-wide">
-                  <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('provider')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("provider") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+              <div v-if="selectedSection.id === 'agent'" class="settings-agent-stack">
+                <section class="settings-agent-section">
+                  <div class="settings-agent-section-copy">
+                    <strong class="settings-toggle-title">{{ t("settings_agent_primary_title") }}</strong>
+                    <p class="settings-toggle-note">{{ t("settings_agent_primary_note") }}</p>
                   </div>
-                  <QDropdownMenu
-                    v-else
-                    :key="state.llm.provider || 'provider'"
-                    :items="providerItems"
-                    :initialItem="providerItem"
-                    :placeholder="t('settings_agent_provider_placeholder')"
-                    @change="onProviderChange"
+                  <LLMConfigForm
+                    :config="state.llm"
+                    :busy="agentLoading || agentSaving"
+                    :envManaged="llmEnvManaged"
+                    :defaultProvider="profileBaseProvider"
+                    :providerItems="defaultProviderItems"
+                    :reasoningEffortItems="reasoningEffortItems"
+                    :toolsEmulationItems="toolsEmulationItems"
+                    :enableAPIBasePicker="true"
+                    :enableModelPicker="true"
+                    :showTestAction="true"
+                    :testActionDisabled="testConnectionDisabled"
+                    @update-field="updateDefaultLLMField"
+                    @open-api-base-picker="openAPIBasePicker"
+                    @open-model-picker="openModelPicker"
+                    @open-test="openTestConnection"
                   />
-                </label>
-                <label v-if="!showCloudflareAccountField" class="settings-field is-wide">
-                  <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('endpoint')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("endpoint") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <div v-else class="settings-field-control">
-                    <QInput
-                      v-model="state.llm.endpoint"
-                      :placeholder="t('settings_agent_endpoint_placeholder')"
-                      :disabled="agentLoading || agentSaving"
-                    />
+                </section>
+
+                <section class="settings-agent-section">
+                  <header class="settings-agent-section-head">
+                    <div class="settings-agent-section-copy">
+                      <strong class="settings-toggle-title">{{ t("settings_agent_profiles_title") }}</strong>
+                      <p class="settings-toggle-note">{{ t("settings_agent_profiles_note") }}</p>
+                    </div>
+                  </header>
+
+                  <div class="settings-profile-list">
+                    <article v-for="profile in state.llm.profiles" :key="profile._key" class="settings-profile-card">
+                      <div class="settings-profile-head">
+                        <div class="settings-field settings-profile-name">
+                          <span class="settings-field-label">{{ t("settings_agent_profile_name_label") }}</span>
+                          <div class="settings-field-control settings-profile-name-control">
+                            <QInput
+                              :modelValue="profile.name"
+                              :placeholder="t('settings_agent_profile_name_placeholder')"
+                              :disabled="agentLoading || agentSaving"
+                              @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
+                            />
+                            <QButton
+                              type="button"
+                              class="danger icon settings-profile-delete"
+                              :title="t('action_delete')"
+                              :aria-label="t('action_delete')"
+                              :disabled="agentLoading || agentSaving"
+                              @click="confirmRemoveLLMProfile(profile._key)"
+                            >
+                              <QIconTrash class="icon" />
+                            </QButton>
+                          </div>
+                        </div>
+                      </div>
+
+                      <LLMConfigForm
+                        :config="profile"
+                        :busy="agentLoading || agentSaving"
+                        :envManaged="llmProfileEnvManaged(profile)"
+                        :defaultProvider="profileBaseProvider"
+                        :providerItems="profileProviderItems"
+                        :reasoningEffortItems="profileReasoningEffortItems"
+                        :toolsEmulationItems="profileToolsEmulationItems"
+                        :providerPlaceholderKey="'settings_agent_provider_inherit'"
+                        :allowProviderInherit="true"
+                        @update-field="updateProfileField(profile._key, $event)"
+                      />
+                    </article>
+
                     <QButton
                       type="button"
-                      class="outlined icon settings-field-action"
-                      :title="t('setup_llm_api_base_picker_title')"
-                      :aria-label="t('setup_llm_api_base_picker_title')"
-                      :disabled="!showOpenAICompatibleHelpers || agentLoading || agentSaving"
-                      @click.prevent="openAPIBasePicker"
+                      class="placeholder settings-profile-placeholder"
+                      :disabled="agentLoading || agentSaving"
+                      @click="addLLMProfile"
                     >
-                      <QIconLink class="icon" />
+                      <QIconPlus class="icon" />
+                      {{ t("settings_agent_profile_add") }}
                     </QButton>
                   </div>
-                </label>
-                <label v-if="showCloudflareAccountField" class="settings-field is-wide">
-                  <span class="settings-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('cloudflare_account_id')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("cloudflare_account_id") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <QInput
-                    v-else
-                    v-model="state.llm.cloudflare_account_id"
-                    :placeholder="t('settings_agent_cloudflare_account_placeholder')"
-                    :disabled="agentLoading || agentSaving"
-                  />
-                </label>
-                <label class="settings-field is-wide">
-                  <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
-                  <div
-                    v-if="showCloudflareAccountField ? isLLMFieldEnvManaged('cloudflare_api_token') : isLLMFieldEnvManaged('api_key')"
-                    class="settings-env-managed"
-                  >
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline(showCloudflareAccountField ? "cloudflare_api_token" : "api_key") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <QInput
-                    v-else-if="showCloudflareAccountField"
-                    v-model="state.llm.cloudflare_api_token"
-                    inputType="password"
-                    :placeholder="t(credentialPlaceholderKey)"
-                    :disabled="agentLoading || agentSaving"
-                  />
-                  <QInput
-                    v-else
-                    v-model="state.llm.api_key"
-                    inputType="password"
-                    :placeholder="t(credentialPlaceholderKey)"
-                    :disabled="agentLoading || agentSaving"
-                  />
-                  <p v-if="credentialHelp" class="settings-field-hint">
-                    <button v-if="credentialHelp.url" type="button" class="settings-field-link" @click="openExternal(credentialHelp.url)">
-                      <span>{{ credentialHelpParts?.before }}</span>
-                      <span class="settings-field-link-provider">{{ credentialHelp.title }}</span>
-                      <span>{{ credentialHelpParts?.after }}</span>
-                      <QIconArrowUpRight class="icon settings-field-link-icon" />
-                    </button>
-                    <span v-else class="settings-field-link is-static">
-                      {{ t(credentialHintPlainKey, { provider: credentialHelp.title }) }}
-                    </span>
-                  </p>
-                </label>
-                <label class="settings-field is-wide">
-                  <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('model')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("model") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <div v-else class="settings-field-control">
-                    <QInput
-                      v-model="state.llm.model"
-                      :placeholder="t('settings_agent_model_placeholder')"
-                      :disabled="agentLoading || agentSaving"
-                    />
+                </section>
+
+                <section class="settings-agent-section">
+                  <header class="settings-agent-section-head">
+                    <div class="settings-agent-section-copy">
+                      <strong class="settings-toggle-title">{{ t("settings_agent_fallback_title") }}</strong>
+                      <p class="settings-toggle-note">{{ t("settings_agent_fallback_note") }}</p>
+                    </div>
+                  </header>
+
+                  <p v-if="!profileOptions.length" class="settings-agent-empty">{{ t("settings_agent_fallback_empty") }}</p>
+
+                  <div v-else class="settings-fallback-list">
+                    <div v-for="(fallbackName, index) in state.llm.fallback_profiles" :key="index" class="settings-fallback-row">
+                      <span class="settings-fallback-index">{{ index + 1 }}</span>
+                      <QDropdownMenu
+                        :key="fallbackName + '-' + index"
+                        class="settings-fallback-picker"
+                        :items="profileOptions"
+                        :initialItem="profileOptions.find((item) => item.value === fallbackName) || null"
+                        :placeholder="t('settings_agent_fallback_placeholder')"
+                        @change="updateFallbackProfile(index, $event)"
+                      />
+                      <div class="settings-fallback-actions">
+                        <QButton
+                          type="button"
+                          class="outlined icon settings-fallback-action"
+                          :title="t('settings_agent_order_up')"
+                          :aria-label="t('settings_agent_order_up')"
+                          :disabled="agentLoading || agentSaving || index === 0"
+                          @click="moveFallbackProfile(index, -1)"
+                        >
+                          <QIconChevronUp class="icon" />
+                        </QButton>
+                        <QButton
+                          type="button"
+                          class="outlined icon settings-fallback-action"
+                          :title="t('settings_agent_order_down')"
+                          :aria-label="t('settings_agent_order_down')"
+                          :disabled="agentLoading || agentSaving || index === state.llm.fallback_profiles.length - 1"
+                          @click="moveFallbackProfile(index, 1)"
+                        >
+                          <QIconChevronDown class="icon" />
+                        </QButton>
+                        <QButton
+                          type="button"
+                          class="danger icon settings-fallback-action"
+                          :title="t('action_delete')"
+                          :aria-label="t('action_delete')"
+                          :disabled="agentLoading || agentSaving"
+                          @click="removeFallbackProfile(index)"
+                        >
+                          <QIconTrash class="icon" />
+                        </QButton>
+                      </div>
+                    </div>
+
                     <QButton
                       type="button"
-                      class="outlined icon settings-field-action"
-                      :title="t('setup_llm_model_picker_title')"
-                      :aria-label="t('setup_llm_model_picker_title')"
-                      :disabled="modelLookupDisabled"
-                      @click.prevent="openModelPicker"
+                      class="placeholder settings-profile-placeholder"
+                      :disabled="agentLoading || agentSaving || !profileOptions.length"
+                      @click="addFallbackProfile"
                     >
-                      <QIconSearch class="icon" />
+                      <QIconPlus class="icon" />
+                      {{ t("settings_agent_fallback_add") }}
                     </QButton>
                   </div>
-                </label>
-                <label class="settings-field">
-                  <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('reasoning_effort')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("reasoning_effort") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <QDropdownMenu
-                    v-else
-                    :key="state.llm.reasoning_effort || 'reasoning'"
-                    :items="reasoningEffortItems"
-                    :initialItem="reasoningEffortItem"
-                    :placeholder="t('settings_llm_reasoning_placeholder')"
-                    @change="onReasoningEffortChange"
-                  />
-                </label>
-                <label class="settings-field">
-                  <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
-                  <div v-if="isLLMFieldEnvManaged('tools_emulation_mode')" class="settings-env-managed">
-                    <code class="settings-env-managed-env">{{ llmFieldManagedHeadline("tools_emulation_mode") }}</code>
-                    <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-                  </div>
-                  <QDropdownMenu
-                    v-else
-                    :key="state.llm.tools_emulation_mode || 'tools-emulation'"
-                    :items="toolsEmulationItems"
-                    :initialItem="toolsEmulationItem"
-                    :placeholder="t('settings_llm_tools_emulation_placeholder')"
-                    @change="onToolsEmulationChange"
-                  />
-                </label>
-                <div class="settings-agent-actions">
-                  <QButton type="button" class="outlined settings-aux-action" :disabled="testConnectionDisabled" @click="openTestConnection">
-                    {{ t("setup_llm_test_button") }}
-                  </QButton>
-                </div>
+                </section>
               </div>
 
               <div v-else-if="selectedSection.id === 'inputs'" class="settings-toggle-list">
@@ -1285,6 +1488,14 @@ const SettingsView = {
         :provider="testConnectionMeta.provider"
         :model="testConnectionMeta.model"
         @retry="runConnectionTest"
+      />
+      <QMessageDialog
+        v-model="deleteProfileDialogOpen"
+        icon="QIconTrash"
+        iconColor="red"
+        :title="t('action_delete')"
+        :text="deleteProfileDialogText"
+        :actions="deleteProfileDialogActions"
       />
     </AppPage>
   `,

@@ -13,6 +13,10 @@ llm:
   profiles:
     cheap:
       model: gpt-4.1-mini
+    backup:
+      provider: xai
+      model: grok-4.1-fast-reasoning
+  fallback_profiles: [cheap, backup]
   routes:
     main_loop: default
     addressing: cheap
