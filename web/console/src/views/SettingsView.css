@@ -284,12 +284,20 @@
 }
 
 .settings-env-managed {
+  --settings-env-managed-bg: color-mix(in srgb, var(--q-bg-paper) 95%, transparent);
+  --settings-env-managed-stripe-light: color-mix(in srgb, var(--settings-env-managed-bg) 96%, var(--q-c-white) 4%);
+  --settings-env-managed-stripe-dark: color-mix(in srgb, var(--settings-env-managed-bg) 82%, var(--line) 18%);
   display: grid;
   gap: 6px;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 2px;
-  background: color-mix(in srgb, var(--q-bg-paper) 95%, transparent);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--settings-env-managed-stripe-light) 0 12px,
+      var(--settings-env-managed-stripe-dark) 12px 24px
+    );
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--q-c-white) 75%, transparent);
 }
 

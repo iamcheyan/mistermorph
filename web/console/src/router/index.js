@@ -20,6 +20,7 @@ import {
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
+import { visibleEndpoints } from "../core/endpoints";
 import {
   AuditView,
   BootPreviewView,
@@ -36,6 +37,10 @@ import {
   StateFilesView,
   TasksView,
 } from "../views";
+
+const RootRedirectView = {
+  template: `<div aria-hidden="true"></div>`,
+};
 
 function isSetupPath(path) {
   const value = String(path || "").trim();
@@ -67,6 +72,15 @@ function selectedEndpointCanChat() {
   );
 }
 
+function rootEntryEndpoint(items) {
+  const endpoints = visibleEndpoints(items);
+  if (endpoints.length !== 1) {
+    return null;
+  }
+  const [endpoint] = endpoints;
+  return endpoint && endpoint.connected === true ? endpoint : null;
+}
+
 const routes = [
   { path: "/login", component: LoginView, meta: { public: true, shellless: true } },
   { path: "/__boot-preview", component: BootPreviewView, meta: { public: true, shellless: true } },
@@ -88,7 +102,7 @@ const routes = [
   { path: "/files", component: StateFilesView },
   { path: "/contacts", component: ContactsView },
   { path: "/settings", component: SettingsView },
-  { path: "/", redirect: "/overview" },
+  { path: "/", component: RootRedirectView, meta: { shellless: true } },
 ];
 
 const router = createRouter({
@@ -176,6 +190,14 @@ router.beforeEach(async (to) => {
       setSelectedEndpointRef(targetRef);
     }
     return true;
+  }
+  if (to.path === "/") {
+    const endpoint = rootEntryEndpoint(endpointState.items);
+    if (endpoint?.endpoint_ref) {
+      setSelectedEndpointRef(endpoint.endpoint_ref);
+      return { path: "/chat", query: to.query };
+    }
+    return { path: "/overview", query: to.query };
   }
   return true;
 });
