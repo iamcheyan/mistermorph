@@ -85,11 +85,21 @@ Optional envs:
 
 Tag releases now build desktop release assets in GitHub Actions:
 
-- macOS: `mistermorph-desktop-darwin-arm64.dmg`
-- Linux: `mistermorph-desktop-linux-amd64.AppImage`
+- macOS: `mistermorph-desktop-darwin-arm64.dmg` and `mistermorph-desktop-darwin-arm64.tar.gz`
+- Linux: `mistermorph-desktop-linux-amd64.AppImage` and `mistermorph-desktop-linux-amd64.tar.gz`
 - Windows: `mistermorph-desktop-windows-amd64.zip`
+- Wails updater manifest: `update.json`
+
+The release workflow generates `update.json` from the published GitHub release metadata and uploads it alongside the desktop assets.
+For Wails updater compatibility, `update.json` prefers the macOS/Linux `tar.gz` assets and the Windows `.zip` asset.
+That gives the Wails v3 updater a stable latest-release URL:
+
+```text
+https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json
+```
 
 The macOS DMG and Linux AppImage bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.
+The Linux updater tarball is not an `.AppImage` wrapped in another archive; it contains the unpacked AppDir bundle so the updater asset is a real Linux app payload.
 That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
 The Windows release bundle now includes both `MisterMorph.exe` and `mistermorph.exe`; keep them in the same directory after unzip.
 The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published desktop executable carries the app icon.

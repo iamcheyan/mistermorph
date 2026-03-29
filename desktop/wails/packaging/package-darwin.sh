@@ -13,6 +13,7 @@ ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 APP_DIR="${OUT_DIR}/${APP_NAME}.app"
 DMG_PATH="${DMG_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.dmg}"
+TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.tar.gz}"
 ICONSET_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mistermorph-iconset.XXXXXX")"
 ICONSET_DIR="${ICONSET_ROOT}/mistermorph.iconset"
 ICNS_PATH="${OUT_DIR}/mistermorph.icns"
@@ -30,7 +31,7 @@ require_file() {
   fi
 }
 
-for command_name in hdiutil iconutil sips; do
+for command_name in hdiutil iconutil sips tar; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "missing required command: ${command_name}" >&2
     exit 1
@@ -42,7 +43,7 @@ require_file "${BACKEND_BIN}"
 require_file "${ICON_PNG}"
 
 mkdir -p "${OUT_DIR}" "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
-rm -rf "${APP_DIR}" "${DMG_PATH}" "${ICNS_PATH}"
+rm -rf "${APP_DIR}" "${DMG_PATH}" "${TARBALL_PATH}" "${ICNS_PATH}"
 mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 mkdir -p "${ICONSET_DIR}"
 
@@ -125,6 +126,19 @@ else
   echo "no CODESIGN_IDENTITY set; applying ad-hoc signature"
   codesign --deep --force --sign - "${APP_DIR}"
 fi
+
+if [[ -n "${CODESIGN_IDENTITY}" && -n "${APPLE_ID}" && -n "${APPLE_TEAM_ID}" && -n "${APPLE_APP_PASSWORD}" ]]; then
+  echo "submitting app bundle for notarization..."
+  xcrun notarytool submit "${APP_DIR}" \
+    --apple-id "${APPLE_ID}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --password "${APPLE_APP_PASSWORD}" \
+    --wait
+  echo "stapling notarization ticket to app bundle..."
+  xcrun stapler staple "${APP_DIR}"
+fi
+
+tar -C "${OUT_DIR}" -czf "${TARBALL_PATH}" "${APP_NAME}.app"
 
 hdiutil create \
   -volname "${APP_NAME}" \

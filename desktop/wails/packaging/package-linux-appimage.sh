@@ -14,6 +14,7 @@ ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 WORK_ROOT="${WORK_ROOT:-${OUT_DIR}/appimage-work}"
 APPIMAGE_NAME="${APPIMAGE_NAME:-mistermorph-desktop-linux-${ARCH}.AppImage}"
+TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-linux-${ARCH}.tar.gz}"
 
 abspath() {
   local path="$1"
@@ -32,7 +33,7 @@ require_file() {
   fi
 }
 
-for command_name in curl find ldd readelf; do
+for command_name in curl find ldd readelf tar; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "missing required command: ${command_name}" >&2
     exit 1
@@ -71,7 +72,7 @@ GTK_PLUGIN="${TOOLS_DIR}/linuxdeploy-plugin-gtk.sh"
 DESKTOP_FILE="${WORK_ROOT}/${APP_BINARY_NAME}.desktop"
 OUTPUT_PATH="${OUT_DIR}/${APPIMAGE_NAME}"
 
-rm -rf "${WORK_ROOT}" "${OUTPUT_PATH}"
+rm -rf "${WORK_ROOT}" "${OUTPUT_PATH}" "${TARBALL_PATH}"
 mkdir -p "${OUT_DIR}" "${TOOLS_DIR}" "${APPDIR}/usr/bin"
 
 cp "${DESKTOP_BIN}" "${APPDIR}/usr/bin/${APP_BINARY_NAME}"
@@ -171,3 +172,6 @@ if [[ "${#generated_appimages[@]}" -ne 1 ]]; then
 fi
 
 mv "${generated_appimages[0]}" "${OUTPUT_PATH}"
+# The updater tarball should contain the runnable AppDir bundle itself,
+# not an AppImage nested inside another archive.
+tar -C "${BUILD_DIR}" -czf "${TARBALL_PATH}" "$(basename "${APPDIR}")"

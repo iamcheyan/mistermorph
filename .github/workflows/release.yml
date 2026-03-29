@@ -89,6 +89,7 @@ jobs:
             goos: linux
             goarch: amd64
             desktop_asset: mistermorph-desktop-linux-amd64.AppImage
+            update_asset: mistermorph-desktop-linux-amd64.tar.gz
             raw_desktop_binary: dist/mistermorph-desktop
             bundled_backend_binary: dist/mistermorph
             package_kind: appimage
@@ -98,6 +99,7 @@ jobs:
             goos: darwin
             goarch: arm64
             desktop_asset: mistermorph-desktop-darwin-arm64.dmg
+            update_asset: mistermorph-desktop-darwin-arm64.tar.gz
             raw_desktop_binary: dist/mistermorph-desktop
             bundled_backend_binary: dist/mistermorph
             package_kind: dmg
@@ -107,6 +109,7 @@ jobs:
             goos: windows
             goarch: amd64
             desktop_asset: mistermorph-desktop-windows-amd64.zip
+            update_asset: ""
             raw_desktop_binary: dist/MisterMorph.exe
             bundled_backend_binary: dist/mistermorph.exe
             package_kind: zip
@@ -207,6 +210,7 @@ jobs:
           DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
           BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
+          TARBALL_PATH="dist/${{ matrix.update_asset }}" \
           CODESIGN_IDENTITY="${CODESIGN_IDENTITY}" \
           APPLE_ID="${APPLE_ID}" \
           APPLE_TEAM_ID="${APPLE_TEAM_ID}" \
@@ -226,6 +230,7 @@ jobs:
           BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
           APPIMAGE_NAME="${{ matrix.desktop_asset }}" \
+          TARBALL_PATH="dist/${{ matrix.update_asset }}" \
           ./desktop/wails/packaging/package-linux-appimage.sh
 
       - name: Sign Windows binaries
@@ -274,24 +279,41 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          file="${{ matrix.desktop_asset }}"
-          shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
+          assets=("${{ matrix.desktop_asset }}")
+          if [[ -n "${{ matrix.update_asset }}" && "${{ matrix.update_asset }}" != "${{ matrix.desktop_asset }}" ]]; then
+            assets+=("${{ matrix.update_asset }}")
+          fi
+          for file in "${assets[@]}"; do
+            shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
+          done
 
       - name: Generate checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $file = "${{ matrix.desktop_asset }}"
-          $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
-          "$hash *$file" | Set-Content "dist/$file.sha256"
+          $files = @("${{ matrix.desktop_asset }}")
+          if ("${{ matrix.update_asset }}" -ne "" -and "${{ matrix.update_asset }}" -ne "${{ matrix.desktop_asset }}") {
+            $files += "${{ matrix.update_asset }}"
+          }
+          foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
+            "$hash *$file" | Set-Content "dist/$file.sha256"
+          }
+
+      - name: Stage release files
+        shell: bash
+        run: |
+          mkdir -p dist/release-upload
+          cp "dist/${{ matrix.desktop_asset }}" "dist/${{ matrix.desktop_asset }}.sha256" dist/release-upload/
+          if [[ -n "${{ matrix.update_asset }}" && "${{ matrix.update_asset }}" != "${{ matrix.desktop_asset }}" ]]; then
+            cp "dist/${{ matrix.update_asset }}" "dist/${{ matrix.update_asset }}.sha256" dist/release-upload/
+          fi
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.label }}
-          path: |
-            dist/${{ matrix.desktop_asset }}
-            dist/${{ matrix.desktop_asset }}.sha256
+          path: dist/release-upload/*
           if-no-files-found: error
           retention-days: 14
 
@@ -300,7 +322,54 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${GITHUB_REF_NAME}" \
-            "dist/${{ matrix.desktop_asset }}" \
-            "dist/${{ matrix.desktop_asset }}.sha256" \
-            --clobber
+          gh release upload "${GITHUB_REF_NAME}" dist/release-upload/* --clobber
+
+  update-manifest:
+    name: Build Release Update Manifest
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: desktop-apps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download desktop workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release-artifacts
+
+      - name: Fetch GitHub release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > dist/release.json
+
+      - name: Generate Wails update manifest
+        shell: bash
+        run: |
+          go run ./scripts/release-update-manifest \
+            -release-json dist/release.json \
+            -artifacts-dir dist/release-artifacts \
+            -output dist/update.json
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifest
+          path: dist/update.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" "dist/update.json" --clobber
