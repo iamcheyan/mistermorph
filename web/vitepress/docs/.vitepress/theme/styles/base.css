@@ -67,6 +67,14 @@ textarea {
   padding-top: 0;
 }
 
+@media (max-width: 959px) {
+  .VPContent,
+  .VPContent.has-sidebar,
+  .VPContent.is-home {
+    padding: 2rem 1rem !important;
+  }
+}
+
 .VPSkipLink {
   z-index: 90;
 }
@@ -121,6 +129,14 @@ textarea {
 
   .Layout .VPSidebar.open {
     display: block;
+  }
+}
+
+@media (max-width: 959px) {
+  .Layout .VPSidebar {
+    background: var(--bg-1) !important;
+    background-color: var(--bg-1) !important;
+    padding: 2rem 1rem !important;
   }
 }
 
@@ -589,6 +605,10 @@ textarea {
   border-top: 0;
   font-size: clamp(1.5rem, 2.1vw, 2rem);
   line-height: 1.14;
+}
+
+.vp-doc h2 .header-anchor {
+  top: 0;
 }
 
 .vp-doc h3 {

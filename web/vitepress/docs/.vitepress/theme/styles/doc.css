@@ -76,7 +76,6 @@
 
 .morph-doc-title {
   margin: 0;
-  max-width: 16ch;
   font-family: var(--morph-font-display);
   font-size: clamp(2.3rem, 4vw, 3.6rem);
   font-weight: 600;
@@ -182,7 +181,7 @@
 
 @media (max-width: 959px) {
   .VPDoc {
-    padding-top: 1rem;
+    padding-top: 0 !important;
   }
 
   .VPDoc::before {

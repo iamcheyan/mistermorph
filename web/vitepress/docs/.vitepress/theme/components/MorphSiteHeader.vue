@@ -17,6 +17,15 @@ const showSearch = ref(false)
 
 const navItems = computed(() => ((theme.value.nav ?? []) as NavItem[]).filter((item) => item.link))
 
+const searchButtonLabel = computed(() => {
+  const options = theme.value.search?.options ?? theme.value.algolia
+  return (
+    options?.locales?.[localeIndex.value]?.translations?.button?.buttonText ||
+    options?.translations?.button?.buttonText ||
+    'Search'
+  )
+})
+
 const homeLink = computed(() => {
   const locale = site.value.locales[localeIndex.value]
   return locale?.link || '/'
@@ -152,8 +161,17 @@ function normalizePath(value: string) {
       </nav>
 
       <div class="morph-nav-actions">
-        <button class="nav-primary-trigger morph-search-trigger" type="button" @click="showSearch = true">
-          <span class="nav-menu-kicker">SEARCH</span>
+        <button
+          class="nav-primary-trigger morph-search-trigger"
+          type="button"
+          :aria-label="searchButtonLabel"
+          :title="searchButtonLabel"
+          @click="showSearch = true"
+        >
+          <svg class="morph-search-icon" viewBox="0 0 24 24" role="presentation" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="M16 16l4 4"></path>
+          </svg>
         </button>
 
         <details ref="langDetails" class="nav-primary-item lang-menu" aria-label="Language">
