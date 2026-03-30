@@ -1,0 +1,458 @@
+.ui-kicker {
+  margin: 0;
+  font-family: var(--morph-font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  color: var(--accent-0);
+  text-transform: uppercase;
+}
+
+.ui-kicker-sep {
+  display: inline-block;
+  letter-spacing: -0.3rem;
+  font-size: 0.8325rem;
+  opacity: 0.3;
+  margin-right: 0.3125rem;
+}
+
+.ui-kicker-bracket {
+  display: inline-block;
+  font-size: 0.8325rem;
+  opacity: 0.3;
+}
+
+.install-cta-button.morph-install-cta-button,
+.vp-button.install-cta-button,
+.morph-home-route-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0.8rem 1.15rem;
+  border: 1px solid transparent;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  font-family: var(--morph-font-mono);
+  min-width: var(--install-cta-min-width);
+  min-height: var(--install-cta-height);
+  height: var(--install-cta-height);
+  padding-inline: var(--install-cta-padding-inline);
+  padding-block: 0;
+  border-color: #1a4b8c;
+  background-color: #1a4b8c;
+  color: #fff;
+  font-size: var(--install-cta-font-size);
+  font-weight: var(--install-cta-font-weight);
+  letter-spacing: var(--install-cta-letter-spacing);
+  line-height: 1;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-sizing: border-box;
+  text-shadow: none;
+  box-shadow: 0 14px 28px rgba(26, 75, 140, 0.14);
+  transition:
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background-color 260ms ease,
+    color 220ms ease,
+    backdrop-filter 260ms ease;
+}
+
+.morph-home-hero-actions > a.install-cta-button.morph-install-cta-button,
+.morph-home-hero-actions > a.install-cta-button.morph-install-cta-button:visited,
+.VPHome .vp-doc a.morph-home-route-primary,
+.VPHome .vp-doc a.morph-home-route-primary:visited {
+  border-bottom: 0;
+  color: #fff;
+}
+
+.install-cta-button.morph-install-cta-button:hover,
+.morph-home-route-primary:hover {
+  border-color: #2d7dd2;
+  background-color: #2d7dd2;
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(26, 75, 140, 0.14);
+}
+
+.morph-home-hero-actions > a.install-cta-button.morph-install-cta-button:hover,
+.morph-home-hero-actions > a.install-cta-button.morph-install-cta-button:active,
+.VPHome .vp-doc a.morph-home-route-primary:hover,
+.VPHome .vp-doc a.morph-home-route-primary:active {
+  border-bottom: 0;
+  color: #fff;
+}
+
+.install-cta-button.morph-install-cta-button:active,
+.morph-home-route-primary:active {
+  border-color: #163f74;
+  background-color: #163f74;
+  box-shadow: none;
+}
+
+.VPHome {
+  margin-bottom: clamp(4rem, 7vw, 7rem);
+}
+
+.VPHome .VPHero {
+  margin-top: 0 !important;
+  padding:
+    calc(var(--vp-nav-height) + clamp(1.8rem, 4vw, 3rem))
+    var(--site-gutter)
+    clamp(2rem, 4vw, 3rem);
+}
+
+.VPHome .VPHero .container {
+  width: min(var(--site-max-width), calc(100vw - (var(--site-gutter) * 2)));
+  max-width: none;
+  gap: 0;
+  align-items: flex-start;
+}
+
+.VPHome .VPHero .main {
+  width: 100%;
+  max-width: none;
+}
+
+.VPHome .VPHero .actions {
+  display: none;
+}
+
+.morph-home-hero-stage {
+  --morph-home-hero-h1-size: clamp(2.6rem, 5vw, 5.15rem);
+  --morph-home-hero-h1-margin-top: 0.5rem;
+  --morph-home-hero-h1-line-height: 0.98;
+  position: relative;
+  display: grid;
+  gap: 1.4rem;
+  width: 100%;
+}
+
+.morph-home-hero-copy,
+.morph-home-hero-support {
+  position: relative;
+  z-index: 1;
+}
+
+.morph-home-hero-title {
+  position: relative;
+  margin: var(--morph-home-hero-h1-margin-top) 0 0;
+  max-width: 14ch;
+  font-family: var(--morph-font-display);
+  font-size: var(--morph-home-hero-h1-size);
+  font-weight: 600;
+  line-height: var(--morph-home-hero-h1-line-height);
+  letter-spacing: -0.045em;
+  color: var(--morph-ink);
+  text-wrap: balance;
+}
+
+.morph-home-hero-lead {
+  margin: 1rem 0 0;
+  max-width: 40rem;
+  color: var(--morph-copy);
+  font-size: clamp(1rem, 1.25vw, 1.1rem);
+  line-height: 1.72;
+}
+
+.morph-home-hero-support {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
+.morph-home-helper-label {
+  color: var(--accent-0);
+}
+
+.morph-home-helper-label {
+  margin: 0;
+  font-family: var(--morph-font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.morph-home-hero-support-copy {
+  margin: 0.35rem 0 0;
+  max-width: 28ch;
+  color: var(--morph-copy);
+  font-size: 0.88rem;
+  line-height: 1.58;
+}
+
+.morph-home-hero-actions {
+  display: inline-flex;
+  justify-items: start;
+  gap: 0.6rem;
+}
+
+.VPHome .vp-doc.container {
+  width: min(var(--site-max-width), calc(100vw - (var(--site-gutter) * 2)));
+  max-width: none;
+  padding: 0;
+}
+
+.VPHomeContent {
+  margin-top: 0;
+}
+
+.morph-home-section {
+  position: relative;
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(2rem, 4vw, 3rem) 0;
+}
+
+.morph-home-section::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--morph-accent) 20%, transparent) 12%,
+    color-mix(in srgb, var(--morph-accent) 44%, transparent) 50%,
+    color-mix(in srgb, var(--morph-accent) 20%, transparent) 88%,
+    transparent 100%
+  );
+  opacity: 0.44;
+}
+
+.morph-home-section-heading {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.morph-home-section-heading h2 {
+  margin: 0;
+  font-family: var(--morph-font-display);
+  font-size: clamp(1.8rem, 2.7vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  color: var(--morph-ink);
+  border: 0;
+  padding-top: 0;
+}
+
+.morph-home-section-heading > .ui-kicker {
+  margin: 0;
+  max-width: none;
+  color: var(--accent-0);
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.morph-home-section-heading > p:not(.ui-kicker) {
+  margin: 0;
+  max-width: 26ch;
+  color: var(--morph-copy);
+  font-size: 0.94rem;
+  line-height: 1.66;
+}
+
+.morph-home-start-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.morph-home-route {
+  position: relative;
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.15rem 0 1rem;
+  border-bottom: 0;
+}
+
+.morph-home-route::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--morph-line) 68%, transparent) 0 4px,
+    transparent 4px 10px
+  );
+  opacity: 0.72;
+}
+
+.morph-home-route-head {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.morph-home-route-title {
+  margin: 0;
+  font-family: var(--morph-font-display);
+  font-size: clamp(1.24rem, 1.7vw, 1.55rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--morph-ink);
+}
+
+.morph-home-route-copy {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--morph-copy);
+  font-size: 0.92rem;
+  line-height: 1.62;
+}
+
+.morph-home-route-actions {
+  display: inline-flex;
+  gap: 0;
+  align-items: center;
+}
+
+@media (min-width: 1280px) {
+  .morph-home-hero-stage {
+    grid-template-columns:
+      var(--rail-section-sidebar) var(--rail-section-main) var(--rail-section-support);
+    column-gap: var(--rail-section-gap);
+    align-items: start;
+  }
+
+  .morph-home-hero-stage::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--rail-section-divider-left);
+    width: 1px;
+    background: repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-0) 20%, transparent) 0 3px,
+      transparent 6px 9px
+    );
+    mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(0, 0, 0, 0.88) 7%,
+      rgba(0, 0, 0, 0.88) 78%,
+      transparent 100%
+    );
+    opacity: 0.7;
+  }
+
+  .morph-home-hero-copy {
+    grid-column: 2;
+  }
+
+  .morph-home-hero-title::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--rail-section-gap) * -0.5);
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: color-mix(in srgb, var(--accent-0) 68%, transparent);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .morph-home-hero-support {
+    grid-column: 3;
+    padding-top: 3.5rem;
+  }
+
+  .morph-home-section {
+    grid-template-columns:
+      var(--rail-section-sidebar) var(--rail-section-main) var(--rail-section-support);
+    column-gap: var(--rail-section-gap);
+    align-items: start;
+  }
+
+  .morph-home-section::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--rail-section-divider-left);
+    width: 1px;
+    background: repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-0) 20%, transparent) 0 3px,
+      transparent 6px 9px
+    );
+    mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(0, 0, 0, 0.88) 6%,
+      rgba(0, 0, 0, 0.88) 92%,
+      transparent 100%
+    );
+    opacity: 0.68;
+  }
+
+  .morph-home-section-heading {
+    grid-column: 1;
+    position: sticky;
+    top: var(--rail-section-sticky-top);
+  }
+
+  .morph-home-start-grid {
+    grid-column: 2 / -1;
+  }
+
+  .morph-home-start-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .morph-home-route:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 860px) and (max-width: 1279px) {
+  .morph-home-hero-stage {
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 18rem);
+    column-gap: calc(var(--rail-section-gap) * 0.7);
+  }
+
+  .morph-home-section {
+    grid-template-columns: var(--rail-section-sidebar) minmax(0, 1fr);
+    column-gap: var(--rail-section-gap);
+  }
+
+  .morph-home-section::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--rail-section-divider-left);
+    width: 1px;
+    background: repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-0) 20%, transparent) 0 3px,
+      transparent 6px 9px
+    );
+    opacity: 0.6;
+  }
+
+  .morph-home-section-heading {
+    grid-column: 1;
+  }
+
+  .morph-home-start-grid {
+    grid-column: 2;
+  }
+
+  .morph-home-start-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 859px) {
+  .VPHome .VPHero {
+    padding-bottom: 1.5rem;
+  }
+}

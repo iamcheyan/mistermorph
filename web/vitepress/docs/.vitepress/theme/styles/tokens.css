@@ -1,0 +1,131 @@
+@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Noto+Serif+SC:wght@400;600;700&family=Noto+Serif+JP:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+
+:root {
+  --bg-0: rgb(246, 250, 255);
+  --bg-1: #f4f8fb;
+  --bg-2: #f8fafc;
+  --site-max-width: 2256px;
+  --site-gutter: clamp(0.75rem, 4vw, 4.5rem);
+  --morph-doc-shell-offset: max(calc((100vw - var(--site-max-width)) / 2), 0px);
+  --morph-shell-inline-offset: max(var(--site-gutter), var(--morph-doc-shell-offset));
+  --text-0: #15253a;
+  --text-1: #44566f;
+  --text-2: #6f7f93;
+  --line: #bfd0e2;
+  --glass: rgba(255, 255, 255, 0.82);
+  --accent-0: #1a4b8c;
+  --accent-1: #2d7dd2;
+  --accent-2: #6f7f93;
+  --logo-ink: #1a4b8c;
+  --tone-dot: rgba(0, 0, 0, 0.22);
+  --tone-speck: rgba(255, 255, 255, 0.32);
+  --tone-shadow: rgba(26, 75, 140, 0.14);
+  --tone-shadow-soft: rgba(255, 255, 255, 0.32);
+  --glow-dot: rgba(26, 75, 140, 0.16);
+  --glow-tone-a: rgba(26, 75, 140, 0.12);
+  --glow-tone-b: rgba(45, 125, 210, 0.08);
+  --shadow: 0 18px 40px rgba(26, 75, 140, 0.09);
+  --light-elev-1:
+    0 1px 0 rgba(255, 255, 255, 0.92) inset, 0 8px 18px rgba(26, 75, 140, 0.06),
+    0 2px 4px rgba(26, 75, 140, 0.04);
+  --light-elev-2:
+    0 1px 0 rgba(255, 255, 255, 0.94) inset, 0 10px 24px rgba(26, 75, 140, 0.08),
+    0 3px 6px rgba(26, 75, 140, 0.05);
+  --light-elev-3:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset, 0 12px 28px rgba(26, 75, 140, 0.1),
+    0 4px 8px rgba(26, 75, 140, 0.06);
+  color-scheme: light;
+
+  --rail-section-sidebar: clamp(18rem, 22vw, 32.5rem);
+  --rail-section-gap: clamp(1.5rem, 2.8vw, 4rem);
+  --rail-section-main: minmax(0, 1.06fr);
+  --rail-section-support: minmax(15rem, 0.94fr);
+  --rail-section-divider-left: calc(
+    var(--rail-section-sidebar) + (var(--rail-section-gap) * 0.5)
+  );
+  --rail-section-sticky-top: 6rem;
+
+  --morph-paper: var(--bg-0);
+  --morph-paper-strong: var(--bg-2);
+  --morph-panel: var(--glass);
+  --morph-panel-strong: rgba(255, 255, 255, 0.9);
+  --morph-grid: var(--tone-dot);
+  --morph-line: var(--line);
+  --morph-line-strong: color-mix(in srgb, var(--accent-0) 20%, var(--line));
+  --morph-ink: var(--text-0);
+  --morph-copy: var(--text-1);
+  --morph-muted: var(--text-2);
+  --morph-accent: var(--accent-1);
+  --morph-accent-soft: color-mix(in srgb, var(--accent-1) 10%, transparent);
+  --morph-accent-strong: var(--accent-0);
+  --morph-logo-ink: var(--logo-ink);
+  --morph-shadow: var(--light-elev-2);
+  --morph-shadow-soft: var(--light-elev-1);
+
+  --morph-font-display: "Source Serif 4", "Noto Serif SC", "Noto Serif JP", serif;
+  --morph-font-ui: "IBM Plex Sans", "Noto Sans SC", "Noto Sans JP", sans-serif;
+  --morph-font-mono: "IBM Plex Mono", monospace;
+
+  --install-cta-height: 44px;
+  --install-cta-min-width: 9.75rem;
+  --install-cta-padding-inline: 1rem;
+  --install-cta-font-size: 0.72rem;
+  --install-cta-font-weight: 600;
+  --install-cta-letter-spacing: 0.08em;
+  --morph-nav-brand-size: 1.92rem;
+  --morph-nav-shell-pad-top: 0.48rem;
+  --morph-nav-shell-pad-bottom: 0.48rem;
+
+  --vp-font-family-base: var(--morph-font-ui);
+  --vp-font-family-mono: var(--morph-font-mono);
+  --vp-layout-max-width: var(--site-max-width);
+  --vp-sidebar-width: var(--rail-section-sidebar);
+  --vp-nav-height: calc(
+    var(--morph-nav-brand-size) + var(--morph-nav-shell-pad-top) + var(--morph-nav-shell-pad-bottom)
+  );
+
+  --vp-c-brand-1: var(--morph-accent-strong);
+  --vp-c-brand-2: var(--morph-accent);
+  --vp-c-brand-3: #163f74;
+  --vp-c-brand-soft: var(--morph-accent-soft);
+
+  --vp-c-bg: transparent;
+  --vp-c-bg-alt: color-mix(in srgb, var(--bg-2) 84%, transparent);
+  --vp-c-bg-elv: color-mix(in srgb, white 88%, var(--bg-2) 12%);
+  --vp-c-bg-soft: color-mix(in srgb, white 78%, var(--bg-1) 22%);
+  --vp-c-text-1: var(--morph-ink);
+  --vp-c-text-2: var(--morph-copy);
+  --vp-c-text-3: var(--morph-muted);
+  --vp-c-divider: color-mix(in srgb, var(--morph-line) 100%, transparent);
+  --vp-c-divider-light: color-mix(in srgb, var(--morph-line) 54%, transparent);
+  --vp-c-gutter: color-mix(in srgb, var(--morph-line) 30%, transparent);
+
+  --vp-button-brand-border: var(--morph-accent-strong);
+  --vp-button-brand-bg: var(--morph-accent-strong);
+  --vp-button-brand-text: #fff;
+  --vp-button-brand-hover-border: var(--morph-accent);
+  --vp-button-brand-hover-bg: var(--morph-accent);
+  --vp-button-brand-hover-text: #fff;
+  --vp-button-brand-active-border: #163f74;
+  --vp-button-brand-active-bg: #163f74;
+  --vp-button-brand-active-text: #fff;
+
+  --vp-button-alt-border: rgba(26, 75, 140, 0.32);
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: #1a4b8c;
+  --vp-button-alt-hover-border: var(--morph-accent);
+  --vp-button-alt-hover-bg: #2d7dd2;
+  --vp-button-alt-hover-text: #fff;
+  --vp-button-alt-active-border: var(--morph-accent-strong);
+  --vp-button-alt-active-bg: #163f74;
+  --vp-button-alt-active-text: #fff;
+
+  --vp-custom-block-info-bg: color-mix(in srgb, white 80%, var(--bg-2) 20%);
+  --vp-custom-block-info-border: color-mix(in srgb, var(--morph-line) 72%, transparent);
+  --vp-custom-block-tip-bg: color-mix(in srgb, var(--accent-1) 10%, white);
+  --vp-custom-block-tip-border: color-mix(in srgb, var(--accent-1) 28%, transparent);
+  --vp-custom-block-warning-bg: color-mix(in srgb, var(--morph-accent) 10%, transparent);
+  --vp-custom-block-warning-border: color-mix(in srgb, var(--morph-accent) 32%, transparent);
+  --vp-custom-block-danger-bg: color-mix(in srgb, #b55c44 10%, transparent);
+  --vp-custom-block-danger-border: color-mix(in srgb, #b55c44 32%, transparent);
+}

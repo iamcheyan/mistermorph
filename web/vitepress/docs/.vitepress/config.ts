@@ -155,7 +155,7 @@ export default defineConfig({
       provider: 'local'
     },
     editLink: {
-      pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/docs/docs/:path',
+      pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/vitepress/docs/:path',
       text: 'Edit this page on GitHub'
     },
     outline: {
@@ -169,7 +169,7 @@ export default defineConfig({
       lang: 'en-US',
       themeConfig: {
         nav: [
-          { text: 'Docs Overview', link: '/guide/overview' },
+          { text: 'Overview', link: '/guide/overview' },
           { text: 'Developer', link: '/guide/build-agent-with-core' }
         ],
         sidebar: enSidebar,
@@ -189,7 +189,7 @@ export default defineConfig({
         sidebar: zhSidebar,
         docFooter: { prev: '上一页', next: '下一页' },
         editLink: {
-          pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/docs/docs/:path',
+          pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/vitepress/docs/:path',
           text: '在 GitHub 编辑此页'
         },
         outline: { level: [2, 3], label: '页面目录' }
@@ -207,7 +207,7 @@ export default defineConfig({
         sidebar: jaSidebar,
         docFooter: { prev: '前へ', next: '次へ' },
         editLink: {
-          pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/docs/docs/:path',
+          pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/vitepress/docs/:path',
           text: 'GitHub でこのページを編集'
         },
         outline: { level: [2, 3], label: '目次' }

@@ -1,0 +1,203 @@
+.VPDoc {
+  position: relative;
+  padding: 0 0 clamp(4rem, 6vw, 6rem) !important;
+  width: 100%;
+}
+
+.VPDoc::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--morph-accent) 20%, transparent) 0 3px,
+    transparent 6px 9px
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.88) 6%,
+    rgba(0, 0, 0, 0.88) 90%,
+    transparent 100%
+  );
+  opacity: 0.68;
+}
+
+.VPDoc .container {
+  display: block;
+  width: 100%;
+}
+
+.VPDoc .content {
+  margin: 0;
+  width: 100%;
+  padding: 0 0 0 clamp(1.2rem, 2vw, 1.6rem);
+}
+
+.VPDoc .content-container {
+  margin: 0;
+  max-width: none;
+}
+
+.VPDoc .main {
+  width: 100%;
+}
+
+.vp-doc > h1:first-child {
+  display: none;
+}
+
+.morph-doc-hero {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0 0 clamp(1.8rem, 3vw, 2.3rem);
+  border-bottom: 1px solid color-mix(in srgb, var(--morph-line) 72%, transparent);
+  margin-bottom: clamp(1.8rem, 3vw, 2.4rem);
+}
+
+.morph-doc-heading {
+  position: relative;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.morph-doc-heading::before {
+  content: '';
+  position: absolute;
+  left: calc(clamp(1.2rem, 2vw, 1.6rem) * -1);
+  top: 0;
+  height: clamp(2.1rem, 3.3vw, 3.1rem);
+  width: 1px;
+  background: color-mix(in srgb, var(--accent-0) 68%, transparent);
+}
+
+.morph-doc-title {
+  margin: 0;
+  max-width: 16ch;
+  font-family: var(--morph-font-display);
+  font-size: clamp(2.3rem, 4vw, 3.6rem);
+  font-weight: 600;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  color: var(--morph-ink);
+  text-wrap: balance;
+}
+
+.morph-doc-lead {
+  margin: 0;
+  max-width: 46rem;
+  color: var(--morph-copy);
+  font-size: clamp(1rem, 1.2vw, 1.08rem);
+  line-height: 1.72;
+}
+
+.morph-doc-tools {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0 1rem;
+}
+
+.VPDocAside .content {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.VPDocAside .aside-content {
+  padding-top: 0;
+}
+
+.VPDocAsideOutline {
+  padding-top: 1rem;
+  border-top: 1px dashed color-mix(in srgb, var(--morph-line) 68%, transparent);
+}
+
+.VPDocAsideOutline > .content {
+  padding-left: 0;
+}
+
+@media (min-width: 960px) {
+  .VPContent.has-sidebar .VPDoc {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .VPContent.has-sidebar .VPDoc > .container {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) clamp(15rem, 17vw, 17.5rem);
+    align-items: start;
+    gap: var(--rail-section-gap);
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .aside {
+    display: block;
+    grid-column: 2;
+    margin: 0;
+    width: clamp(15rem, 17vw, 17.5rem);
+    max-width: clamp(15rem, 17vw, 17.5rem);
+    padding-left: 0;
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .aside .aside-container,
+  .VPContent.has-sidebar .VPDoc > .container > .aside .aside-curtain {
+    width: 100%;
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .aside .aside-container {
+    position: sticky;
+    top: calc(var(--vp-nav-height) + 1.7rem);
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding-top: 0;
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .aside .aside-content {
+    min-height: 0;
+    padding-bottom: 0;
+    overflow: visible;
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .aside .aside-curtain {
+    display: none;
+  }
+
+  .VPContent.has-sidebar .VPDoc > .container > .content {
+    grid-column: 1;
+    min-width: 0;
+    padding-right: 0;
+  }
+}
+
+@media (min-width: 860px) and (max-width: 1279px) {
+  .VPDoc .container {
+    display: block;
+  }
+}
+
+@media (max-width: 959px) {
+  .VPDoc {
+    padding-top: 1rem;
+  }
+
+  .VPDoc::before {
+    display: none;
+  }
+
+  .VPDoc .content {
+    padding-left: 0;
+  }
+
+  .morph-doc-hero {
+    padding-left: 0;
+  }
+
+  .morph-doc-heading::before {
+    display: none;
+  }
+}
