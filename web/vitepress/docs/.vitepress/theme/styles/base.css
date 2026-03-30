@@ -257,6 +257,219 @@ textarea {
   transform: translateY(-50%);
 }
 
+.VPLocalSearchBox {
+  --vp-backdrop-bg-color: rgba(16, 28, 44, 0.42);
+  --vp-local-search-bg: color-mix(in srgb, white 86%, var(--bg-2) 14%);
+  --vp-local-search-result-bg: color-mix(in srgb, white 72%, var(--bg-2) 28%);
+  --vp-local-search-result-border: color-mix(in srgb, var(--morph-line) 84%, transparent);
+  --vp-local-search-result-selected-bg: color-mix(in srgb, var(--bg-0) 88%, var(--accent-1) 12%);
+  --vp-local-search-result-selected-border: color-mix(
+    in srgb,
+    var(--accent-0) 48%,
+    var(--morph-line) 52%
+  );
+  --vp-local-search-highlight-bg: color-mix(in srgb, var(--accent-1) 18%, white);
+  --vp-local-search-highlight-text: var(--text-0);
+  justify-content: center;
+  align-items: flex-start;
+  padding: calc(var(--vp-nav-height) + 1.1rem) var(--site-gutter) 1.5rem;
+  z-index: 120;
+}
+
+.VPLocalSearchBox .backdrop {
+  background: var(--vp-backdrop-bg-color);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+
+.VPLocalSearchBox .shell {
+  margin: 0;
+  width: min(100%, 70rem);
+  min-height: clamp(18rem, 56vh, 34rem);
+  max-height: calc(100vh - var(--vp-nav-height) - 2.6rem);
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--morph-line) 82%, transparent);
+  border-radius: 0;
+  background: var(--vp-local-search-bg);
+  box-shadow: var(--morph-shadow);
+  overflow: hidden;
+}
+
+.VPLocalSearchBox .search-bar {
+  min-height: 3rem;
+  border: 1px solid color-mix(in srgb, var(--morph-line) 92%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, white 68%, var(--bg-2) 32%);
+}
+
+.VPLocalSearchBox .search-bar:focus-within {
+  border-color: color-mix(in srgb, var(--accent-0) 40%, var(--morph-line) 60%);
+  box-shadow: none;
+}
+
+.VPLocalSearchBox .search-input {
+  padding: 0.72rem 0.56rem;
+  color: var(--text-0);
+  background: transparent;
+  font-family: var(--morph-font-ui);
+  font-size: 0.98rem;
+  letter-spacing: 0;
+}
+
+.VPLocalSearchBox .search-input::placeholder {
+  color: var(--text-2);
+}
+
+.VPLocalSearchBox .local-search-icon,
+.VPLocalSearchBox .navigate-icon {
+  color: var(--text-2);
+}
+
+.VPLocalSearchBox .search-actions button,
+.VPLocalSearchBox .back-button {
+  display: inline-grid;
+  place-items: center;
+  width: 1.95rem;
+  height: 1.95rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.VPLocalSearchBox .search-actions button:not([disabled]):hover,
+.VPLocalSearchBox .back-button:hover,
+.VPLocalSearchBox .toggle-layout-button.detailed-list {
+  border-color: color-mix(in srgb, var(--morph-line) 88%, transparent);
+  background: color-mix(in srgb, white 72%, var(--bg-2) 28%);
+  color: var(--accent-0);
+}
+
+.VPLocalSearchBox .results {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 0.5rem;
+  padding-right: 0.15rem;
+}
+
+.VPLocalSearchBox .result {
+  min-height: 4rem;
+  align-items: flex-start;
+  border: 1px dashed var(--vp-local-search-result-border);
+  border-radius: 0;
+  background: var(--vp-local-search-result-bg);
+  color: var(--text-0);
+}
+
+.VPLocalSearchBox .result:hover,
+.VPLocalSearchBox .result:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-0) 28%, var(--morph-line) 72%);
+  outline: none;
+}
+
+.VPLocalSearchBox .result.selected {
+  border-style: solid;
+  background: var(--vp-local-search-result-selected-bg);
+  border-color: var(--vp-local-search-result-selected-border);
+}
+
+.VPLocalSearchBox .result > div {
+  margin: 0.84rem 0.9rem;
+}
+
+.VPLocalSearchBox .titles {
+  gap: 0.32rem;
+  padding: 0;
+}
+
+.VPLocalSearchBox .title:not(.main) {
+  font-family: var(--morph-font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.VPLocalSearchBox .title.main {
+  width: 100%;
+}
+
+.VPLocalSearchBox .title.main .text {
+  font-family: var(--morph-font-display);
+  font-size: clamp(1.06rem, 1rem + 0.16vw, 1.22rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--text-0);
+}
+
+.VPLocalSearchBox .title-icon,
+.VPLocalSearchBox .title .local-search-icon {
+  color: var(--accent-0);
+  opacity: 0.82;
+}
+
+.VPLocalSearchBox .excerpt {
+  opacity: 0.82;
+}
+
+.VPLocalSearchBox .excerpt .vp-doc {
+  color: var(--text-1);
+}
+
+.VPLocalSearchBox .search-keyboard-shortcuts {
+  padding-top: 0.78rem;
+  border-top: 1px dashed color-mix(in srgb, var(--morph-line) 72%, transparent);
+  color: var(--text-2);
+  font-family: var(--morph-font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.VPLocalSearchBox .search-keyboard-shortcuts kbd {
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--morph-line) 84%, transparent);
+  background: color-mix(in srgb, white 70%, var(--bg-2) 30%);
+  box-shadow: none;
+  color: var(--text-0);
+  font-family: var(--morph-font-mono);
+}
+
+.VPLocalSearchBox .no-results {
+  color: var(--text-1);
+  font-family: var(--morph-font-display);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.VPLocalSearchBox .no-results strong {
+  color: var(--accent-0);
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .VPLocalSearchBox {
+    padding: 0;
+  }
+
+  .VPLocalSearchBox .shell {
+    width: 100vw;
+    min-height: 100vh;
+    max-height: none;
+    padding: calc(var(--vp-nav-height) + 0.6rem) 0.8rem 0.8rem;
+    border: 0;
+  }
+}
+
 
 .VPLocalNav {
   border-bottom: 1px solid color-mix(in srgb, var(--morph-line) 60%, transparent);
