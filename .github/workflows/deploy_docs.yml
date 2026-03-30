@@ -1,0 +1,72 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "web/vitepress/**"
+      - ".github/workflows/deploy_docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-docs:
+    if: vars.CF_DOCS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web/vitepress
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/vitepress/pnpm-lock.yaml
+
+      - name: Install docs deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs
+        run: pnpm build
+
+      - name: Validate Cloudflare deploy settings
+        env:
+          CF_DOCS_WORKER_NAME: ${{ vars.CF_DOCS_WORKER_NAME }}
+          CF_DOCS_CUSTOM_DOMAIN: ${{ vars.CF_DOCS_CUSTOM_DOMAIN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_WORKER_API_TOKEN: ${{ secrets.CF_WORKER_API_TOKEN }}
+        run: |
+          test -n "${CF_DOCS_WORKER_NAME}" || (echo "Missing repo variable: CF_DOCS_WORKER_NAME" && exit 1)
+          test -n "${CF_DOCS_CUSTOM_DOMAIN}" || (echo "Missing repo variable: CF_DOCS_CUSTOM_DOMAIN" && exit 1)
+          test -n "${CF_ACCOUNT_ID}" || (echo "Missing org/repo secret: CF_ACCOUNT_ID" && exit 1)
+          test -n "${CF_WORKER_API_TOKEN}" || (echo "Missing org/repo secret: CF_WORKER_API_TOKEN" && exit 1)
+
+      - name: Render Wrangler config
+        env:
+          CF_DOCS_DEPLOY_ENV: production
+          CF_DOCS_WORKER_NAME: ${{ vars.CF_DOCS_WORKER_NAME }}
+          CF_DOCS_CUSTOM_DOMAIN: ${{ vars.CF_DOCS_CUSTOM_DOMAIN }}
+        run: pnpm cf:config:production
+
+      - name: Deploy docs worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_WORKER_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          wranglerVersion: 4.78.0
+          workingDirectory: web/vitepress
+          command: deploy --config wrangler.generated.jsonc

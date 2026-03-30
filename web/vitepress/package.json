@@ -5,12 +5,18 @@
   "scripts": {
     "dev": "vitepress dev docs",
     "build": "vitepress build docs",
-    "serve": "vitepress serve docs"
+    "serve": "vitepress serve docs",
+    "cf:config": "node ./scripts/render-wrangler-config.mjs",
+    "cf:config:preview": "node ./scripts/render-wrangler-config.mjs --env preview",
+    "cf:config:production": "node ./scripts/render-wrangler-config.mjs --env production",
+    "deploy:preview": "pnpm build && pnpm cf:config:preview && wrangler deploy --config wrangler.generated.jsonc",
+    "deploy:production": "pnpm build && pnpm cf:config:production && wrangler deploy --config wrangler.generated.jsonc"
   },
   "devDependencies": {
     "vitepress": "1.6.4",
     "vitepress-plugin-llms": "^1.12.0",
-    "vue": "3.5.30"
+    "vue": "3.5.30",
+    "wrangler": "4.78.0"
   },
   "pnpm": {
     "peerDependencyRules": {
