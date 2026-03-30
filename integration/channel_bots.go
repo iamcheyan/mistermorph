@@ -257,6 +257,7 @@ type runtimeSharedDependencies struct {
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error)
+	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
 }
 
 func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDependencies {
@@ -290,6 +291,10 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			return rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, stickySkills)
 		},
+		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			_ = reg
+			rt.appendPromptBlocks(spec)
+		},
 	}
 }
 
@@ -304,6 +309,7 @@ func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.De
 		RuntimeToolsConfig: base.RuntimeToolsConfig,
 		Guard:              base.Guard,
 		PromptSpec:         base.PromptSpec,
+		PromptAugment:      base.PromptAugment,
 	}
 }
 
@@ -318,6 +324,7 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 		RuntimeToolsConfig: base.RuntimeToolsConfig,
 		Guard:              base.Guard,
 		PromptSpec:         base.PromptSpec,
+		PromptAugment:      base.PromptAugment,
 	}
 }
 

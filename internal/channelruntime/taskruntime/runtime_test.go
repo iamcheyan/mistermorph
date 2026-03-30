@@ -92,6 +92,9 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
 			return agent.DefaultPromptSpec(), nil, nil
 		},
+		PromptAugment: func(spec *agent.PromptSpec, _ *tools.Registry) {
+			spec.Blocks = append(spec.Blocks, agent.PromptBlock{Content: "integration block"})
+		},
 	}, BootstrapOptions{
 		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
 	})
@@ -174,6 +177,18 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	}
 	if !strings.Contains(systemPrompt, "memory snapshot") {
 		t.Fatalf("system prompt missing memory snapshot: %q", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, "integration block") {
+		t.Fatalf("system prompt missing common prompt augment block: %q", systemPrompt)
+	}
+	channelIdx := strings.Index(systemPrompt, "channel block")
+	memoryIdx := strings.Index(systemPrompt, "memory snapshot")
+	integrationIdx := strings.Index(systemPrompt, "integration block")
+	if channelIdx == -1 || memoryIdx == -1 || integrationIdx == -1 {
+		t.Fatalf("failed to locate prompt blocks in system prompt: %q", systemPrompt)
+	}
+	if !(channelIdx < memoryIdx && memoryIdx < integrationIdx) {
+		t.Fatalf("prompt block order = channel:%d memory:%d integration:%d, want channel < memory < integration", channelIdx, memoryIdx, integrationIdx)
 	}
 }
 

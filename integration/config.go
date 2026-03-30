@@ -34,6 +34,9 @@ type Config struct {
 	Overrides map[string]any
 
 	Features Features
+	// PromptBlocks are appended to the rendered system prompt under
+	// "Additional Policies" in the order provided.
+	PromptBlocks []string
 	// BuiltinToolNames optionally selects which built-in tools are wired.
 	// Names are case-insensitive. When empty, all built-in tools are wired.
 	BuiltinToolNames []string
@@ -60,4 +63,15 @@ func (c *Config) Set(key string, value any) {
 		c.Overrides = map[string]any{}
 	}
 	c.Overrides[key] = value
+}
+
+func (c *Config) AddPromptBlock(content string) {
+	if c == nil {
+		return
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
+	c.PromptBlocks = append(c.PromptBlocks, content)
 }

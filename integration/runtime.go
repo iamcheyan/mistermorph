@@ -21,6 +21,7 @@ import (
 type Runtime struct {
 	features         Features
 	inspect          InspectOptions
+	promptBlocks     []string
 	builtinToolNames []string
 	snap             runtimeSnapshot
 }
@@ -36,6 +37,7 @@ func New(cfg Config) *Runtime {
 	return &Runtime{
 		features:         cfg.Features,
 		inspect:          cfg.Inspect,
+		promptBlocks:     append([]string(nil), cfg.PromptBlocks...),
 		builtinToolNames: append([]string(nil), cfg.BuiltinToolNames...),
 		snap:             loadRuntimeSnapshot(cfg),
 	}
@@ -52,12 +54,31 @@ func normalizeConfig(cfg Config) Config {
 	if len(cfg.BuiltinToolNames) > 0 {
 		out.BuiltinToolNames = normalizeToolNames(cfg.BuiltinToolNames)
 	}
+	out.PromptBlocks = normalizePromptBlocks(cfg.PromptBlocks)
 	for k, v := range cfg.Overrides {
 		key := strings.TrimSpace(k)
 		if key == "" {
 			continue
 		}
 		out.Overrides[key] = v
+	}
+	return out
+}
+
+func normalizePromptBlocks(blocks []string) []string {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		out = append(out, block)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -237,6 +258,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
+	rt.appendPromptBlocks(&promptSpec)
 
 	opts := []agent.Option{
 		agent.WithLogger(logger),
@@ -267,6 +289,19 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			return firstErr
 		},
 	}, nil
+}
+
+func (rt *Runtime) appendPromptBlocks(spec *agent.PromptSpec) {
+	if rt == nil || spec == nil || len(rt.promptBlocks) == 0 {
+		return
+	}
+	for _, content := range rt.promptBlocks {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			continue
+		}
+		spec.Blocks = append(spec.Blocks, agent.PromptBlock{Content: content})
+	}
 }
 
 func (rt *Runtime) RunTask(ctx context.Context, task string, opts agent.RunOptions) (*agent.Final, *agent.Context, error) {

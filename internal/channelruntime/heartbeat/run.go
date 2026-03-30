@@ -252,6 +252,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
 		}
 	}
+	depsutil.PromptAugmentFromCommon(depsutil.CommonFromHeartbeat(d), &promptSpec, reg)
 
 	engine := agent.New(
 		opts.Client,

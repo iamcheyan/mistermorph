@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/spf13/viper"
 )
 
@@ -56,5 +57,26 @@ func TestRuntimeSnapshotIgnoresGlobalViper(t *testing.T) {
 	rt := New(DefaultConfig())
 	if got := rt.RequestTimeout(); got != 90*time.Second {
 		t.Fatalf("RequestTimeout() = %v, want %v", got, 90*time.Second)
+	}
+}
+
+func TestConfigAddPromptBlockAppliesTrimmedBlocks(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AddPromptBlock("  custom block one  ")
+	cfg.AddPromptBlock("")
+	cfg.AddPromptBlock("custom block two")
+
+	rt := New(cfg)
+	spec := agent.DefaultPromptSpec()
+	rt.appendPromptBlocks(&spec)
+
+	if len(spec.Blocks) != 2 {
+		t.Fatalf("prompt blocks = %d, want 2", len(spec.Blocks))
+	}
+	if spec.Blocks[0].Content != "custom block one" {
+		t.Fatalf("first prompt block = %q, want %q", spec.Blocks[0].Content, "custom block one")
+	}
+	if spec.Blocks[1].Content != "custom block two" {
+		t.Fatalf("second prompt block = %q, want %q", spec.Blocks[1].Content, "custom block two")
 	}
 }

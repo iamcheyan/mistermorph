@@ -192,6 +192,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if err := rt.applyMemoryInjection(logger, &promptSpec, req.Memory); err != nil {
 		return RunResult{}, err
 	}
+	depsutil.PromptAugmentFromCommon(rt.commonDeps, &promptSpec, reg)
 
 	agentCfg := rt.AgentConfig
 	agentCfg.DefaultModel = model

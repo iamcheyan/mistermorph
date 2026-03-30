@@ -27,6 +27,7 @@ type CommonDependencies struct {
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
+	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
 }
 
 type HeartbeatDependencies struct {
@@ -38,6 +39,7 @@ type HeartbeatDependencies struct {
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
+	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
 	BuildHeartbeatTask func(checklistPath string) (string, bool, error)
 	BuildHeartbeatMeta func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any
 }
@@ -52,6 +54,7 @@ func CommonFromHeartbeat(d HeartbeatDependencies) CommonDependencies {
 		RuntimeToolsConfig: d.RuntimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
+		PromptAugment:      d.PromptAugment,
 	}
 }
 
@@ -166,6 +169,17 @@ func GuardFromCommon(d CommonDependencies, logger *slog.Logger) *guard.Guard {
 
 func PromptSpecFromCommon(d CommonDependencies, ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 	return PromptSpec(d.PromptSpec, ctx, logger, logOpts, task, client, model, stickySkills)
+}
+
+func PromptAugment(spec *agent.PromptSpec, reg *tools.Registry, fn func(spec *agent.PromptSpec, reg *tools.Registry)) {
+	if fn == nil || spec == nil {
+		return
+	}
+	fn(spec, reg)
+}
+
+func PromptAugmentFromCommon(d CommonDependencies, spec *agent.PromptSpec, reg *tools.Registry) {
+	PromptAugment(spec, reg, d.PromptAugment)
 }
 
 func BuildHeartbeatTaskFromDeps(d HeartbeatDependencies, checklistPath string) (string, bool, error) {
