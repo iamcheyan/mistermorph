@@ -102,4 +102,4 @@ engine := agent.New(
 
 ## 建议
 
-默认优先使用 `integration`。只有当 `integration` 无法覆盖需求时，再下沉到这一层。
+默认优先使用 `integration`。现在静态 prompt block 已可通过 `integration.Config.AddPromptBlock(...)` 完成。只有当你需要按任务动态改 prompt，或完全替换 system prompt 构造逻辑时，再下沉到这一层。

@@ -23,6 +23,8 @@ import (
 func main() {
   cfg := integration.DefaultConfig()
   cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
+  cfg.AddPromptBlock(`[[ Project Policy ]]
+- 默认用一段短文回答。`)
   cfg.Set("llm.provider", "openai")
   cfg.Set("llm.model", "gpt-5.4")
   cfg.Set("llm.api_key", "YOUR_API_KEY")
@@ -42,6 +44,7 @@ func main() {
 ## 常用调节点
 
 - `cfg.BuiltinToolNames`
+- `cfg.AddPromptBlock(...)`
 - `cfg.Set("max_steps", N)`
 - `cfg.Set("tool_repeat_limit", N)`
 - `cfg.Inspect.Prompt`、`cfg.Inspect.Request`

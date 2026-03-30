@@ -102,4 +102,4 @@ engine := agent.New(
 
 ## Recommendation
 
-Prefer `integration` by default. Move to this level only when you need capabilities that `integration` does not expose.
+Prefer `integration` by default. Static prompt blocks are now supported via `integration.Config.AddPromptBlock(...)`. Move to this level only when you need capabilities that `integration` still does not expose, such as per-task dynamic prompt shaping or full system prompt replacement.

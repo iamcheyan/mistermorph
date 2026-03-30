@@ -102,4 +102,4 @@ engine := agent.New(
 
 ## 推奨方針
 
-通常は `integration` を優先し、必要時のみこのレイヤへ下りるのが安全です。
+通常は `integration` を優先し、静的な prompt block は `integration.Config.AddPromptBlock(...)` で足してください。タスクごとの動的な prompt 変更や、system prompt 全体の差し替えが必要なときだけこのレイヤへ下りるのが安全です。

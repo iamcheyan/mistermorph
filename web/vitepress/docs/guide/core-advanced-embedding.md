@@ -10,6 +10,7 @@ This page only covers capabilities provided by the `integration` package.
 ## What `integration` Provides
 
 - `integration.DefaultConfig()` / `integration.Config.Set(...)`
+- `integration.Config.AddPromptBlock(...)`
 - `integration.New(cfg)`
 - `rt.NewRegistry()`
 - `rt.NewRunEngine(...)`
@@ -24,6 +25,7 @@ This page only covers capabilities provided by the `integration` package.
 - `Overrides` + `Set(key, value)`: override Viper keys.
 - `Features`: toggle built-in runtime wiring (`PlanTool`, `Guard`, `Skills`).
 - `BuiltinToolNames`: built-in tool whitelist (empty = all built-ins).
+- `AddPromptBlock(...)`: append static prompt blocks under system prompt `Additional Policies`.
 - `Inspect`: prompt/request dump behavior.
 
 ```go
@@ -33,7 +35,28 @@ cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 cfg.Features.Skills = true
 cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
+cfg.AddPromptBlock(`[[ Project Policy ]]
+- Keep answers under 3 sentences unless detail is requested.`)
 ```
+
+## Prompt Blocks
+
+Use `cfg.AddPromptBlock(...)` when you want integration-level prompt customization without moving to `agent.New(...)`.
+
+```go
+cfg := integration.DefaultConfig()
+cfg.AddPromptBlock(`[[ Tenant Policy ]]
+- Always include tenant_id when talking about external jobs.`)
+
+rt := integration.New(cfg)
+```
+
+Configured blocks are applied to:
+
+- one-shot runs via `NewRunEngine(...)`, `NewRunEngineWithRegistry(...)`, and `RunTask(...)`
+- channel runtimes created by `NewTelegramBot(...)` and `NewSlackBot(...)`
+
+This is intentionally static per `integration.Runtime`. If you need task-by-task prompt changes, use the lower-level agent APIs.
 
 ## Registry and Custom Tools
 

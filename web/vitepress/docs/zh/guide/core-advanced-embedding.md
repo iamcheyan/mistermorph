@@ -10,6 +10,7 @@ description: 仅覆盖 integration 包能力：配置、注册表、运行引擎
 ## `integration` 提供了什么
 
 - `integration.DefaultConfig()` / `integration.Config.Set(...)`
+- `integration.Config.AddPromptBlock(...)`
 - `integration.New(cfg)`
 - `rt.NewRegistry()`
 - `rt.NewRunEngine(...)`
@@ -24,6 +25,7 @@ description: 仅覆盖 integration 包能力：配置、注册表、运行引擎
 - `Overrides` + `Set(key, value)`：覆盖任意 Viper 配置键。
 - `Features`：控制运行时能力注入（`PlanTool`、`Guard`、`Skills`）。
 - `BuiltinToolNames`：内置工具白名单（空表示全部）。
+- `AddPromptBlock(...)`：向 system prompt 的 `Additional Policies` 追加静态 prompt block。
 - `Inspect`：Prompt/Request 落盘调试。
 
 ```go
@@ -33,7 +35,28 @@ cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 cfg.Features.Skills = true
 cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
+cfg.AddPromptBlock(`[[ Project Policy ]]
+- 除非用户要求展开，否则回复控制在 3 句以内。`)
 ```
+
+## Prompt Block
+
+如果你想在 `integration` 层做 prompt 定制，而不是直接下沉到 `agent.New(...)`，用 `cfg.AddPromptBlock(...)`。
+
+```go
+cfg := integration.DefaultConfig()
+cfg.AddPromptBlock(`[[ Tenant Policy ]]
+- 讨论外部任务时总是带上 tenant_id。`)
+
+rt := integration.New(cfg)
+```
+
+这些 block 会自动应用到：
+
+- `NewRunEngine(...)`、`NewRunEngineWithRegistry(...)`、`RunTask(...)`
+- `NewTelegramBot(...)` 与 `NewSlackBot(...)`
+
+这类 block 是 `integration.Runtime` 级别的静态配置。若你需要按任务动态修改 prompt，还是应使用更底层的 agent API。
 
 ## 注册表与自定义工具
 
