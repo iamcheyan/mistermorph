@@ -54,7 +54,7 @@
   display: grid;
   gap: 0.65rem;
   padding: 0 0 clamp(1.8rem, 3vw, 2.3rem);
-  border-bottom: 1px solid color-mix(in srgb, var(--morph-line) 72%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--morph-line) 72%, transparent);
   margin-bottom: clamp(1.8rem, 3vw, 2.4rem);
 }
 

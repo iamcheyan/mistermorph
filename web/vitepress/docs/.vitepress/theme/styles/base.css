@@ -544,7 +544,7 @@ html:not(.dark) .vp-doc .vp-code span {
 
 .VPDocFooter {
   margin-top: 3rem;
-  border-top: 1px solid color-mix(in srgb, var(--morph-line) 72%, transparent);
+  border-top: 0;
   padding-top: 1.5rem;
 }
 
