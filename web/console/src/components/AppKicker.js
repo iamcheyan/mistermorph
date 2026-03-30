@@ -30,12 +30,12 @@ const AppKicker = {
     };
   },
   template: `
-    <component :is="as" class="ui-kicker hero-install-kicker" :aria-label="ariaLabel">
-      <span class="hero-install-kicker-bracket hero-install-kicker-bracket-open">[</span>
-      <span v-if="leftText" class="hero-install-kicker-label">{{ leftText }}</span>
-      <span v-if="hasRight" class="hero-install-kicker-sep">//</span>
-      <span v-if="hasRight" class="hero-install-kicker-label">{{ rightText }}</span>
-      <span class="hero-install-kicker-bracket hero-install-kicker-bracket-close">]</span>
+    <component :is="as" class="ui-kicker" :aria-label="ariaLabel">
+      <span class="ui-kicker-bracket ui-kicker-bracket-open">[</span>
+      <span v-if="leftText" class="ui-kicker-label">{{ leftText }}</span>
+      <span v-if="hasRight" class="ui-kicker-sep">//</span>
+      <span v-if="hasRight" class="ui-kicker-label">{{ rightText }}</span>
+      <span class="ui-kicker-bracket ui-kicker-bracket-close">]</span>
     </component>
   `,
 };

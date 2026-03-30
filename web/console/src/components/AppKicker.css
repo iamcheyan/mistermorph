@@ -1,24 +1,21 @@
-.hero-install-kicker {
-  display: inline-flex;
-  align-items: center;
+.ui-kicker {
   gap: 0.3rem;
-  white-space: nowrap;
 }
 
-.hero-install-kicker-label {
+.ui-kicker-label {
   display: inline-flex;
   align-items: center;
   min-width: 0;
 }
 
-.hero-install-kicker-sep {
+.ui-kicker-sep {
   letter-spacing: -0.3rem;
   font-size: 0.8325rem;
   opacity: 0.3;
   margin-right: 0.3125rem;
 }
 
-.hero-install-kicker-bracket {
+.ui-kicker-bracket {
   font-size: 0.8325rem;
   opacity: 0.3;
 }

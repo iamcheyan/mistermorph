@@ -79,6 +79,10 @@ type multimodalSettingsPayload struct {
 	ImageSources []string `json:"image_sources"`
 }
 
+type multimodalSettingsUpdatePayload struct {
+	ImageSources *[]string `json:"image_sources,omitempty"`
+}
+
 type toolsSettingsPayload struct {
 	WriteFileEnabled    bool `json:"write_file_enabled"`
 	ContactsSendEnabled bool `json:"contacts_send_enabled"`
@@ -89,6 +93,16 @@ type toolsSettingsPayload struct {
 	BashEnabled         bool `json:"bash_enabled"`
 }
 
+type toolsSettingsUpdatePayload struct {
+	WriteFileEnabled    *bool `json:"write_file_enabled,omitempty"`
+	ContactsSendEnabled *bool `json:"contacts_send_enabled,omitempty"`
+	TodoUpdateEnabled   *bool `json:"todo_update_enabled,omitempty"`
+	PlanCreateEnabled   *bool `json:"plan_create_enabled,omitempty"`
+	URLFetchEnabled     *bool `json:"url_fetch_enabled,omitempty"`
+	WebSearchEnabled    *bool `json:"web_search_enabled,omitempty"`
+	BashEnabled         *bool `json:"bash_enabled,omitempty"`
+}
+
 type agentSettingsPayload struct {
 	LLM        llmSettingsPayload        `json:"llm"`
 	Multimodal multimodalSettingsPayload `json:"multimodal"`
@@ -96,9 +110,9 @@ type agentSettingsPayload struct {
 }
 
 type agentSettingsUpdatePayload struct {
-	LLM        llmSettingsUpdatePayload  `json:"llm"`
-	Multimodal multimodalSettingsPayload `json:"multimodal"`
-	Tools      toolsSettingsPayload      `json:"tools"`
+	LLM        llmSettingsUpdatePayload         `json:"llm"`
+	Multimodal *multimodalSettingsUpdatePayload `json:"multimodal,omitempty"`
+	Tools      *toolsSettingsUpdatePayload      `json:"tools,omitempty"`
 }
 
 type agentSettingsEnvManagedField struct {
@@ -417,9 +431,19 @@ func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 
 func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
 	return writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
-		LLM:        llmSettingsPayloadAsUpdate(values.LLM),
-		Multimodal: values.Multimodal,
-		Tools:      values.Tools,
+		LLM: llmSettingsPayloadAsUpdate(values.LLM),
+		Multimodal: &multimodalSettingsUpdatePayload{
+			ImageSources: stringSlicePointer(values.Multimodal.ImageSources),
+		},
+		Tools: &toolsSettingsUpdatePayload{
+			WriteFileEnabled:    boolPointer(values.Tools.WriteFileEnabled),
+			ContactsSendEnabled: boolPointer(values.Tools.ContactsSendEnabled),
+			TodoUpdateEnabled:   boolPointer(values.Tools.TodoUpdateEnabled),
+			PlanCreateEnabled:   boolPointer(values.Tools.PlanCreateEnabled),
+			URLFetchEnabled:     boolPointer(values.Tools.URLFetchEnabled),
+			WebSearchEnabled:    boolPointer(values.Tools.WebSearchEnabled),
+			BashEnabled:         boolPointer(values.Tools.BashEnabled),
+		},
 	})
 }
 
@@ -458,18 +482,36 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 		setMappingOrderedStringList(llmNode, "fallback_profiles", normalizeNamedProfileSequence(*values.LLM.FallbackProfiles))
 	}
 
-	multimodalNode := ensureMappingValue(root, multimodalSettingsKey)
-	imageNode := ensureMappingValue(multimodalNode, "image")
-	setMappingStringList(imageNode, "sources", values.Multimodal.ImageSources)
+	if values.Multimodal != nil && values.Multimodal.ImageSources != nil {
+		multimodalNode := ensureMappingValue(root, multimodalSettingsKey)
+		imageNode := ensureMappingValue(multimodalNode, "image")
+		setMappingStringList(imageNode, "sources", *values.Multimodal.ImageSources)
+	}
 
-	toolsNode := ensureMappingValue(root, toolsSettingsKey)
-	setMappingBoolPath(toolsNode, "write_file", "enabled", values.Tools.WriteFileEnabled)
-	setMappingBoolPath(toolsNode, "contacts_send", "enabled", values.Tools.ContactsSendEnabled)
-	setMappingBoolPath(toolsNode, "todo_update", "enabled", values.Tools.TodoUpdateEnabled)
-	setMappingBoolPath(toolsNode, "plan_create", "enabled", values.Tools.PlanCreateEnabled)
-	setMappingBoolPath(toolsNode, "url_fetch", "enabled", values.Tools.URLFetchEnabled)
-	setMappingBoolPath(toolsNode, "web_search", "enabled", values.Tools.WebSearchEnabled)
-	setMappingBoolPath(toolsNode, "bash", "enabled", values.Tools.BashEnabled)
+	if values.Tools != nil {
+		toolsNode := ensureMappingValue(root, toolsSettingsKey)
+		if values.Tools.WriteFileEnabled != nil {
+			setMappingBoolPath(toolsNode, "write_file", "enabled", *values.Tools.WriteFileEnabled)
+		}
+		if values.Tools.ContactsSendEnabled != nil {
+			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *values.Tools.ContactsSendEnabled)
+		}
+		if values.Tools.TodoUpdateEnabled != nil {
+			setMappingBoolPath(toolsNode, "todo_update", "enabled", *values.Tools.TodoUpdateEnabled)
+		}
+		if values.Tools.PlanCreateEnabled != nil {
+			setMappingBoolPath(toolsNode, "plan_create", "enabled", *values.Tools.PlanCreateEnabled)
+		}
+		if values.Tools.URLFetchEnabled != nil {
+			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *values.Tools.URLFetchEnabled)
+		}
+		if values.Tools.WebSearchEnabled != nil {
+			setMappingBoolPath(toolsNode, "web_search", "enabled", *values.Tools.WebSearchEnabled)
+		}
+		if values.Tools.BashEnabled != nil {
+			setMappingBoolPath(toolsNode, "bash", "enabled", *values.Tools.BashEnabled)
+		}
+	}
 
 	return marshalYAMLDocument(doc)
 }
@@ -860,6 +902,11 @@ func stringPointer(value string) *string {
 
 func stringSlicePointer(values []string) *[]string {
 	next := append([]string(nil), values...)
+	return &next
+}
+
+func boolPointer(value bool) *bool {
+	next := value
 	return &next
 }
 

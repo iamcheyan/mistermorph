@@ -59,6 +59,7 @@ const MANAGED_RUNTIME_ITEMS = [
   { id: "slack", titleKey: "settings_console_runtime_slack", noteKey: "settings_console_runtime_note_slack" },
 ];
 
+const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
 let llmProfileKeySeed = 0;
 
@@ -72,6 +73,36 @@ function buildEmptyLLMForm() {
     cloudflare_account_id: "",
     reasoning_effort: "",
     tools_emulation_mode: "",
+  };
+}
+
+function buildEmptyTelegramConsoleState() {
+  return {
+    bot_token: "",
+    allowed_chat_ids_text: "",
+    group_trigger_mode: "smart",
+  };
+}
+
+function buildEmptySlackConsoleState() {
+  return {
+    bot_token: "",
+    app_token: "",
+    allowed_team_ids_text: "",
+    allowed_channel_ids_text: "",
+    group_trigger_mode: "smart",
+  };
+}
+
+function buildEmptyGuardConsoleState() {
+  return {
+    enabled: true,
+    url_fetch_allowed_url_prefixes_text: "https://",
+    deny_private_ips: true,
+    follow_redirects: false,
+    allow_proxy: false,
+    redaction_enabled: true,
+    approvals_enabled: false,
   };
 }
 
@@ -115,6 +146,19 @@ function normalizeNamedList(values) {
   return out;
 }
 
+function normalizeConsoleGroupTriggerMode(value) {
+  const next = String(value || "").trim().toLowerCase();
+  return CHANNEL_GROUP_TRIGGER_VALUES.includes(next) ? next : "smart";
+}
+
+function parseConfigListText(value) {
+  return normalizeNamedList(String(value || "").split(/\r?\n|,/));
+}
+
+function formatConfigList(values) {
+  return normalizeNamedList(Array.isArray(values) ? values : []).join("\n");
+}
+
 function serializeLLMProfile(profile) {
   return {
     name: trimText(profile?.name),
@@ -129,7 +173,7 @@ function serializeLLMProfile(profile) {
   };
 }
 
-function buildAgentSnapshot(state) {
+function buildLLMSnapshot(state) {
   return JSON.stringify({
     llm: {
       provider: trimText(state.llm.provider),
@@ -143,12 +187,22 @@ function buildAgentSnapshot(state) {
       profiles: Array.isArray(state.llm.profiles) ? state.llm.profiles.map((profile) => serializeLLMProfile(profile)) : [],
       fallback_profiles: normalizeNamedList(state.llm.fallback_profiles),
     },
+  });
+}
+
+function buildMultimodalSnapshot(state) {
+  return JSON.stringify({
     multimodal: {
       telegram: !!state.multimodal.telegram,
       slack: !!state.multimodal.slack,
       line: !!state.multimodal.line,
       remote_download: !!state.multimodal.remote_download,
     },
+  });
+}
+
+function buildToolsSnapshot(state) {
+  return JSON.stringify({
     tools: {
       write_file: !!state.tools.write_file,
       contacts_send: !!state.tools.contacts_send,
@@ -161,11 +215,64 @@ function buildAgentSnapshot(state) {
   });
 }
 
+function buildAgentSnapshot(state) {
+  return JSON.stringify({
+    llm: JSON.parse(buildLLMSnapshot(state)).llm,
+    multimodal: JSON.parse(buildMultimodalSnapshot(state)).multimodal,
+    tools: JSON.parse(buildToolsSnapshot(state)).tools,
+  });
+}
+
 function buildConsoleSnapshot(state) {
   return JSON.stringify({
-    managed_runtimes: {
-      telegram: !!state.managedRuntimes.telegram,
-      slack: !!state.managedRuntimes.slack,
+    managed_runtimes: JSON.parse(buildConsoleManagedRuntimeSnapshot(state)),
+    telegram: JSON.parse(buildConsoleTelegramSnapshot(state)),
+    slack: JSON.parse(buildConsoleSlackSnapshot(state)),
+    guard: JSON.parse(buildConsoleGuardSnapshot(state)),
+  });
+}
+
+function buildConsoleManagedRuntimeSnapshot(state) {
+  return JSON.stringify({
+    telegram: !!state.managedRuntimes.telegram,
+    slack: !!state.managedRuntimes.slack,
+  });
+}
+
+function buildConsoleTelegramSnapshot(state) {
+  return JSON.stringify({
+    bot_token: trimText(state.telegram.bot_token),
+    allowed_chat_ids: parseConfigListText(state.telegram.allowed_chat_ids_text),
+    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.telegram.group_trigger_mode),
+  });
+}
+
+function buildConsoleSlackSnapshot(state) {
+  return JSON.stringify({
+    bot_token: trimText(state.slack.bot_token),
+    app_token: trimText(state.slack.app_token),
+    allowed_team_ids: parseConfigListText(state.slack.allowed_team_ids_text),
+    allowed_channel_ids: parseConfigListText(state.slack.allowed_channel_ids_text),
+    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.slack.group_trigger_mode),
+  });
+}
+
+function buildConsoleGuardSnapshot(state) {
+  return JSON.stringify({
+    enabled: !!state.guard.enabled,
+    network: {
+      url_fetch: {
+        allowed_url_prefixes: parseConfigListText(state.guard.url_fetch_allowed_url_prefixes_text),
+        deny_private_ips: !!state.guard.deny_private_ips,
+        follow_redirects: !!state.guard.follow_redirects,
+        allow_proxy: !!state.guard.allow_proxy,
+      },
+    },
+    redaction: {
+      enabled: !!state.guard.redaction_enabled,
+    },
+    approvals: {
+      enabled: !!state.guard.approvals_enabled,
     },
   });
 }
@@ -185,20 +292,31 @@ const SettingsView = {
     const loggingOut = ref(false);
     const agentLoading = ref(false);
     const agentSaving = ref(false);
+    const agentSavingTarget = ref("");
+    const agentNoticeTarget = ref("");
     const agentErr = ref("");
     const agentOk = ref("");
     const agentValidationVisible = ref(false);
     const deleteProfileDialogOpen = ref(false);
     const deleteProfileTargetKey = ref("");
     const llmConfigPath = ref("");
-    const loadedSnapshot = ref("");
+    const loadedLLMSnapshot = ref("");
+    const loadedMultimodalSnapshot = ref("");
+    const loadedToolsSnapshot = ref("");
     const llmEnvManaged = ref({});
     const consoleLoading = ref(false);
     const consoleSaving = ref(false);
+    const consoleSavingTarget = ref("");
+    const consoleNoticeTarget = ref("");
     const consoleErr = ref("");
     const consoleOk = ref("");
     const consoleConfigPath = ref("");
     const loadedConsoleSnapshot = ref("");
+    const loadedConsoleManagedSnapshot = ref("");
+    const loadedConsoleTelegramSnapshot = ref("");
+    const loadedConsoleSlackSnapshot = ref("");
+    const loadedConsoleGuardSnapshot = ref("");
+    const consoleEnvManaged = ref({});
     const selectedSectionID = ref("agent");
     const isMobile = ref(false);
     const mobilePanelVisible = ref(false);
@@ -243,6 +361,9 @@ const SettingsView = {
         telegram: false,
         slack: false,
       },
+      telegram: buildEmptyTelegramConsoleState(),
+      slack: buildEmptySlackConsoleState(),
+      guard: buildEmptyGuardConsoleState(),
     });
 
     const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
@@ -283,6 +404,11 @@ const SettingsView = {
     const multimodalItems = computed(() => MULTIMODAL_SOURCES);
     const toolItems = computed(() => TOOL_ITEMS);
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
+    const groupTriggerItems = computed(() => [
+      { title: t("settings_console_group_trigger_smart"), value: "smart" },
+      { title: t("settings_console_group_trigger_strict"), value: "strict" },
+      { title: t("settings_console_group_trigger_talkative"), value: "talkative" },
+    ]);
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const showConsoleManagedSettings = computed(
       () => String(selectedEndpoint.value?.endpoint_ref || "").trim() === LOCAL_CONSOLE_ENDPOINT_REF
@@ -295,15 +421,7 @@ const SettingsView = {
           title: t("settings_agent_block_title"),
           meta: t("settings_section_agent_meta"),
           kickerLeft: "Agent",
-          kickerRight: "Agent Config",
-          saveKind: "agent",
-        },
-        {
-          id: "inputs",
-          title: t("settings_multimodal_title"),
-          meta: t("settings_section_inputs_meta"),
-          kickerLeft: "Agent",
-          kickerRight: "Multimodal",
+          kickerRight: "LLM Config",
           saveKind: "agent",
         },
         {
@@ -317,11 +435,27 @@ const SettingsView = {
       ];
       if (showConsoleManagedSettings.value) {
         items.push({
+          id: "channels",
+          title: t("settings_console_channels_title"),
+          meta: t("settings_section_channels_meta"),
+          kickerLeft: "Console",
+          kickerRight: "Channels",
+          saveKind: "console",
+        });
+        items.push({
           id: "runtimes",
           title: t("settings_console_runtime_title"),
           meta: t("settings_section_runtimes_meta"),
           kickerLeft: "Console",
           kickerRight: "Managed Runtimes",
+          saveKind: "console",
+        });
+        items.push({
+          id: "guard",
+          title: t("settings_console_guard_title"),
+          meta: t("settings_section_guard_meta"),
+          kickerLeft: "Console",
+          kickerRight: "Guard",
           saveKind: "console",
         });
       }
@@ -344,12 +478,14 @@ const SettingsView = {
       switch (selectedSection.value?.id) {
         case "agent":
           return t("settings_agent_llm_hint", { path: llmConfigPath.value || "config.yaml" });
-        case "inputs":
-          return t("settings_multimodal_hint");
         case "tools":
           return t("settings_tools_hint");
         case "runtimes":
           return t("settings_console_runtime_hint", { path: consoleConfigPath.value || "config.yaml" });
+        case "channels":
+          return t("settings_console_channels_hint", { path: consoleConfigPath.value || "config.yaml" });
+        case "guard":
+          return t("settings_console_guard_hint", { path: consoleConfigPath.value || "config.yaml" });
         case "console":
           return t("settings_console_preferences_hint");
         default:
@@ -450,20 +586,47 @@ const SettingsView = {
     const currentTestTargetProfile = computed(() =>
       state.llm.profiles.find((item) => item._key === testConnectionTargetProfileKey.value) || null
     );
-    const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
-    const agentSaveDisabled = computed(
+    const llmDirty = computed(() => buildLLMSnapshot(state) !== loadedLLMSnapshot.value);
+    const multimodalDirty = computed(() => buildMultimodalSnapshot(state) !== loadedMultimodalSnapshot.value);
+    const toolsDirty = computed(() => buildToolsSnapshot(state) !== loadedToolsSnapshot.value);
+    const llmSaveDisabled = computed(
       () =>
         agentLoading.value ||
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
-        !agentDirty.value ||
+        !llmDirty.value ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
+    const multimodalSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !multimodalDirty.value);
+    const toolsSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !toolsDirty.value);
     const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
-    const consoleSaveDisabled = computed(() => consoleLoading.value || consoleSaving.value || !consoleDirty.value);
+    const consoleManagedDirty = computed(
+      () => buildConsoleManagedRuntimeSnapshot(state) !== loadedConsoleManagedSnapshot.value
+    );
+    const consoleTelegramDirty = computed(
+      () => buildConsoleTelegramSnapshot(state) !== loadedConsoleTelegramSnapshot.value
+    );
+    const consoleSlackDirty = computed(
+      () => buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value
+    );
+    const consoleGuardDirty = computed(
+      () => buildConsoleGuardSnapshot(state) !== loadedConsoleGuardSnapshot.value
+    );
+    const consoleSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleManagedDirty.value
+    );
+    const telegramSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleTelegramDirty.value
+    );
+    const slackSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleSlackDirty.value
+    );
+    const guardSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
+    );
 
     function applyPayload(data) {
       const llm = data?.llm && typeof data.llm === "object" ? data.llm : {};
@@ -522,7 +685,9 @@ const SettingsView = {
       llmEnvManaged.value = llmEnvManagedPayload;
 
       agentValidationVisible.value = false;
-      loadedSnapshot.value = buildAgentSnapshot(state);
+      loadedLLMSnapshot.value = buildLLMSnapshot(state);
+      loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+      loadedToolsSnapshot.value = buildToolsSnapshot(state);
     }
 
     function llmProfileEnvManaged(profile) {
@@ -761,9 +926,40 @@ const SettingsView = {
 
     function applyConsolePayload(data) {
       const values = Array.isArray(data?.managed_runtimes) ? data.managed_runtimes : [];
+      const telegram = data?.telegram && typeof data.telegram === "object" ? data.telegram : {};
+      const slack = data?.slack && typeof data.slack === "object" ? data.slack : {};
+      const guard = data?.guard && typeof data.guard === "object" ? data.guard : {};
+      const guardNetwork = guard?.network && typeof guard.network === "object" ? guard.network : {};
+      const guardURLFetch =
+        guardNetwork?.url_fetch && typeof guardNetwork.url_fetch === "object" ? guardNetwork.url_fetch : {};
+      const guardRedaction = guard?.redaction && typeof guard.redaction === "object" ? guard.redaction : {};
+      const guardApprovals = guard?.approvals && typeof guard.approvals === "object" ? guard.approvals : {};
+      consoleEnvManaged.value = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
       for (const item of MANAGED_RUNTIME_ITEMS) {
         state.managedRuntimes[item.id] = values.includes(item.id);
       }
+      state.telegram.bot_token = typeof telegram.bot_token === "string" ? telegram.bot_token : "";
+      state.telegram.allowed_chat_ids_text = formatConfigList(telegram.allowed_chat_ids);
+      state.telegram.group_trigger_mode = normalizeConsoleGroupTriggerMode(telegram.group_trigger_mode);
+      state.slack.bot_token = typeof slack.bot_token === "string" ? slack.bot_token : "";
+      state.slack.app_token = typeof slack.app_token === "string" ? slack.app_token : "";
+      state.slack.allowed_team_ids_text = formatConfigList(slack.allowed_team_ids);
+      state.slack.allowed_channel_ids_text = formatConfigList(slack.allowed_channel_ids);
+      state.slack.group_trigger_mode = normalizeConsoleGroupTriggerMode(slack.group_trigger_mode);
+      state.guard.enabled = typeof guard.enabled === "boolean" ? guard.enabled : true;
+      state.guard.url_fetch_allowed_url_prefixes_text = formatConfigList(guardURLFetch.allowed_url_prefixes);
+      state.guard.deny_private_ips =
+        typeof guardURLFetch.deny_private_ips === "boolean" ? guardURLFetch.deny_private_ips : true;
+      state.guard.follow_redirects =
+        typeof guardURLFetch.follow_redirects === "boolean" ? guardURLFetch.follow_redirects : false;
+      state.guard.allow_proxy = typeof guardURLFetch.allow_proxy === "boolean" ? guardURLFetch.allow_proxy : false;
+      state.guard.redaction_enabled = typeof guardRedaction.enabled === "boolean" ? guardRedaction.enabled : true;
+      state.guard.approvals_enabled =
+        typeof guardApprovals.enabled === "boolean" ? guardApprovals.enabled : false;
+      loadedConsoleManagedSnapshot.value = buildConsoleManagedRuntimeSnapshot(state);
+      loadedConsoleTelegramSnapshot.value = buildConsoleTelegramSnapshot(state);
+      loadedConsoleSlackSnapshot.value = buildConsoleSlackSnapshot(state);
+      loadedConsoleGuardSnapshot.value = buildConsoleGuardSnapshot(state);
       loadedConsoleSnapshot.value = buildConsoleSnapshot(state);
     }
 
@@ -785,21 +981,32 @@ const SettingsView = {
       }
     }
 
-    function buildSavePayload() {
+    function buildSavePayload(target = "all") {
+      const multimodal = {
+        image_sources: MULTIMODAL_SOURCES.filter((item) => state.multimodal[item.id]).map((item) => item.id),
+      };
+      const tools = {
+        write_file_enabled: state.tools.write_file,
+        contacts_send_enabled: state.tools.contacts_send,
+        todo_update_enabled: state.tools.todo_update,
+        plan_create_enabled: state.tools.plan_create,
+        url_fetch_enabled: state.tools.url_fetch,
+        web_search_enabled: state.tools.web_search,
+        bash_enabled: state.tools.bash,
+      };
+      if (target === "llm") {
+        return { llm: buildLLMSettingsPayload() };
+      }
+      if (target === "multimodal") {
+        return { multimodal };
+      }
+      if (target === "tools") {
+        return { tools };
+      }
       return {
         llm: buildLLMSettingsPayload(),
-        multimodal: {
-          image_sources: MULTIMODAL_SOURCES.filter((item) => state.multimodal[item.id]).map((item) => item.id),
-        },
-        tools: {
-          write_file_enabled: state.tools.write_file,
-          contacts_send_enabled: state.tools.contacts_send,
-          todo_update_enabled: state.tools.todo_update,
-          plan_create_enabled: state.tools.plan_create,
-          url_fetch_enabled: state.tools.url_fetch,
-          web_search_enabled: state.tools.web_search,
-          bash_enabled: state.tools.bash,
-        },
+        multimodal,
+        tools,
       };
     }
 
@@ -916,53 +1123,219 @@ const SettingsView = {
       return payload;
     }
 
-    function buildConsoleSavePayload() {
-      return {
-        managed_runtimes: MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id),
+    function buildConsoleSavePayload(target = "all") {
+      const telegramEnv =
+        consoleEnvManaged.value?.telegram && typeof consoleEnvManaged.value.telegram === "object"
+          ? consoleEnvManaged.value.telegram
+          : {};
+      const slackEnv =
+        consoleEnvManaged.value?.slack && typeof consoleEnvManaged.value.slack === "object"
+          ? consoleEnvManaged.value.slack
+          : {};
+      const managed_runtimes = MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id);
+      const telegram = {
+        bot_token: consoleFieldRawValue(telegramEnv, "bot_token") || trimText(state.telegram.bot_token),
+        allowed_chat_ids: parseConfigListText(state.telegram.allowed_chat_ids_text),
+        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.telegram.group_trigger_mode),
       };
+      const slack = {
+        bot_token: consoleFieldRawValue(slackEnv, "bot_token") || trimText(state.slack.bot_token),
+        app_token: consoleFieldRawValue(slackEnv, "app_token") || trimText(state.slack.app_token),
+        allowed_team_ids: parseConfigListText(state.slack.allowed_team_ids_text),
+        allowed_channel_ids: parseConfigListText(state.slack.allowed_channel_ids_text),
+        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.slack.group_trigger_mode),
+      };
+      const guard = {
+        enabled: !!state.guard.enabled,
+        network: {
+          url_fetch: {
+            allowed_url_prefixes: parseConfigListText(state.guard.url_fetch_allowed_url_prefixes_text),
+            deny_private_ips: !!state.guard.deny_private_ips,
+            follow_redirects: !!state.guard.follow_redirects,
+            allow_proxy: !!state.guard.allow_proxy,
+          },
+        },
+        redaction: {
+          enabled: !!state.guard.redaction_enabled,
+        },
+        approvals: {
+          enabled: !!state.guard.approvals_enabled,
+        },
+      };
+      if (target === "runtimes") {
+        return { managed_runtimes };
+      }
+      if (target === "telegram") {
+        return { telegram };
+      }
+      if (target === "slack") {
+        return { slack };
+      }
+      if (target === "guard") {
+        return { guard };
+      }
+      return { managed_runtimes, telegram, slack, guard };
     }
 
-    async function saveAgentSettings() {
-      if (agentSaveDisabled.value) {
+    function consoleFieldEntry(kind, field) {
+      const key = String(field || "").trim();
+      const group = kind === "slack" ? consoleEnvManaged.value?.slack : consoleEnvManaged.value?.telegram;
+      if (!key || !group || typeof group !== "object") {
+        return null;
+      }
+      const entry = group[key];
+      return entry && typeof entry === "object" ? entry : null;
+    }
+
+    function consoleFieldRawValue(group, field) {
+      const key = String(field || "").trim();
+      if (!key || !group || typeof group !== "object") {
+        return "";
+      }
+      const entry = group[key];
+      return typeof entry?.raw_value === "string" ? entry.raw_value.trim() : "";
+    }
+
+    function consoleFieldEnvManaged(kind, field) {
+      const envName = consoleFieldEntry(kind, field)?.env_name;
+      return typeof envName === "string" && envName.trim() !== "";
+    }
+
+    function consoleFieldManagedHeadline(kind, field) {
+      const entry = consoleFieldEntry(kind, field);
+      const envName = typeof entry?.env_name === "string" ? entry.env_name.trim() : "";
+      if (!envName) {
+        return "";
+      }
+      const value = typeof entry?.value === "string" ? entry.value.trim() : "";
+      return value === "" ? envName : `${envName}=${value}`;
+    }
+
+    function updateTelegramField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.telegram, key)) {
         return;
       }
-      if (agentValidationError.value !== "") {
+      state.telegram[key] = String(value || "");
+    }
+
+    function updateSlackField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.slack, key)) {
+        return;
+      }
+      state.slack[key] = String(value || "");
+    }
+
+    function updateTelegramGroupTrigger(item) {
+      updateTelegramField("group_trigger_mode", item?.value || "smart");
+    }
+
+    function updateSlackGroupTrigger(item) {
+      updateSlackField("group_trigger_mode", item?.value || "smart");
+    }
+
+    function updateGuardField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.guard, key)) {
+        return;
+      }
+      state.guard[key] = typeof state.guard[key] === "boolean" ? !!value : String(value || "");
+    }
+
+    async function saveAgentSettings(target = "all") {
+      const normalizedTarget = ["all", "llm", "multimodal", "tools"].includes(String(target))
+        ? String(target)
+        : "all";
+      if (normalizedTarget === "llm" && llmSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "multimodal" && multimodalSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "tools" && toolsSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "all" && agentLoading.value) {
+        return;
+      }
+      if ((normalizedTarget === "llm" || normalizedTarget === "all") && agentValidationError.value !== "") {
+        agentNoticeTarget.value = normalizedTarget;
         agentValidationVisible.value = true;
         agentErr.value = "";
         agentOk.value = "";
         return;
       }
       agentSaving.value = true;
+      agentSavingTarget.value = normalizedTarget;
+      agentNoticeTarget.value = normalizedTarget;
       agentValidationVisible.value = false;
       agentErr.value = "";
       agentOk.value = "";
       try {
         const payload = await apiFetch("/settings/agent", {
           method: "PUT",
-          body: buildSavePayload(),
+          body: buildSavePayload(normalizedTarget),
         });
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
-        applyPayload(payload);
-        await loadEndpoints();
+        if (normalizedTarget === "llm" || normalizedTarget === "all") {
+          const preservedMultimodal = JSON.parse(JSON.stringify(state.multimodal));
+          const preservedTools = JSON.parse(JSON.stringify(state.tools));
+          const previousMultimodalSnapshot = loadedMultimodalSnapshot.value;
+          const previousToolsSnapshot = loadedToolsSnapshot.value;
+          applyPayload(payload);
+          if (normalizedTarget === "llm") {
+            Object.assign(state.multimodal, preservedMultimodal);
+            Object.assign(state.tools, preservedTools);
+            loadedMultimodalSnapshot.value = previousMultimodalSnapshot;
+            loadedToolsSnapshot.value = previousToolsSnapshot;
+          }
+          await loadEndpoints();
+        } else if (normalizedTarget === "multimodal") {
+          loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+        } else if (normalizedTarget === "tools") {
+          loadedToolsSnapshot.value = buildToolsSnapshot(state);
+        }
         agentOk.value = t("msg_save_success");
       } catch (e) {
         agentErr.value = e.message || t("msg_save_failed");
       } finally {
         agentSaving.value = false;
+        agentSavingTarget.value = "";
       }
     }
 
-    async function saveConsoleSettings() {
-      if (consoleSaveDisabled.value || !showConsoleManagedSettings.value) {
+    async function saveConsoleSettings(target = "all") {
+      const normalizedTarget = ["all", "runtimes", "telegram", "slack", "guard"].includes(String(target))
+        ? String(target)
+        : "all";
+      if (!showConsoleManagedSettings.value) {
+        return;
+      }
+      if (normalizedTarget === "runtimes" && consoleSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "telegram" && telegramSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "slack" && slackSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "guard" && guardSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "all" && (consoleLoading.value || consoleSaving.value || !consoleDirty.value)) {
         return;
       }
       consoleSaving.value = true;
+      consoleSavingTarget.value = normalizedTarget;
+      consoleNoticeTarget.value = normalizedTarget;
       consoleErr.value = "";
       consoleOk.value = "";
       try {
         const payload = await apiFetch("/settings/console", {
           method: "PUT",
-          body: buildConsoleSavePayload(),
+          body: buildConsoleSavePayload(normalizedTarget),
         });
         consoleConfigPath.value =
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
@@ -972,6 +1345,7 @@ const SettingsView = {
         consoleErr.value = e.message || t("msg_save_failed");
       } finally {
         consoleSaving.value = false;
+        consoleSavingTarget.value = "";
       }
     }
 
@@ -1172,7 +1546,7 @@ const SettingsView = {
           void loadConsoleSettings();
           return;
         }
-        if (selectedSectionID.value === "runtimes") {
+        if (["runtimes", "channels", "guard"].includes(selectedSectionID.value)) {
           selectedSectionID.value = "console";
         }
       },
@@ -1191,14 +1565,20 @@ const SettingsView = {
       loggingOut,
       agentLoading,
       agentSaving,
+      agentSavingTarget,
+      agentNoticeTarget,
       agentErr,
       agentOk,
       agentValidationVisible,
       deleteProfileDialogOpen,
       consoleLoading,
       consoleSaving,
+      consoleSavingTarget,
+      consoleNoticeTarget,
       consoleErr,
       consoleOk,
+      llmConfigPath,
+      consoleConfigPath,
       state,
       llmEnvManaged,
       defaultProviderItems,
@@ -1216,6 +1596,7 @@ const SettingsView = {
       multimodalItems,
       toolItems,
       managedRuntimeItems,
+      groupTriggerItems,
       settingsSections,
       selectedSection,
       panelHint,
@@ -1225,8 +1606,13 @@ const SettingsView = {
       mobileShowBack,
       mobileBarTitle,
       pageClass,
-      agentSaveDisabled,
+      llmSaveDisabled,
+      multimodalSaveDisabled,
+      toolsSaveDisabled,
       consoleSaveDisabled,
+      telegramSaveDisabled,
+      slackSaveDisabled,
+      guardSaveDisabled,
       testConnectionDisabled,
       testConnectionDisabledForProfile,
       logout,
@@ -1251,6 +1637,13 @@ const SettingsView = {
       setMultimodalSource,
       setToolEnabled,
       setManagedRuntimeEnabled,
+      consoleFieldEnvManaged,
+      consoleFieldManagedHeadline,
+      updateTelegramField,
+      updateSlackField,
+      updateTelegramGroupTrigger,
+      updateSlackGroupTrigger,
+      updateGuardField,
       selectSection,
       isSelectedSection,
       sectionClass,
@@ -1306,231 +1699,647 @@ const SettingsView = {
           </div>
         </aside>
 
-        <QCard v-if="showPanelPane && selectedSection" class="settings-panel-card" variant="default">
-          <div class="settings-panel-shell">
-            <header class="settings-panel-head">
-              <div class="settings-panel-copy">
-                <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
-                <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
-                <p class="settings-panel-meta">{{ panelHint }}</p>
-              </div>
-              <div class="settings-panel-actions">
-                <QButton
-                  v-if="activeSaveKind === 'agent'"
-                  class="primary"
-                  :loading="agentSaving"
-                  :disabled="agentSaveDisabled"
-                  @click="saveAgentSettings"
-                >
-                  {{ t("action_save") }}
-                </QButton>
-                <QButton
-                  v-else-if="activeSaveKind === 'console'"
-                  class="primary"
-                  :loading="consoleSaving"
-                  :disabled="consoleSaveDisabled"
-                  @click="saveConsoleSettings"
-                >
-                  {{ t("action_save") }}
-                </QButton>
-              </div>
-            </header>
-
-            <div class="settings-panel-notices">
-              <QFence v-if="activeSaveKind === 'agent' && agentErr" type="danger" icon="QIconCloseCircle" :text="agentErr" />
-              <QFence
-                v-if="activeSaveKind === 'agent' && agentValidationVisible && !agentErr && agentValidationError"
-                type="danger"
-                icon="QIconCloseCircle"
-                :text="agentValidationError"
-              />
-              <QFence v-if="activeSaveKind === 'agent' && agentOk" type="success" icon="QIconCheckCircle" :text="agentOk" />
-              <QFence
-                v-if="activeSaveKind === 'console' && consoleErr"
-                type="danger"
-                icon="QIconCloseCircle"
-                :text="consoleErr"
-              />
-              <QFence
-                v-if="activeSaveKind === 'console' && consoleOk"
-                type="success"
-                icon="QIconCheckCircle"
-                :text="consoleOk"
-              />
-            </div>
-
-            <div class="settings-panel-body">
-              <div v-if="selectedSection.id === 'agent'" class="settings-agent-stack">
-                <section class="settings-agent-section">
-                  <div class="settings-agent-section-copy">
-                    <strong class="settings-toggle-title">{{ t("settings_agent_primary_title") }}</strong>
-                    <p class="settings-toggle-note">{{ t("settings_agent_primary_note") }}</p>
+        <template v-if="showPanelPane && selectedSection">
+          <div v-if="selectedSection.id === 'agent'" class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" right="LLM Config" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_agent_block_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_agent_llm_hint", { path: llmConfigPath || "config.yaml" }) }}</p>
                   </div>
-                  <LLMConfigForm
-                    :config="state.llm"
-                    :busy="agentLoading || agentSaving"
-                    :envManaged="llmEnvManaged"
-                    :defaultProvider="profileBaseProvider"
-                    :providerItems="defaultProviderItems"
-                    :reasoningEffortItems="reasoningEffortItems"
-                    :toolsEmulationItems="toolsEmulationItems"
-                    :enableAPIBasePicker="true"
-                    :enableModelPicker="true"
-                    :showTestAction="true"
-                    :testActionDisabled="testConnectionDisabled"
-                    @update-field="updateDefaultLLMField"
-                    @open-api-base-picker="openAPIBasePicker"
-                    @open-model-picker="openModelPicker"
-                    @open-test="openTestConnection"
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="agentSaving && agentSavingTarget === 'llm'"
+                      :disabled="llmSaveDisabled"
+                      @click="saveAgentSettings('llm')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="agentErr && agentNoticeTarget !== 'multimodal'"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="agentErr"
                   />
-                </section>
+                  <QFence
+                    v-if="agentValidationVisible && agentNoticeTarget !== 'multimodal' && !agentErr && agentValidationError"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="agentValidationError"
+                  />
+                  <QFence
+                    v-if="agentOk && agentNoticeTarget !== 'multimodal'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="agentOk"
+                  />
+                </div>
 
-                <section class="settings-agent-section">
-                  <header class="settings-agent-section-head">
-                    <div class="settings-agent-section-copy">
-                      <strong class="settings-toggle-title">{{ t("settings_agent_profiles_title") }}</strong>
-                      <p class="settings-toggle-note">{{ t("settings_agent_profiles_note") }}</p>
-                    </div>
-                  </header>
+                <div class="settings-panel-body">
+                  <div class="settings-agent-stack">
+                    <section class="settings-agent-section">
+                      <div class="settings-agent-section-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_agent_primary_title") }}</strong>
+                        <p class="settings-toggle-note">{{ t("settings_agent_primary_note") }}</p>
+                      </div>
+                      <LLMConfigForm
+                        :config="state.llm"
+                        :busy="agentLoading || agentSaving"
+                        :envManaged="llmEnvManaged"
+                        :defaultProvider="profileBaseProvider"
+                        :providerItems="defaultProviderItems"
+                        :reasoningEffortItems="reasoningEffortItems"
+                        :toolsEmulationItems="toolsEmulationItems"
+                        :enableAPIBasePicker="true"
+                        :enableModelPicker="true"
+                        :showTestAction="true"
+                        :testActionDisabled="testConnectionDisabled"
+                        @update-field="updateDefaultLLMField"
+                        @open-api-base-picker="openAPIBasePicker"
+                        @open-model-picker="openModelPicker"
+                        @open-test="openTestConnection"
+                      />
+                    </section>
 
-                  <div class="settings-profile-list">
-                    <article v-for="profile in state.llm.profiles" :key="profile._key" class="settings-profile-card">
-                      <div class="settings-profile-head">
-                        <div class="settings-field settings-profile-name">
-                          <span class="settings-field-label">{{ t("settings_agent_profile_name_label") }}</span>
-                          <div class="settings-field-control settings-profile-name-control">
-                            <QInput
-                              :modelValue="profile.name"
-                              :placeholder="t('settings_agent_profile_name_placeholder')"
-                              :disabled="agentLoading || agentSaving"
-                              @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
-                            />
+                    <section class="settings-agent-section">
+                      <header class="settings-agent-section-head">
+                        <div class="settings-agent-section-copy">
+                          <strong class="settings-toggle-title">{{ t("settings_agent_profiles_title") }}</strong>
+                          <p class="settings-toggle-note">{{ t("settings_agent_profiles_note") }}</p>
+                        </div>
+                      </header>
+
+                      <div class="settings-profile-list">
+                        <article v-for="profile in state.llm.profiles" :key="profile._key" class="settings-profile-card">
+                          <div class="settings-profile-head">
+                            <div class="settings-field settings-profile-name">
+                              <span class="settings-field-label">{{ t("settings_agent_profile_name_label") }}</span>
+                              <div class="settings-field-control settings-profile-name-control">
+                                <QInput
+                                  :modelValue="profile.name"
+                                  :placeholder="t('settings_agent_profile_name_placeholder')"
+                                  :disabled="agentLoading || agentSaving"
+                                  @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
+                                />
+                                <QButton
+                                  type="button"
+                                  class="danger icon settings-profile-delete"
+                                  :title="t('action_delete')"
+                                  :aria-label="t('action_delete')"
+                                  :disabled="agentLoading || agentSaving"
+                                  @click="confirmRemoveLLMProfile(profile._key)"
+                                >
+                                  <QIconTrash class="icon" />
+                                </QButton>
+                              </div>
+                            </div>
+                          </div>
+
+                          <LLMConfigForm
+                            :config="profile"
+                            :busy="agentLoading || agentSaving"
+                            :envManaged="llmProfileEnvManaged(profile)"
+                            :defaultProvider="profileBaseProvider"
+                            :providerItems="profileProviderItems"
+                            :reasoningEffortItems="profileReasoningEffortItems"
+                            :toolsEmulationItems="profileToolsEmulationItems"
+                            :providerPlaceholderKey="'settings_agent_provider_inherit'"
+                            :allowProviderInherit="true"
+                            :showTestAction="true"
+                            :testActionDisabled="testConnectionDisabledForProfile(profile)"
+                            @update-field="updateProfileField(profile._key, $event)"
+                            @open-test="openTestConnection(profile._key)"
+                          />
+                        </article>
+
+                        <QButton
+                          type="button"
+                          class="placeholder settings-profile-placeholder"
+                          :disabled="agentLoading || agentSaving"
+                          @click="addLLMProfile"
+                        >
+                          <QIconPlus class="icon" />
+                          {{ t("settings_agent_profile_add") }}
+                        </QButton>
+                      </div>
+                    </section>
+
+                    <section class="settings-agent-section">
+                      <header class="settings-agent-section-head">
+                        <div class="settings-agent-section-copy">
+                          <strong class="settings-toggle-title">{{ t("settings_agent_fallback_title") }}</strong>
+                          <p class="settings-toggle-note">{{ t("settings_agent_fallback_note") }}</p>
+                        </div>
+                      </header>
+
+                      <p v-if="!profileOptions.length" class="settings-agent-empty">{{ t("settings_agent_fallback_empty") }}</p>
+
+                      <div v-else class="settings-fallback-list">
+                        <div v-for="(fallbackName, index) in state.llm.fallback_profiles" :key="index" class="settings-fallback-row">
+                          <span class="settings-fallback-index">{{ index + 1 }}</span>
+                          <QDropdownMenu
+                            :key="fallbackName + '-' + index"
+                            class="settings-fallback-picker"
+                            :items="profileOptions"
+                            :initialItem="profileOptions.find((item) => item.value === fallbackName) || null"
+                            :placeholder="t('settings_agent_fallback_placeholder')"
+                            @change="updateFallbackProfile(index, $event)"
+                          />
+                          <div class="settings-fallback-actions">
                             <QButton
                               type="button"
-                              class="danger icon settings-profile-delete"
+                              class="outlined icon settings-fallback-action"
+                              :title="t('settings_agent_order_up')"
+                              :aria-label="t('settings_agent_order_up')"
+                              :disabled="agentLoading || agentSaving || index === 0"
+                              @click="moveFallbackProfile(index, -1)"
+                            >
+                              <QIconChevronUp class="icon" />
+                            </QButton>
+                            <QButton
+                              type="button"
+                              class="outlined icon settings-fallback-action"
+                              :title="t('settings_agent_order_down')"
+                              :aria-label="t('settings_agent_order_down')"
+                              :disabled="agentLoading || agentSaving || index === state.llm.fallback_profiles.length - 1"
+                              @click="moveFallbackProfile(index, 1)"
+                            >
+                              <QIconChevronDown class="icon" />
+                            </QButton>
+                            <QButton
+                              type="button"
+                              class="danger icon settings-fallback-action"
                               :title="t('action_delete')"
                               :aria-label="t('action_delete')"
                               :disabled="agentLoading || agentSaving"
-                              @click="confirmRemoveLLMProfile(profile._key)"
+                              @click="removeFallbackProfile(index)"
                             >
                               <QIconTrash class="icon" />
                             </QButton>
                           </div>
                         </div>
-                      </div>
 
-                      <LLMConfigForm
-                        :config="profile"
-                        :busy="agentLoading || agentSaving"
-                        :envManaged="llmProfileEnvManaged(profile)"
-                        :defaultProvider="profileBaseProvider"
-                        :providerItems="profileProviderItems"
-                        :reasoningEffortItems="profileReasoningEffortItems"
-                        :toolsEmulationItems="profileToolsEmulationItems"
-                        :providerPlaceholderKey="'settings_agent_provider_inherit'"
-                        :allowProviderInherit="true"
-                        :showTestAction="true"
-                        :testActionDisabled="testConnectionDisabledForProfile(profile)"
-                        @update-field="updateProfileField(profile._key, $event)"
-                        @open-test="openTestConnection(profile._key)"
-                      />
-                    </article>
-
-                    <QButton
-                      type="button"
-                      class="placeholder settings-profile-placeholder"
-                      :disabled="agentLoading || agentSaving"
-                      @click="addLLMProfile"
-                    >
-                      <QIconPlus class="icon" />
-                      {{ t("settings_agent_profile_add") }}
-                    </QButton>
-                  </div>
-                </section>
-
-                <section class="settings-agent-section">
-                  <header class="settings-agent-section-head">
-                    <div class="settings-agent-section-copy">
-                      <strong class="settings-toggle-title">{{ t("settings_agent_fallback_title") }}</strong>
-                      <p class="settings-toggle-note">{{ t("settings_agent_fallback_note") }}</p>
-                    </div>
-                  </header>
-
-                  <p v-if="!profileOptions.length" class="settings-agent-empty">{{ t("settings_agent_fallback_empty") }}</p>
-
-                  <div v-else class="settings-fallback-list">
-                    <div v-for="(fallbackName, index) in state.llm.fallback_profiles" :key="index" class="settings-fallback-row">
-                      <span class="settings-fallback-index">{{ index + 1 }}</span>
-                      <QDropdownMenu
-                        :key="fallbackName + '-' + index"
-                        class="settings-fallback-picker"
-                        :items="profileOptions"
-                        :initialItem="profileOptions.find((item) => item.value === fallbackName) || null"
-                        :placeholder="t('settings_agent_fallback_placeholder')"
-                        @change="updateFallbackProfile(index, $event)"
-                      />
-                      <div class="settings-fallback-actions">
                         <QButton
                           type="button"
-                          class="outlined icon settings-fallback-action"
-                          :title="t('settings_agent_order_up')"
-                          :aria-label="t('settings_agent_order_up')"
-                          :disabled="agentLoading || agentSaving || index === 0"
-                          @click="moveFallbackProfile(index, -1)"
+                          class="placeholder settings-profile-placeholder"
+                          :disabled="agentLoading || agentSaving || !profileOptions.length"
+                          @click="addFallbackProfile"
                         >
-                          <QIconChevronUp class="icon" />
-                        </QButton>
-                        <QButton
-                          type="button"
-                          class="outlined icon settings-fallback-action"
-                          :title="t('settings_agent_order_down')"
-                          :aria-label="t('settings_agent_order_down')"
-                          :disabled="agentLoading || agentSaving || index === state.llm.fallback_profiles.length - 1"
-                          @click="moveFallbackProfile(index, 1)"
-                        >
-                          <QIconChevronDown class="icon" />
-                        </QButton>
-                        <QButton
-                          type="button"
-                          class="danger icon settings-fallback-action"
-                          :title="t('action_delete')"
-                          :aria-label="t('action_delete')"
-                          :disabled="agentLoading || agentSaving"
-                          @click="removeFallbackProfile(index)"
-                        >
-                          <QIconTrash class="icon" />
+                          <QIconPlus class="icon" />
+                          {{ t("settings_agent_fallback_add") }}
                         </QButton>
                       </div>
-                    </div>
-
-                    <QButton
-                      type="button"
-                      class="placeholder settings-profile-placeholder"
-                      :disabled="agentLoading || agentSaving || !profileOptions.length"
-                      @click="addFallbackProfile"
-                    >
-                      <QIconPlus class="icon" />
-                      {{ t("settings_agent_fallback_add") }}
-                    </QButton>
+                    </section>
                   </div>
-                </section>
-              </div>
-
-              <div v-else-if="selectedSection.id === 'inputs'" class="settings-toggle-list">
-                <div v-for="item in multimodalItems" :key="item.id" class="settings-toggle-row">
-                  <div class="settings-toggle-copy">
-                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                  </div>
-                  <QSwitch
-                    :modelValue="state.multimodal[item.id]"
-                    :disabled="agentLoading || agentSaving"
-                    @update:modelValue="setMultimodalSource(item.id, $event)"
-                  />
                 </div>
               </div>
+            </QCard>
 
-              <div v-else-if="selectedSection.id === 'tools'" class="settings-toggle-list">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" right="Multimodal" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_multimodal_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_multimodal_hint") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="agentSaving && agentSavingTarget === 'multimodal'"
+                      :disabled="multimodalSaveDisabled"
+                      @click="saveAgentSettings('multimodal')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="agentErr && agentNoticeTarget === 'multimodal'"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="agentErr"
+                  />
+                  <QFence
+                    v-if="agentOk && agentNoticeTarget === 'multimodal'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="agentOk"
+                  />
+                </div>
+
+                <div class="settings-panel-body">
+                  <div class="settings-toggle-list">
+                    <div v-for="item in multimodalItems" :key="item.id" class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                        <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.multimodal[item.id]"
+                        :disabled="agentLoading || agentSaving"
+                        @update:modelValue="setMultimodalSource(item.id, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
+          <div v-else-if="selectedSection.id === 'channels'" class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" right="Telegram" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_telegram_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_telegram_token_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'telegram'"
+                      :disabled="telegramSaveDisabled"
+                      @click="saveConsoleSettings('telegram')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="consoleErr && consoleNoticeTarget !== 'slack' && consoleNoticeTarget !== 'guard'"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="consoleErr"
+                  />
+                  <QFence
+                    v-if="consoleOk && consoleNoticeTarget !== 'slack' && consoleNoticeTarget !== 'guard'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="consoleOk"
+                  />
+                </div>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_telegram_bot_token_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('telegram', 'bot_token')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("telegram", "bot_token") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.telegram.bot_token"
+                        inputType="password"
+                        :placeholder="t('settings_console_telegram_bot_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateTelegramField('bot_token', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_telegram_allowed_chat_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.telegram.allowed_chat_ids_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_telegram_allowed_chat_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateTelegramField('allowed_chat_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_telegram_allowed_chat_ids_note") }}</p>
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
+                      <QDropdownMenu
+                        :key="state.telegram.group_trigger_mode || 'telegram-group-trigger'"
+                        :items="groupTriggerItems"
+                        :initialItem="groupTriggerItems.find((item) => item.value === state.telegram.group_trigger_mode) || groupTriggerItems[0]"
+                        @change="updateTelegramGroupTrigger"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_telegram_group_trigger_note") }}</p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" right="Slack" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_slack_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_slack_token_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'slack'"
+                      :disabled="slackSaveDisabled"
+                      @click="saveConsoleSettings('slack')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="consoleErr && consoleNoticeTarget === 'slack'"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="consoleErr"
+                  />
+                  <QFence
+                    v-if="consoleOk && consoleNoticeTarget === 'slack'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="consoleOk"
+                  />
+                </div>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_slack_bot_token_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('slack', 'bot_token')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("slack", "bot_token") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.slack.bot_token"
+                        inputType="password"
+                        :placeholder="t('settings_console_slack_bot_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateSlackField('bot_token', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_slack_app_token_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('slack', 'app_token')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("slack", "app_token") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.slack.app_token"
+                        inputType="password"
+                        :placeholder="t('settings_console_slack_app_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateSlackField('app_token', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_slack_allowed_team_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.slack.allowed_team_ids_text"
+                        :rows="3"
+                        :placeholder="t('settings_console_slack_allowed_team_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateSlackField('allowed_team_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_slack_allowed_team_ids_note") }}</p>
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_slack_allowed_channel_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.slack.allowed_channel_ids_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_slack_allowed_channel_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateSlackField('allowed_channel_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_slack_allowed_channel_ids_note") }}</p>
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
+                      <QDropdownMenu
+                        :key="state.slack.group_trigger_mode || 'slack-group-trigger'"
+                        :items="groupTriggerItems"
+                        :initialItem="groupTriggerItems.find((item) => item.value === state.slack.group_trigger_mode) || groupTriggerItems[0]"
+                        @change="updateSlackGroupTrigger"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_slack_group_trigger_note") }}</p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
+          <div v-else-if="selectedSection.id === 'guard'" class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" right="Guard" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_guard_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_guard_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'guard'"
+                      :disabled="guardSaveDisabled"
+                      @click="saveConsoleSettings('guard')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="consoleErr && (consoleNoticeTarget === '' || consoleNoticeTarget === 'guard')"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="consoleErr"
+                  />
+                  <QFence
+                    v-if="consoleOk && consoleNoticeTarget === 'guard'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="consoleOk"
+                  />
+                </div>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_guard_allowed_url_prefixes_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.guard.url_fetch_allowed_url_prefixes_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_guard_allowed_url_prefixes_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('url_fetch_allowed_url_prefixes_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_guard_allowed_url_prefixes_note") }}</p>
+                    </label>
+                  </div>
+
+                  <div class="settings-toggle-list">
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_enabled_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_enabled_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.enabled"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('enabled', $event)"
+                      />
+                    </div>
+
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_deny_private_ips_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_deny_private_ips_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.deny_private_ips"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('deny_private_ips', $event)"
+                      />
+                    </div>
+
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_follow_redirects_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_follow_redirects_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.follow_redirects"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('follow_redirects', $event)"
+                      />
+                    </div>
+
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_allow_proxy_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_allow_proxy_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.allow_proxy"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('allow_proxy', $event)"
+                      />
+                    </div>
+
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_redaction_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_redaction_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.redaction_enabled"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('redaction_enabled', $event)"
+                      />
+                    </div>
+
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_console_guard_approvals_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_console_guard_approvals_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.guard.approvals_enabled"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateGuardField('approvals_enabled', $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
+          <QCard v-else class="settings-panel-card" variant="default">
+            <div class="settings-panel-shell">
+              <header class="settings-panel-head">
+                <div class="settings-panel-copy">
+                  <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
+                  <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
+                  <p class="settings-panel-meta">{{ panelHint }}</p>
+                </div>
+                <div class="settings-panel-actions">
+                  <QButton
+                    v-if="activeSaveKind === 'agent' && selectedSection.id === 'tools'"
+                    class="primary"
+                    :loading="agentSaving && agentSavingTarget === 'tools'"
+                    :disabled="toolsSaveDisabled"
+                    @click="saveAgentSettings('tools')"
+                  >
+                    {{ t("action_save") }}
+                  </QButton>
+                  <QButton
+                    v-else-if="activeSaveKind === 'console' && selectedSection.id === 'runtimes'"
+                    class="primary"
+                    :loading="consoleSaving"
+                    :disabled="consoleSaveDisabled"
+                    @click="saveConsoleSettings('runtimes')"
+                  >
+                    {{ t("action_save") }}
+                  </QButton>
+                </div>
+              </header>
+
+              <div class="settings-panel-notices">
+                <QFence
+                  v-if="activeSaveKind === 'console' && consoleErr"
+                  type="danger"
+                  icon="QIconCloseCircle"
+                  :text="consoleErr"
+                />
+                <QFence
+                  v-if="activeSaveKind === 'console' && consoleOk"
+                  type="success"
+                  icon="QIconCheckCircle"
+                  :text="consoleOk"
+                />
+                <QFence
+                  v-if="activeSaveKind === 'agent' && agentErr"
+                  type="danger"
+                  icon="QIconCloseCircle"
+                  :text="agentErr"
+                />
+                <QFence
+                  v-if="activeSaveKind === 'agent' && agentValidationVisible && !agentErr && agentValidationError"
+                  type="danger"
+                  icon="QIconCloseCircle"
+                  :text="agentValidationError"
+                />
+                <QFence
+                  v-if="activeSaveKind === 'agent' && agentOk"
+                  type="success"
+                  icon="QIconCheckCircle"
+                  :text="agentOk"
+                />
+              </div>
+
+              <div class="settings-panel-body">
+              <div v-if="selectedSection.id === 'tools'" class="settings-toggle-list">
                 <div v-for="item in toolItems" :key="item.id" class="settings-toggle-row">
                   <div class="settings-toggle-copy">
                     <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
@@ -1577,8 +2386,8 @@ const SettingsView = {
                 </div>
               </div>
             </div>
-          </div>
-        </QCard>
+          </QCard>
+        </template>
       </div>
 
       <SetupPickerDialog

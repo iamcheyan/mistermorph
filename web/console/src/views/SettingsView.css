@@ -102,6 +102,38 @@
   gap: 16px;
 }
 
+.settings-panel-body-plain {
+  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
+}
+
+.settings-channel-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-channel-card.q-card-default {
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--q-bg-paper) 98%, transparent);
+}
+
+.settings-channel-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-channel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-channel-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
 .settings-agent-stack {
   display: grid;
   gap: 18px;
@@ -257,6 +289,13 @@
 
 .settings-field.is-wide {
   grid-column: 1 / -1;
+}
+
+.settings-field-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
 }
 
 .settings-field-control {
@@ -440,6 +479,10 @@
   }
 
   .settings-panel-card.q-card-default {
+    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
+  }
+
+  .settings-panel-body-plain {
     margin: 0 var(--content-gutter-x) var(--content-gutter-y);
   }
 }

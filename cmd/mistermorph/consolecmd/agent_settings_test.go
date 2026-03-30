@@ -294,6 +294,91 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsPutPartialMultimodalUpdatePreservesLLMAndTools(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n"+
+			"multimodal:\n  image:\n    sources: [telegram]\n"+
+			"tools:\n  write_file:\n    enabled: true\n  bash:\n    enabled: false\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
+	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"endpoint": "https://api.openai.com",
+		"model":    "gpt-5.2",
+		"api_key":  "sk-file",
+	})
+	viper.Set("multimodal", map[string]any{
+		"image": map[string]any{
+			"sources": []string{"telegram"},
+		},
+	})
+	viper.Set("tools", map[string]any{
+		"write_file": map[string]any{"enabled": true},
+		"bash":       map[string]any{"enabled": false},
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+		if hadMM {
+			viper.Set("multimodal", prevMM)
+		} else {
+			viper.Set("multimodal", nil)
+		}
+		if hadTools {
+			viper.Set("tools", prevTools)
+		} else {
+			viper.Set("tools", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
+		"multimodal":{"image_sources":["slack","line"]}
+	}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "model: gpt-5.2") {
+		t.Fatalf("config should preserve llm block: %s", out)
+	}
+	if !strings.Contains(out, "- slack") || !strings.Contains(out, "- line") {
+		t.Fatalf("config should update multimodal sources: %s", out)
+	}
+	if !strings.Contains(out, "write_file:\n    enabled: true") || !strings.Contains(out, "bash:\n    enabled: false") {
+		t.Fatalf("config should preserve tools block: %s", out)
+	}
+	if got := viper.GetStringSlice("multimodal.image.sources"); len(got) != 2 || got[0] != "slack" || got[1] != "line" {
+		t.Fatalf("viper multimodal.image.sources = %#v, want [slack line]", got)
+	}
+	if !viper.GetBool("tools.write_file.enabled") || viper.GetBool("tools.bash.enabled") {
+		t.Fatalf("viper tools should be preserved: write_file=%v bash=%v", viper.GetBool("tools.write_file.enabled"), viper.GetBool("tools.bash.enabled"))
+	}
+}
+
 func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
