@@ -97,8 +97,8 @@ engine := agent.New(
 
 ## Scope Boundary
 
-- custom tool registration: [Create Your Own AI Agent: Advanced](/guide/core-advanced-embedding)
-- Telegram channel integration: [Create Your Own AI Agent: Advanced](/guide/core-advanced-embedding)
+- custom tool registration: [Create Your Own AI Agent: Advanced](/guide/build-your-own-agent-advanced)
+- Telegram channel integration: [Create Your Own AI Agent: Advanced](/guide/build-your-own-agent-advanced)
 
 ## Recommendation
 

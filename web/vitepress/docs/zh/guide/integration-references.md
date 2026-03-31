@@ -1,13 +1,13 @@
 ---
-title: integration API 参考
+title: Integration API
 description: 列出 integration 包的导出函数、方法、结构体字段，以及它们的参数、返回值和用途。
 ---
 
-# integration API 参考
+# Integration API
 
 这页专门列出 `github.com/quailyquaily/mistermorph/integration` 的导出 API。
 
-如果你主要想看怎么配置 `integration.Config`、怎么使用 PreparedRun、怎么接 Telegram / Slack，先看 [创建自己的 AI Agent：进阶](/zh/guide/core-advanced-embedding)。
+如果你主要想看怎么配置 `integration.Config`、怎么使用 PreparedRun、怎么接 Telegram / Slack，先看 [创建自己的 AI Agent：进阶](/zh/guide/build-your-own-agent-advanced)。
 
 ## 顶层函数
 

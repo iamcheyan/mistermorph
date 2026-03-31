@@ -10,10 +10,6 @@ description: より詳細な設計・実装文書への入口。
 - はじめに
   - [概要](/ja/guide/overview)
   - [クイックスタート（CLI）](/ja/guide/quickstart-cli)
-- 開発者（組み込み）
-  - [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
-  - [自分の AI Agent を作る：上級編](/ja/guide/core-advanced-embedding)
-  - [Agent レイヤ拡張](/ja/guide/agent-level-customization)
 - Runtime
   - [Runtime モード](/ja/guide/runtime-modes)
   - [Prompt 設計（トップダウン）](/ja/guide/prompt-architecture)
@@ -21,11 +17,17 @@ description: より詳細な設計・実装文書への入口。
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
   - [MCP](/ja/guide/mcp)
+- 開発者（組み込み）
+  - [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
+  - [自分の AI Agent を作る：上級編](/ja/guide/build-your-own-agent-advanced)
+  - [Agent レイヤ拡張](/ja/guide/agent-level-customization)
+- リファレンス
+  - [Integration API](/ja/guide/integration-references)
+  - [設定フィールド](/ja/guide/config-reference)
+  - [環境変数](/ja/guide/env-vars-reference)
 - 運用
   - [セキュリティと Guard](/ja/guide/security-and-guard)
   - [設定パターン](/ja/guide/config-patterns)
-  - [設定フィールド一覧](/ja/guide/config-reference)
-  - [環境変数一覧](/ja/guide/env-vars-reference)
 
 ## Core と設計
 

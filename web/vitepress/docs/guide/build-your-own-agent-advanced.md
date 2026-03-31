@@ -23,7 +23,7 @@ cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 ### Override Defaults
 
 Mister Morph itself supports CLI flags, environment variables, and `config.yaml`.
-As an embedding user, you can use any configuration source you prefer, then call `Set(key, value)` to override any default value. Any field from `config.yaml` can be set this way. See [Config Fields Reference](/guide/config-reference).
+As an embedding user, you can use any configuration source you prefer, then call `Set(key, value)` to override any default value. Any field from `config.yaml` can be set this way. See [Config Fields](/guide/config-reference).
 
 ### Feature Toggles
 
@@ -193,6 +193,26 @@ The integration path is straightforward:
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
+_ = tg
+```
+
+If you want to handle Telegram inbound, outbound, and error events in your host program, pass `TelegramHooks` through `TelegramOptions.Hooks`:
+
+```go
+tg, _ := rt.NewTelegramBot(integration.TelegramOptions{
+  BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN"),
+  Hooks: integration.TelegramHooks{
+    OnInbound: func(ev integration.TelegramInboundEvent) {
+      fmt.Printf("telegram inbound: %+v\n", ev)
+    },
+    OnOutbound: func(ev integration.TelegramOutboundEvent) {
+      fmt.Printf("telegram outbound: %+v\n", ev)
+    },
+    OnError: func(ev integration.TelegramErrorEvent) {
+      fmt.Printf("telegram error: %+v\n", ev)
+    },
+  },
+})
 _ = tg
 ```
 

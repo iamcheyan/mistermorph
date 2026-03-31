@@ -10,14 +10,6 @@ const enSidebar = [
     ]
   },
   {
-    text: 'Developer (Embedding)',
-    items: [
-      { text: 'Create Your Own AI Agent in 24 Lines', link: '/guide/build-your-own-agent' },
-      { text: 'Create Your Own AI Agent: Advanced', link: '/guide/core-advanced-embedding' },
-      { text: 'Agent-Level Customization', link: '/guide/agent-level-customization' }
-    ]
-  },
-  {
     text: 'Runtime',
     items: [
       { text: 'Runtime Modes', link: '/guide/runtime-modes' },
@@ -29,12 +21,26 @@ const enSidebar = [
     ]
   },
   {
+    text: 'Developer (Embedding)',
+    items: [
+      { text: 'Create Your Own AI Agent in 24 Lines', link: '/guide/build-your-own-agent' },
+      { text: 'Create Your Own AI Agent: Advanced', link: '/guide/build-your-own-agent-advanced' },
+      { text: 'Agent-Level Customization', link: '/guide/agent-level-customization' }
+    ]
+  },
+  {
+    text: 'References',
+    items: [
+      { text: 'Integration API', link: '/guide/integration-references' },
+      { text: 'Config Fields', link: '/guide/config-reference' },
+      { text: 'Environment Variables', link: '/guide/env-vars-reference' }
+    ]
+  },
+  {
     text: 'Operations',
     items: [
       { text: 'Security and Guard', link: '/guide/security-and-guard' },
       { text: 'Config Patterns', link: '/guide/config-patterns' },
-      { text: 'Config Fields Reference', link: '/guide/config-reference' },
-      { text: 'Environment Variables Reference', link: '/guide/env-vars-reference' },
       { text: 'Repository Docs Map', link: '/guide/docs-map' }
     ]
   }
@@ -46,15 +52,6 @@ const zhSidebar = [
     items: [
       { text: '总览', link: '/zh/guide/overview' },
       { text: '快速开始（CLI）', link: '/zh/guide/quickstart-cli' }
-    ]
-  },
-  {
-    text: '开发者',
-    items: [
-      { text: '创建自己的 AI Agent', link: '/zh/guide/build-your-own-agent' },
-      { text: '创建自己的 AI Agent：进阶', link: '/zh/guide/core-advanced-embedding' },
-      { text: 'integration API 参考', link: '/zh/guide/integration-references' },
-      { text: 'Agent 底层扩展', link: '/zh/guide/agent-level-customization' }
     ]
   },
   {
@@ -70,12 +67,26 @@ const zhSidebar = [
     ]
   },
   {
+    text: '开发者',
+    items: [
+      { text: '创建自己的 AI Agent', link: '/zh/guide/build-your-own-agent' },
+      { text: '创建自己的 AI Agent：进阶', link: '/zh/guide/build-your-own-agent-advanced' },
+      { text: 'Agent 底层扩展', link: '/zh/guide/agent-level-customization' }
+    ]
+  },
+  {
+    text: '参考',
+    items: [
+      { text: 'Integration API', link: '/zh/guide/integration-references' },
+      { text: '配置字段', link: '/zh/guide/config-reference' },
+      { text: '环境变量', link: '/zh/guide/env-vars-reference' }
+    ]
+  },
+  {
     text: '运维与治理',
     items: [
       { text: '安全与 Guard', link: '/zh/guide/security-and-guard' },
       { text: '配置模式', link: '/zh/guide/config-patterns' },
-      { text: '配置字段总览', link: '/zh/guide/config-reference' },
-      { text: '环境变量总览', link: '/zh/guide/env-vars-reference' },
       { text: '仓库文档地图', link: '/zh/guide/docs-map' }
     ]
   }
@@ -90,14 +101,6 @@ const jaSidebar = [
     ]
   },
   {
-    text: '開発者（組み込み）',
-    items: [
-      { text: '24行のコードで自分の AI Agent を作る', link: '/ja/guide/build-your-own-agent' },
-      { text: '自分の AI Agent を作る：上級編', link: '/ja/guide/core-advanced-embedding' },
-      { text: 'Agent レイヤ拡張', link: '/ja/guide/agent-level-customization' }
-    ]
-  },
-  {
     text: 'ランタイム',
     items: [
       { text: 'Runtime モード', link: '/ja/guide/runtime-modes' },
@@ -109,12 +112,26 @@ const jaSidebar = [
     ]
   },
   {
+    text: '開発者（組み込み）',
+    items: [
+      { text: '24行のコードで自分の AI Agent を作る', link: '/ja/guide/build-your-own-agent' },
+      { text: '自分の AI Agent を作る：上級編', link: '/ja/guide/build-your-own-agent-advanced' },
+      { text: 'Agent レイヤ拡張', link: '/ja/guide/agent-level-customization' }
+    ]
+  },
+  {
+    text: 'リファレンス',
+    items: [
+      { text: 'Integration API', link: '/ja/guide/integration-references' },
+      { text: '設定フィールド', link: '/ja/guide/config-reference' },
+      { text: '環境変数', link: '/ja/guide/env-vars-reference' }
+    ]
+  },
+  {
     text: '運用',
     items: [
       { text: 'セキュリティと Guard', link: '/ja/guide/security-and-guard' },
       { text: '設定パターン', link: '/ja/guide/config-patterns' },
-      { text: '設定フィールド一覧', link: '/ja/guide/config-reference' },
-      { text: '環境変数一覧', link: '/ja/guide/env-vars-reference' },
       { text: 'リポジトリ文書マップ', link: '/ja/guide/docs-map' }
     ]
   }

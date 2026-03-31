@@ -1,13 +1,13 @@
 ---
-title: 設定フィールド一覧
-description: config.yaml の完全フィールドマップ。
+title: 設定フィールド
+description: config.yaml の完全フィールドリファレンス。
 ---
 
-# 設定フィールド一覧
+# 設定フィールド
 
 基準ファイル: `assets/config/config.example.yaml`。
 
-すべてのキーは env で上書きできます（`MISTER_MORPH_...`）。詳細は[環境変数一覧](/ja/guide/env-vars-reference)。
+すべてのキーは env で上書きできます（`MISTER_MORPH_...`）。詳細は[環境変数](/ja/guide/env-vars-reference)。
 
 ## グローバル
 

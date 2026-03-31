@@ -1,9 +1,9 @@
 ---
-title: Environment Variables Reference
+title: Environment Variables
 description: Complete env var model, mapping rule, and compatibility variables.
 ---
 
-# Environment Variables Reference
+# Environment Variables
 
 ## Precedence
 
@@ -28,7 +28,7 @@ Examples:
 - `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED`
 - `mcp.servers` -> `MISTER_MORPH_MCP_SERVERS`
 
-So all fields listed in [Config Fields Reference](/guide/config-reference) are supported as env vars.
+So all fields listed in [Config Fields](/guide/config-reference) are supported as env vars.
 
 ## High-Frequency Variables
 

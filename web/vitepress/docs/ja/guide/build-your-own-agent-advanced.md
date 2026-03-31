@@ -23,7 +23,7 @@ cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 ### デフォルト設定の上書き
 
 Mister Morph 自体は CLI 引数、環境変数、`config.yaml` で設定します。
-埋め込み側は好きな設定手段を使い、その最終値を `Set(key, value)` で上書きすれば十分です。`config.yaml` にある全フィールドをこの方法で設定できます。詳細は [設定フィールド一覧](/ja/guide/config-reference) を参照してください。
+埋め込み側は好きな設定手段を使い、その最終値を `Set(key, value)` で上書きすれば十分です。`config.yaml` にある全フィールドをこの方法で設定できます。詳細は [設定フィールド](/ja/guide/config-reference) を参照してください。
 
 ### 機能フラグ
 
@@ -193,6 +193,26 @@ Mister Morph は Web UI だけでなく、Telegram や Slack のような channe
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
+_ = tg
+```
+
+ホストプログラム側で Telegram の入出力イベントやエラーを受け取りたい場合は、`TelegramOptions.Hooks` に `TelegramHooks` を渡します。
+
+```go
+tg, _ := rt.NewTelegramBot(integration.TelegramOptions{
+  BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN"),
+  Hooks: integration.TelegramHooks{
+    OnInbound: func(ev integration.TelegramInboundEvent) {
+      fmt.Printf("telegram inbound: %+v\n", ev)
+    },
+    OnOutbound: func(ev integration.TelegramOutboundEvent) {
+      fmt.Printf("telegram outbound: %+v\n", ev)
+    },
+    OnError: func(ev integration.TelegramErrorEvent) {
+      fmt.Printf("telegram error: %+v\n", ev)
+    },
+  },
+})
 _ = tg
 ```
 

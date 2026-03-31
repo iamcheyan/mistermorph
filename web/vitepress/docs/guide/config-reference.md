@@ -1,13 +1,13 @@
 ---
-title: Config Fields Reference
+title: Config Fields
 description: Complete field map for config.yaml.
 ---
 
-# Config Fields Reference
+# Config Fields
 
 Source of truth: `assets/config/config.example.yaml`.
 
-All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Variables Reference](/guide/env-vars-reference).
+All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Variables](/guide/env-vars-reference).
 
 ## Global
 

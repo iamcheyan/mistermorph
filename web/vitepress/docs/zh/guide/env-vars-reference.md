@@ -1,9 +1,9 @@
 ---
-title: 环境变量总览
+title: 环境变量
 description: 完整环境变量模型、映射规则与兼容变量说明。
 ---
 
-# 环境变量总览
+# 环境变量
 
 ## 优先级
 
@@ -28,7 +28,7 @@ description: 完整环境变量模型、映射规则与兼容变量说明。
 - `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED`
 - `mcp.servers` -> `MISTER_MORPH_MCP_SERVERS`
 
-因此，[配置字段总览](/zh/guide/config-reference)中的全部字段都支持环境变量覆盖。
+因此，[配置字段](/zh/guide/config-reference)中的全部字段都支持环境变量覆盖。
 
 ## 高频环境变量
 

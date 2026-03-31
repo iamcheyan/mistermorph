@@ -1,6 +1,6 @@
 ---
 title: 创建自己的 AI Agent：进阶
-description: 聚焦 integration.Config、Registry、PreparedRun 与 Channel 接入；完整 API 清单单独放到 integration API 参考。
+description: 聚焦 integration.Config、Registry、PreparedRun 与 Channel 接入；完整 API 清单单独放到 Integration API。
 ---
 
 # 创建自己的 AI Agent：进阶
@@ -24,7 +24,7 @@ cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 ### 覆盖默认配置
 
 Mister Morph 自己虽然使用命令行参数，环境变量，和 config.yaml 文件来进行配置。
-第三方可以使用自己喜欢的方式，然后使用 `Set(key, value)` 用来覆盖任意默认配置。所有 `config.yaml` 中的字段都可以这样设置，可参考 [配置字段总览](/zh/guide/config-reference)。
+第三方可以使用自己喜欢的方式，然后使用 `Set(key, value)` 用来覆盖任意默认配置。所有 `config.yaml` 中的字段都可以这样设置，可参考 [配置字段](/zh/guide/config-reference)。
 
 ### 开关功能特性
 
@@ -194,6 +194,26 @@ _ = err
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
+_ = tg
+```
+
+如果你想在宿主程序里接 Telegram 的入站、出站和错误事件，可以在 `TelegramOptions.Hooks` 里传 `TelegramHooks`：
+
+```go
+tg, _ := rt.NewTelegramBot(integration.TelegramOptions{
+  BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN"),
+  Hooks: integration.TelegramHooks{
+    OnInbound: func(ev integration.TelegramInboundEvent) {
+      fmt.Printf("telegram inbound: %+v\n", ev)
+    },
+    OnOutbound: func(ev integration.TelegramOutboundEvent) {
+      fmt.Printf("telegram outbound: %+v\n", ev)
+    },
+    OnError: func(ev integration.TelegramErrorEvent) {
+      fmt.Printf("telegram error: %+v\n", ev)
+    },
+  },
+})
 _ = tg
 ```
 

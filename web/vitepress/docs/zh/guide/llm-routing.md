@@ -119,4 +119,4 @@ cfg.Set("llm.routes.addressing", map[string]any{
 })
 ```
 
-如果要查所有字段名，见 [配置字段总览](/zh/guide/config-reference)；如果要看常见 YAML 模式，见 [配置模式](/zh/guide/config-patterns)。
+如果要查所有字段名，见 [配置字段](/zh/guide/config-reference)；如果要看常见 YAML 模式，见 [配置模式](/zh/guide/config-patterns)。

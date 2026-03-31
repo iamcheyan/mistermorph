@@ -45,6 +45,6 @@ func main() {
 - `cfg.AddPromptBlock(...)`
   カスタム prompt を追加します。
 - `cfg.Set(...)`
-  Agent の設定を行います。`config.yaml` にある全フィールドを設定でき、詳細は [設定フィールド一覧](/ja/guide/config-reference) を参照してください。
+  Agent の設定を行います。`config.yaml` にある全フィールドを設定でき、詳細は [設定フィールド](/ja/guide/config-reference) を参照してください。
 - `rt.RunTask(...)`
   タスクを手早く実行し、その結果を戻り値で受け取ります。

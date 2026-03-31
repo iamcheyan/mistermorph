@@ -219,6 +219,10 @@ textarea {
   margin-top: 0.5rem;
 }
 
+.VPSidebarItem.level-1 + .VPSidebarItem.level-1 {
+  margin-top: 0.2rem;
+}
+
 .VPSidebarItem.level-1 > .item > .link,
 .VPSidebarItem.level-2 > .item > .link,
 .VPSidebarItem.level-3 > .item > .link,
@@ -235,6 +239,16 @@ textarea {
     background-color 180ms ease,
     box-shadow 180ms ease,
     transform 180ms ease;
+}
+
+.VPSidebarItem.level-1 > .item > .link {
+  min-height: 36px;
+}
+
+.Layout .VPSidebar .VPSidebarItem.level-1 > .item > .link > .text,
+.Layout .VPSidebar .VPSidebarItem.level-1.is-active > .item > .link > .text,
+.Layout .VPSidebar .VPSidebarItem.level-1.is-link > .item > .link:hover .text {
+  font-size: clamp(0.83rem, 0.8rem + 0.14vw, 0.92rem) !important;
 }
 
 .VPSidebarItem.level-1.is-link > .item > .link:hover,
@@ -760,14 +774,14 @@ html:not(.dark) .vp-doc .vp-code span {
 }
 
 .vp-doc blockquote,
-.vp-doc .custom-block,
-.vp-doc table {
+.vp-doc .custom-block {
   border-radius: 0;
   border: 1px solid color-mix(in srgb, var(--morph-line) 72%, transparent);
   box-shadow: none;
 }
 
 .vp-doc table {
+  border-radius: 0;
   overflow: hidden;
 }
 

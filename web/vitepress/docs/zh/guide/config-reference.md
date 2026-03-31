@@ -1,13 +1,13 @@
 ---
-title: 配置字段总览
-description: config.yaml 的完整字段说明（逐字段解释）。
+title: 配置字段
+description: config.yaml 的完整字段参考（逐字段解释）。
 ---
 
-# 配置字段总览
+# 配置字段
 
 权威来源：`assets/config/config.example.yaml`。
 
-所有字段都可用 `MISTER_MORPH_...` 环境变量覆盖，映射规则见[环境变量总览](/zh/guide/env-vars-reference)。
+所有字段都可用 `MISTER_MORPH_...` 环境变量覆盖，映射规则见[环境变量](/zh/guide/env-vars-reference)。
 
 ## 全局
 

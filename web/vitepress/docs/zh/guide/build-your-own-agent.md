@@ -41,5 +41,5 @@ func main() {
 其中，
 
 - `cfg.AddPromptBlock` 用于添加自定义 prompt。
-- `cfg.Set` 用于设置 Agent 配置，所有 `config.yaml` 中的字段都可以设置，可参考[配置字段总览](/zh/guide/config-reference)。
+- `cfg.Set` 用于设置 Agent 配置，所有 `config.yaml` 中的字段都可以设置，可参考[配置字段](/zh/guide/config-reference)。
 - `rt.RunTask` 是用于快速运行任务的方法，并且将结果放入返回值。

@@ -45,6 +45,6 @@ In this example:
 - `cfg.AddPromptBlock(...)`
   Adds a custom prompt block.
 - `cfg.Set(...)`
-  Sets agent configuration. Any field from `config.yaml` can be set here. See [Config Fields Reference](/guide/config-reference).
+  Sets agent configuration. Any field from `config.yaml` can be set here. See [Config Fields](/guide/config-reference).
 - `rt.RunTask(...)`
   Runs a task quickly and returns the result in the return value.

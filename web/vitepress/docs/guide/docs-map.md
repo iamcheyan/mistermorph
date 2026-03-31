@@ -10,10 +10,6 @@ description: Where to find deeper design and runtime documents in the repo.
 - Getting Started
   - [Overview](/guide/overview)
   - [Quickstart (CLI)](/guide/quickstart-cli)
-- Developer (Embedding)
-  - [Create Your Own AI Agent in 24 Lines](/guide/build-your-own-agent)
-  - [Create Your Own AI Agent: Advanced](/guide/core-advanced-embedding)
-  - [Agent-Level Customization](/guide/agent-level-customization)
 - Runtime
   - [Runtime Modes](/guide/runtime-modes)
   - [Prompt Architecture (Top-Down)](/guide/prompt-architecture)
@@ -21,11 +17,17 @@ description: Where to find deeper design and runtime documents in the repo.
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
   - [MCP](/guide/mcp)
+- Developer (Embedding)
+  - [Create Your Own AI Agent in 24 Lines](/guide/build-your-own-agent)
+  - [Create Your Own AI Agent: Advanced](/guide/build-your-own-agent-advanced)
+  - [Agent-Level Customization](/guide/agent-level-customization)
+- References
+  - [Integration API](/guide/integration-references)
+  - [Config Fields](/guide/config-reference)
+  - [Environment Variables](/guide/env-vars-reference)
 - Operations
   - [Security and Guard](/guide/security-and-guard)
   - [Config Patterns](/guide/config-patterns)
-  - [Config Fields Reference](/guide/config-reference)
-  - [Environment Variables Reference](/guide/env-vars-reference)
 
 ## Core and Architecture
 

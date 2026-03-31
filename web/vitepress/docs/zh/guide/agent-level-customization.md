@@ -97,8 +97,8 @@ engine := agent.New(
 
 ## 范围边界
 
-- 自定义工具注册：放在 [创建自己的 AI Agent：进阶](/zh/guide/core-advanced-embedding)
-- Telegram channel 接入：放在 [创建自己的 AI Agent：进阶](/zh/guide/core-advanced-embedding)
+- 自定义工具注册：放在 [创建自己的 AI Agent：进阶](/zh/guide/build-your-own-agent-advanced)
+- Telegram channel 接入：放在 [创建自己的 AI Agent：进阶](/zh/guide/build-your-own-agent-advanced)
 
 ## 建议
 
