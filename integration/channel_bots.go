@@ -275,7 +275,7 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return llmutil.ResolveRoute(snap.LLMValues, purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			return llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
+			return buildIntegrationLLMClient(route, snap.Logger, nil)
 		},
 		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
 		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{

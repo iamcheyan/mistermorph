@@ -143,10 +143,6 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	if err != nil {
 		return nil, err
 	}
-	client, err := llmutil.ClientFromConfigWithValues(mainRoute.ClientConfig, mainRoute.Values)
-	if err != nil {
-		return nil, err
-	}
 	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	var promptInspector *llminspect.PromptInspector
@@ -187,12 +183,11 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			return nil, err
 		}
 	}
-	client = llminspect.WrapClient(client, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          mainRoute.ClientConfig.Endpoint,
-		Model:            model,
-	})
+	client, err := buildIntegrationLLMClient(mainRoute, logger, inspectClientWrap(promptInspector, requestInspector))
+	if err != nil {
+		_ = inspectCleanup()
+		return nil, err
+	}
 
 	reg := cloneRegistry(baseReg)
 	if reg == nil {
@@ -218,17 +213,11 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		return nil, err
 	}
 	if !planRoute.SameProfile(mainRoute) {
-		planClient, err = llmutil.ClientFromConfigWithValues(planRoute.ClientConfig, planRoute.Values)
+		planClient, err = buildIntegrationLLMClient(planRoute, logger, inspectClientWrap(promptInspector, requestInspector))
 		if err != nil {
 			_ = inspectCleanup()
 			return nil, err
 		}
-		planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-			PromptInspector:  promptInspector,
-			RequestInspector: requestInspector,
-			APIBase:          planRoute.ClientConfig.Endpoint,
-			Model:            planRoute.ClientConfig.Model,
-		})
 	}
 	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
 	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{
