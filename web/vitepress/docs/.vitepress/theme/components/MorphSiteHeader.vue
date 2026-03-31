@@ -26,10 +26,7 @@ const searchButtonLabel = computed(() => {
   )
 })
 
-const homeLink = computed(() => {
-  const locale = site.value.locales[localeIndex.value]
-  return locale?.link || '/'
-})
+const brandLink = 'https://mistermorph.com'
 
 const currentLocaleCode = computed(() => {
   return localeIndex.value === 'root' ? 'EN' : localeIndex.value.toUpperCase()
@@ -135,7 +132,7 @@ function normalizePath(value: string) {
   <header class="morph-site-header">
     <div class="container morph-nav-shell">
       <div class="morph-nav-brand-shell">
-        <a class="morph-nav-brand-stack" :href="homeLink" aria-label="Mister Morph Docs">
+        <a class="morph-nav-brand-stack" :href="brandLink" aria-label="Mister Morph">
           <span class="brand-mark" aria-hidden="true">
             <svg class="brand-logo" viewBox="0 0 24 24" role="presentation">
               <path class="logo-spy-hat" d="M3 11h18"></path>

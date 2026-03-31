@@ -154,6 +154,9 @@ export default defineConfig({
     search: {
       provider: 'local'
     },
+    footer: {
+      copyright: '© 2026 ARCH inc.'
+    },
     editLink: {
       pattern: 'https://github.com/quailyquaily/mistermorph/edit/master/web/vitepress/docs/:path',
       text: 'Edit this page on GitHub'
@@ -169,6 +172,7 @@ export default defineConfig({
       lang: 'en-US',
       themeConfig: {
         nav: [
+          { text: 'Home', link: '/' },
           { text: 'Overview', link: '/guide/overview' },
           { text: 'Developer', link: '/guide/build-agent-with-core' }
         ],
@@ -183,6 +187,7 @@ export default defineConfig({
       link: '/zh/',
       themeConfig: {
         nav: [
+          { text: '首页', link: '/zh/' },
           { text: '文档总览', link: '/zh/guide/overview' },
           { text: '开发者', link: '/zh/guide/build-agent-with-core' }
         ],
@@ -201,6 +206,7 @@ export default defineConfig({
       link: '/ja/',
       themeConfig: {
         nav: [
+          { text: 'ホーム', link: '/ja/' },
           { text: 'ドキュメント総覧', link: '/ja/guide/overview' },
           { text: '開発者', link: '/ja/guide/build-agent-with-core' }
         ],
