@@ -39,11 +39,6 @@ For the other runtime modes, use the docs below.
 - Purpose: Lark webhook runtime
 - Docs: [lark.md](./lark.md)
 
-## Runtime Submission
-
-- Command: `mistermorph submit --server-url ...`
-- Purpose: submit a task to an already running runtime endpoint
-
 ## Note
 
 Legacy standalone daemon mode (`mistermorph serve`) has been removed.

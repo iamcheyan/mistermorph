@@ -12,20 +12,21 @@ description: より詳細な設計・実装文書への入口。
   - [クイックスタート（CLI）](/ja/guide/quickstart-cli)
 - Runtime
   - [Runtime モード](/ja/guide/runtime-modes)
+  - [LLM ルーティングポリシー](/ja/guide/llm-routing)
   - [Prompt 設計（トップダウン）](/ja/guide/prompt-architecture)
   - [Memory](/ja/guide/memory)
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
   - [MCP](/ja/guide/mcp)
-- 開発者（組み込み）
-  - [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
+- 開発者
+  - [自分の AI Agent を作る](/ja/guide/build-your-own-agent)
   - [自分の AI Agent を作る：上級編](/ja/guide/build-your-own-agent-advanced)
   - [Agent レイヤ拡張](/ja/guide/agent-level-customization)
 - リファレンス
   - [Integration API](/ja/guide/integration-references)
   - [設定フィールド](/ja/guide/config-reference)
   - [環境変数](/ja/guide/env-vars-reference)
-- 運用
+- 運用とガバナンス
   - [セキュリティと Guard](/ja/guide/security-and-guard)
   - [設定パターン](/ja/guide/config-patterns)
 

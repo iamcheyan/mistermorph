@@ -33,15 +33,11 @@ mistermorph console serve
 
 如果你想为 `main_loop`、`addressing`、`plan_create`、`heartbeat` 或 `memory_draft` 分别指定模型，见 [LLM 路由策略](/zh/guide/llm-routing)。
 
-## 旧版守护进程（按需）
-
-```bash
-mistermorph serve --server-listen 127.0.0.1:8787
-```
-
 详细接入见：
 
 - `docs/console.md`
 - `docs/slack.md`
 - `docs/line.md`
 - `docs/lark.md`
+
+旧版独立守护进程模式 `mistermorph serve` 已移除。

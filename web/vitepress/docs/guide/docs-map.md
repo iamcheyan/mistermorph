@@ -12,20 +12,21 @@ description: Where to find deeper design and runtime documents in the repo.
   - [Quickstart (CLI)](/guide/quickstart-cli)
 - Runtime
   - [Runtime Modes](/guide/runtime-modes)
+  - [LLM Routing Policies](/guide/llm-routing)
   - [Prompt Architecture (Top-Down)](/guide/prompt-architecture)
   - [Memory](/guide/memory)
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
   - [MCP](/guide/mcp)
-- Developer (Embedding)
-  - [Create Your Own AI Agent in 24 Lines](/guide/build-your-own-agent)
+- Developer
+  - [Create Your Own AI Agent](/guide/build-your-own-agent)
   - [Create Your Own AI Agent: Advanced](/guide/build-your-own-agent-advanced)
   - [Agent-Level Customization](/guide/agent-level-customization)
 - References
   - [Integration API](/guide/integration-references)
   - [Config Fields](/guide/config-reference)
   - [Environment Variables](/guide/env-vars-reference)
-- Operations
+- Operations & Governance
   - [Security and Guard](/guide/security-and-guard)
   - [Config Patterns](/guide/config-patterns)
 

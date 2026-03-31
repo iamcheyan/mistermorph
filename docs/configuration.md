@@ -68,16 +68,6 @@ Global flags:
 - `--inspect-prompt`
 - `--inspect-request`
 
-`submit`:
-
-- `--task`
-- `--server-url`
-- `--auth-token`
-- `--model`
-- `--submit-timeout`
-- `--wait`
-- `--poll-interval`
-
 `console serve`:
 
 - `--console-listen`

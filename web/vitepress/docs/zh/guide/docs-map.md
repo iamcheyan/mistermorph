@@ -19,7 +19,7 @@ description: 仓库中更完整设计文档的入口索引。
   - [内置工具](/zh/guide/built-in-tools)
   - [MCP](/zh/guide/mcp)
 - 开发者
-  - [用 Core 快速搭建 Agent](/zh/guide/build-your-own-agent)
+  - [创建自己的 AI Agent](/zh/guide/build-your-own-agent)
   - [创建自己的 AI Agent：进阶](/zh/guide/build-your-own-agent-advanced)
   - [Agent 底层扩展](/zh/guide/agent-level-customization)
 - 参考

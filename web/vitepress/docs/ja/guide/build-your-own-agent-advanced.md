@@ -55,7 +55,7 @@ cfg.Inspect.DumpDir = "./dump"
 
 この設定で、prompt と request の詳細が dump ディレクトリに出力されます。
 
-### LLM ルートポリシー
+### LLM ルーティングポリシー
 
 同様に、`llm.routes.*` を上書きして用途ごとに異なる LLM ルートを設定できます。
 
@@ -66,7 +66,7 @@ cfg.Inspect.DumpDir = "./dump"
 cfg.Set("llm.routes.plan_create", "reasoning")
 ```
 
-完全なルールと具体例は runtime 側のドキュメントに分けてあります。
+完全なルールと具体例は [LLM ルーティングポリシー](/ja/guide/llm-routing) に分けてあります。
 
 ### 設定の確定
 

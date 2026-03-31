@@ -12,7 +12,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/contactscmd"
-	"github.com/quailyquaily/mistermorph/cmd/mistermorph/daemoncmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/linecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/runcmd"
@@ -102,7 +101,6 @@ func newRootCmd() *cobra.Command {
 		RegistryFromViper: registryResolver.Registry,
 		GuardFromViper:    guardResolver.Guard,
 	}))
-	cmd.AddCommand(daemoncmd.NewSubmitCmd())
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
 		Logger:          logutil.LoggerFromViper,
 		LogOptions:      logutil.LogOptionsFromViper,

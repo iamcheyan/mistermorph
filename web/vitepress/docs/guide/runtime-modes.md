@@ -29,11 +29,9 @@ mistermorph slack --log-level info
 mistermorph console serve
 ```
 
-## Legacy daemon (if needed)
+## LLM Routing Policies
 
-```bash
-mistermorph serve --server-listen 127.0.0.1:8787
-```
+If you want to assign different models to `main_loop`, `addressing`, `plan_create`, `heartbeat`, or `memory_draft`, see [LLM Routing Policies](/guide/llm-routing).
 
 Detailed setup docs:
 
@@ -41,3 +39,5 @@ Detailed setup docs:
 - `docs/slack.md`
 - `docs/line.md`
 - `docs/lark.md`
+
+Legacy standalone daemon mode (`mistermorph serve`) has been removed.

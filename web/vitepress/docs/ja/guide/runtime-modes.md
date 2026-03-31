@@ -29,11 +29,9 @@ mistermorph slack --log-level info
 mistermorph console serve
 ```
 
-## 旧 Daemon（必要時のみ）
+## LLM ルーティングポリシー
 
-```bash
-mistermorph serve --server-listen 127.0.0.1:8787
-```
+`main_loop`、`addressing`、`plan_create`、`heartbeat`、`memory_draft` ごとに別のモデルを割り当てたい場合は、[LLM ルーティングポリシー](/ja/guide/llm-routing) を参照してください。
 
 詳細は次を参照:
 
@@ -41,3 +39,5 @@ mistermorph serve --server-listen 127.0.0.1:8787
 - `docs/slack.md`
 - `docs/line.md`
 - `docs/lark.md`
+
+旧 standalone daemon モード `mistermorph serve` は削除されています。

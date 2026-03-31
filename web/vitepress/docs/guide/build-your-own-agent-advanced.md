@@ -55,7 +55,7 @@ cfg.Inspect.DumpDir = "./dump"
 
 This writes detailed prompt and request dumps into the dump directory.
 
-### LLM Route Policies
+### LLM Routing Policies
 
 Similarly, you can override `llm.routes.*` to customize which LLM route is used by each purpose.
 
@@ -66,7 +66,7 @@ You can define multiple profiles under `llm.profiles`, then use a route like thi
 cfg.Set("llm.routes.plan_create", "reasoning")
 ```
 
-Full route rules and examples are documented separately in the runtime docs.
+Full route rules and examples are documented separately in [LLM Routing Policies](/guide/llm-routing).
 
 ### Config Snapshot
 
