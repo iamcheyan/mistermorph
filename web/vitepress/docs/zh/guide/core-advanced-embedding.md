@@ -173,6 +173,60 @@ cfg.Inspect.Request = true
 cfg.Inspect.DumpDir = "./dump"
 ```
 
+## LLM 路由策略
+
+`integration.Config.Set(...)` 可以配置和第一方 runtime 完全一致的 LLM 路由策略。
+
+路由配置统一放在 `llm.routes.<purpose>` 下，`purpose` 支持：
+
+- `main_loop`
+- `addressing`
+- `heartbeat`
+- `plan_create`
+- `memory_draft`
+
+每个 route 可以用这几种形态之一：
+
+- 固定 profile：`plan_create: "reasoning"`
+- 显式对象：`profile` + 可选 `fallback_profiles`
+- 分流对象：`candidates` + 可选 `fallback_profiles`
+
+```go
+cfg := integration.DefaultConfig()
+cfg.Set("llm.profiles", map[string]any{
+  "cheap": map[string]any{
+    "model": "gpt-4.1-mini",
+  },
+  "reasoning": map[string]any{
+    "provider": "xai",
+    "model": "grok-4.1-fast-reasoning",
+    "api_key": os.Getenv("XAI_API_KEY"),
+  },
+})
+cfg.Set("llm.routes", map[string]any{
+  "main_loop": map[string]any{
+    "candidates": []map[string]any{
+      {"profile": "default", "weight": 1},
+      {"profile": "cheap", "weight": 1},
+    },
+    "fallback_profiles": []string{"reasoning"},
+  },
+  "plan_create": "reasoning",
+  "addressing": map[string]any{
+    "profile": "cheap",
+    "fallback_profiles": []string{"default"},
+  },
+})
+```
+
+行为规则：
+
+- `profile`：该 route 固定走一个 profile。
+- `candidates`：当前 run 会先按权重选出一个主候选，并在这个 run 内复用。
+- 如果主候选遇到可回退错误，运行时会先尝试同 route 下其他 candidate，再按顺序尝试 `fallback_profiles`。
+
+这套配置同时适用于 `integration` 和第一方 runtime，因此嵌入场景与内建运行模式使用的是同一模型。
+
 ## 接入 Telegram Channel（进阶）
 
 ```go

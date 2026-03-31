@@ -173,6 +173,60 @@ cfg.Inspect.Request = true
 cfg.Inspect.DumpDir = "./dump"
 ```
 
+## LLM ルートポリシー
+
+`integration.Config.Set(...)` では、ファーストパーティ runtime と同じ LLM ルートポリシーを設定できます。
+
+ルート設定は `llm.routes.<purpose>` に置きます。`purpose` は次を使えます。
+
+- `main_loop`
+- `addressing`
+- `heartbeat`
+- `plan_create`
+- `memory_draft`
+
+各 route は次のいずれかの形を取れます。
+
+- 固定 profile: `plan_create: "reasoning"`
+- 明示オブジェクト: `profile` + 任意の `fallback_profiles`
+- 分流オブジェクト: `candidates` + 任意の `fallback_profiles`
+
+```go
+cfg := integration.DefaultConfig()
+cfg.Set("llm.profiles", map[string]any{
+  "cheap": map[string]any{
+    "model": "gpt-4.1-mini",
+  },
+  "reasoning": map[string]any{
+    "provider": "xai",
+    "model": "grok-4.1-fast-reasoning",
+    "api_key": os.Getenv("XAI_API_KEY"),
+  },
+})
+cfg.Set("llm.routes", map[string]any{
+  "main_loop": map[string]any{
+    "candidates": []map[string]any{
+      {"profile": "default", "weight": 1},
+      {"profile": "cheap", "weight": 1},
+    },
+    "fallback_profiles": []string{"reasoning"},
+  },
+  "plan_create": "reasoning",
+  "addressing": map[string]any{
+    "profile": "cheap",
+    "fallback_profiles": []string{"default"},
+  },
+})
+```
+
+挙動は次の通りです。
+
+- `profile`: その route では常にその profile を使います。
+- `candidates`: 現在の run ごとに重み付きで primary を 1 つ選び、その run 中の LLM 呼び出しで再利用します。
+- 選ばれた primary がフォールバック対象エラーで失敗した場合、同じ route の他 candidate を先に試し、その後 `fallback_profiles` を順に試します。
+
+この設定モデルは `integration` とファーストパーティ runtime の両方で共通です。
+
 ## Telegram チャネル接続（上級）
 
 ```go

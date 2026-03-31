@@ -182,15 +182,59 @@ cfg.Inspect.Request = true
 cfg.Inspect.DumpDir = "./dump"
 ```
 
-## Route Policies
+## LLM Route Policies
 
-`integration.Config.Set(...)` can configure the same route policies used by first-party runtimes.
+`integration.Config.Set(...)` can configure the same LLM route policies used by first-party runtimes.
 
-- fixed route: `plan_create: "reasoning"`
-- weighted split: `main_loop.candidates`
-- route-local fallback: `main_loop.fallback_profiles`
+Route policy lives under `llm.routes.<purpose>`, where `purpose` can be:
 
-One candidate is selected once for the current run and reused for that run's LLM calls.
+- `main_loop`
+- `addressing`
+- `heartbeat`
+- `plan_create`
+- `memory_draft`
+
+Each route can use one of these forms:
+
+- fixed profile: `plan_create: "reasoning"`
+- explicit object: `profile` + optional `fallback_profiles`
+- weighted split: `candidates` + optional `fallback_profiles`
+
+```go
+cfg := integration.DefaultConfig()
+cfg.Set("llm.profiles", map[string]any{
+  "cheap": map[string]any{
+    "model": "gpt-4.1-mini",
+  },
+  "reasoning": map[string]any{
+    "provider": "xai",
+    "model": "grok-4.1-fast-reasoning",
+    "api_key": os.Getenv("XAI_API_KEY"),
+  },
+})
+cfg.Set("llm.routes", map[string]any{
+  "main_loop": map[string]any{
+    "candidates": []map[string]any{
+      {"profile": "default", "weight": 1},
+      {"profile": "cheap", "weight": 1},
+    },
+    "fallback_profiles": []string{"reasoning"},
+  },
+  "plan_create": "reasoning",
+  "addressing": map[string]any{
+    "profile": "cheap",
+    "fallback_profiles": []string{"default"},
+  },
+})
+```
+
+Behavior:
+
+- `profile`: always use that one profile for the route.
+- `candidates`: select one primary candidate once for the current run, then reuse it for that run's LLM calls.
+- if the selected primary fails with a fallback-eligible error, the runtime tries the other route candidates first, then `fallback_profiles` in order.
+
+This applies to both `integration` and first-party runtimes, so the same config model works across embedded and built-in runtime entrypoints.
 
 ## Telegram Channel Integration (Advanced)
 
