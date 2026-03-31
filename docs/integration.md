@@ -16,6 +16,15 @@ cfg.AddPromptBlock(`[[ Project Policy ]]
 - Keep answers under 3 sentences unless asked for detail.`) // optional; appended under "Additional Policies"
 cfg.Inspect.Prompt = true   // optional
 cfg.Inspect.Request = true  // optional
+cfg.Set("llm.routes", map[string]any{
+	"main_loop": map[string]any{
+		"candidates": []map[string]any{
+			{"profile": "default", "weight": 1},
+			{"profile": "cheap", "weight": 1},
+		},
+		"fallback_profiles": []string{"reasoning"},
+	},
+})
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 
 rt := integration.New(cfg)
@@ -49,3 +58,39 @@ The same configured blocks are applied to:
 - `rt.NewSlackBot(...)`
 
 If you need per-task dynamic prompt shaping or full prompt replacement, use the lower-level `agent` APIs instead.
+
+## Route Policies
+
+`integration.Config.Set(...)` can also configure the same route policies used by first-party runtimes.
+
+Use `llm.routes.<purpose>` to choose one of:
+
+- a fixed profile, for example `plan_create: reasoning`
+- a weighted candidate list for per-run traffic split
+- a route-local `fallback_profiles` chain
+
+Example:
+
+```go
+cfg := integration.DefaultConfig()
+cfg.Set("llm.profiles", map[string]any{
+	"cheap": map[string]any{"model": "gpt-4.1-mini"},
+	"reasoning": map[string]any{
+		"provider": "xai",
+		"model":    "grok-4.1-fast-reasoning",
+		"api_key":  os.Getenv("XAI_API_KEY"),
+	},
+})
+cfg.Set("llm.routes", map[string]any{
+	"main_loop": map[string]any{
+		"candidates": []map[string]any{
+			{"profile": "default", "weight": 1},
+			{"profile": "cheap", "weight": 1},
+		},
+		"fallback_profiles": []string{"reasoning"},
+	},
+	"plan_create": "reasoning",
+})
+```
+
+When a route uses `candidates`, one primary profile is selected once for the current run and reused for that run's LLM calls. If the selected primary fails with a fallback-eligible error, the route's `fallback_profiles` are tried in order.

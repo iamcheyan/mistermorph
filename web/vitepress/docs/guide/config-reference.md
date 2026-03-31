@@ -32,12 +32,11 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.cloudflare.account_id`
 - `llm.cloudflare.api_token`
 - `llm.profiles.<profile>.*` (named profile overrides)
-- `llm.fallback_profiles[]` (ordered transient-error fallback chain for the implicit default profile)
-- `llm.routes.main_loop`
-- `llm.routes.addressing`
-- `llm.routes.heartbeat`
-- `llm.routes.plan_create`
-- `llm.routes.memory_draft`
+- `llm.routes.<purpose>` (`main_loop|addressing|heartbeat|plan_create|memory_draft`)
+- `llm.routes.<purpose>.profile`
+- `llm.routes.<purpose>.candidates[].profile`
+- `llm.routes.<purpose>.candidates[].weight`
+- `llm.routes.<purpose>.fallback_profiles[]`
 
 ## Multimodal
 

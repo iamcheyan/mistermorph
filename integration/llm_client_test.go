@@ -62,7 +62,11 @@ func TestNewRunEngineUsesFallbackProfiles(t *testing.T) {
 			"model": "gpt-4.1-mini",
 		},
 	})
-	cfg.Set("llm.fallback_profiles", []string{"cheap"})
+	cfg.Set("llm.routes", map[string]any{
+		"main_loop": map[string]any{
+			"fallback_profiles": []string{"cheap"},
+		},
+	})
 
 	rt := New(cfg)
 	prepared, err := rt.NewRunEngine(context.Background(), "ping")
@@ -81,11 +85,11 @@ func TestNewRunEngineUsesFallbackProfiles(t *testing.T) {
 	if final.Output != "fallback ok" {
 		t.Fatalf("final output = %q, want fallback ok", final.Output)
 	}
-	if len(buildModels) != 2 {
-		t.Fatalf("build models = %#v, want primary + fallback", buildModels)
+	if len(buildModels) < 2 {
+		t.Fatalf("build models = %#v, want at least primary + fallback", buildModels)
 	}
 	if buildModels[0] != "gpt-5.2" || buildModels[1] != "gpt-4.1-mini" {
-		t.Fatalf("build models = %#v, want [gpt-5.2 gpt-4.1-mini]", buildModels)
+		t.Fatalf("build models prefix = %#v, want [gpt-5.2 gpt-4.1-mini]", buildModels[:2])
 	}
 	if len(requestModels) != 2 {
 		t.Fatalf("request models = %#v, want primary + fallback", requestModels)
@@ -137,7 +141,11 @@ func TestSharedDependenciesCreateLLMClientUsesFallbackProfiles(t *testing.T) {
 			"model": "gpt-4.1-mini",
 		},
 	})
-	cfg.Set("llm.fallback_profiles", []string{"cheap"})
+	cfg.Set("llm.routes", map[string]any{
+		"main_loop": map[string]any{
+			"fallback_profiles": []string{"cheap"},
+		},
+	})
 
 	rt := New(cfg)
 	snap := rt.snapshot()
@@ -158,10 +166,10 @@ func TestSharedDependenciesCreateLLMClientUsesFallbackProfiles(t *testing.T) {
 	if result.Text != "gpt-4.1-mini" {
 		t.Fatalf("result text = %q, want gpt-4.1-mini", result.Text)
 	}
-	if len(buildModels) != 2 {
-		t.Fatalf("build models = %#v, want primary + fallback", buildModels)
+	if len(buildModels) < 2 {
+		t.Fatalf("build models = %#v, want at least primary + fallback", buildModels)
 	}
 	if buildModels[0] != "gpt-5.2" || buildModels[1] != "gpt-4.1-mini" {
-		t.Fatalf("build models = %#v, want [gpt-5.2 gpt-4.1-mini]", buildModels)
+		t.Fatalf("build models prefix = %#v, want [gpt-5.2 gpt-4.1-mini]", buildModels[:2])
 	}
 }

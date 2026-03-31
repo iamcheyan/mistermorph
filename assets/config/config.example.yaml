@@ -56,18 +56,23 @@ llm:
   #     model: "grok-4.1-fast-reasoning"
   #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"
-  # Optional fallback chain for the implicit default profile.
-  # These named profiles are tried in order only when the default profile fails
-  # with a fallback-eligible error (timeout, HTTP 401/403/404/408/415/422/429, or any HTTP 5xx).
-  # fallback_profiles: ["cheap", "reasoning"]
   # Optional route map. Supported purposes:
   #   main_loop | addressing | heartbeat | plan_create | memory_draft
   # routes:
-  #   main_loop: default
-  #   addressing: cheap
+  #   main_loop:
+  #     candidates:
+  #       - profile: default
+  #         weight: 1
+  #       - profile: cheap
+  #         weight: 1
+  #     fallback_profiles: ["reasoning"]
+  #   addressing:
+  #     profile: cheap
+  #     fallback_profiles: ["default"]
   #   heartbeat: cheap
   #   plan_create: reasoning
-  #   memory_draft: cheap
+  #   memory_draft:
+  #     profile: cheap
 
 # Multimodal input policy (cross-channel, cross-source).
 multimodal:

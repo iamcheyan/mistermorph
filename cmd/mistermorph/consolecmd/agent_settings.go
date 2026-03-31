@@ -479,7 +479,7 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 		}
 	}
 	if values.LLM.FallbackProfiles != nil {
-		setMappingOrderedStringList(llmNode, "fallback_profiles", normalizeNamedProfileSequence(*values.LLM.FallbackProfiles))
+		setMainLoopFallbackProfilesNode(llmNode, *values.LLM.FallbackProfiles)
 	}
 
 	if values.Multimodal != nil && values.Multimodal.ImageSources != nil {
@@ -541,7 +541,7 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 			continue
 		}
 		profileValues := values
-		profileValues.Routes.MainLoop = name
+		profileValues.Routes.MainLoop = llmutil.RoutePolicyConfig{Profile: name}
 		if err := validateAgentLLMRoute(profileValues, llmutil.RoutePurposeMainLoop); err != nil {
 			return nil, err
 		}
@@ -593,7 +593,7 @@ func resolveAgentSettingsTestProfileLLM(snapshot llmSettingsPayload, targetProfi
 	if err != nil {
 		return llmSettingsPayload{}, err
 	}
-	values.Routes.MainLoop = strings.TrimSpace(targetProfile)
+	values.Routes.MainLoop = llmutil.RoutePolicyConfig{Profile: strings.TrimSpace(targetProfile)}
 	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return llmSettingsPayload{}, err
@@ -938,7 +938,7 @@ func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettin
 			ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
 		},
 		Profiles:         llmProfileSettingsPayloadsFromMap(values.Profiles, provider),
-		FallbackProfiles: normalizeNamedProfileSequence(values.FallbackProfiles),
+		FallbackProfiles: normalizeNamedProfileSequence(values.Routes.MainLoop.FallbackProfiles),
 	}
 }
 
@@ -1190,6 +1190,74 @@ func setMappingOrderedStringList(node *yaml.Node, key string, values []string) {
 	)
 }
 
+func setMainLoopFallbackProfilesNode(llmNode *yaml.Node, values []string) {
+	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
+		return
+	}
+	values = normalizeNamedProfileSequence(values)
+	deleteMappingKey(llmNode, "fallback_profiles")
+
+	routesNode := findMappingValue(llmNode, "routes")
+	if len(values) == 0 {
+		pruneMainLoopFallbackProfilesNode(llmNode, routesNode)
+		return
+	}
+	if routesNode == nil || routesNode.Kind != yaml.MappingNode {
+		routesNode = ensureMappingValue(llmNode, "routes")
+	}
+	mainLoopNode := ensureRoutePolicyMappingValue(routesNode, llmutil.RoutePurposeMainLoop)
+	if mainLoopNode == nil {
+		return
+	}
+	setMappingOrderedStringList(mainLoopNode, "fallback_profiles", values)
+}
+
+func pruneMainLoopFallbackProfilesNode(llmNode *yaml.Node, routesNode *yaml.Node) {
+	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
+		return
+	}
+	if routesNode == nil || routesNode.Kind != yaml.MappingNode {
+		return
+	}
+	mainLoopNode := findMappingValue(routesNode, llmutil.RoutePurposeMainLoop)
+	if mainLoopNode == nil || mainLoopNode.Kind != yaml.MappingNode {
+		return
+	}
+	deleteMappingKey(mainLoopNode, "fallback_profiles")
+	if len(mainLoopNode.Content) == 0 {
+		deleteMappingKey(routesNode, llmutil.RoutePurposeMainLoop)
+	}
+	if len(routesNode.Content) == 0 {
+		deleteMappingKey(llmNode, "routes")
+	}
+}
+
+func ensureRoutePolicyMappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	if value := findMappingValue(node, key); value != nil {
+		if value.Kind == yaml.MappingNode {
+			return value
+		}
+		profile := strings.TrimSpace(value.Value)
+		*value = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if profile != "" {
+			value.Content = append(value.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "profile"},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: profile},
+			)
+		}
+		return value
+	}
+	child := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		child,
+	)
+	return child
+}
+
 func mergeLLMSettingsMap(base map[string]any, values llmSettingsPayload) map[string]any {
 	out := cloneStringAnyMap(base)
 	mergeLLMConfigFieldsMap(out, values.llmConfigFieldsPayload, values.Provider)
@@ -1211,10 +1279,75 @@ func mergeLLMSettingsMap(base map[string]any, values llmSettingsPayload) map[str
 		out["profiles"] = profiles
 	}
 
-	if fallbacks := normalizeNamedProfileSequence(values.FallbackProfiles); len(fallbacks) > 0 {
-		out["fallback_profiles"] = fallbacks
-	} else {
-		delete(out, "fallback_profiles")
+	mergeMainLoopFallbackProfilesMap(out, values.FallbackProfiles)
+	return out
+}
+
+func mergeMainLoopFallbackProfilesMap(out map[string]any, values []string) {
+	if out == nil {
+		return
+	}
+	values = normalizeNamedProfileSequence(values)
+	delete(out, "fallback_profiles")
+
+	routes := cloneStringAnyMap(mapValueAsStringAnyMap(out["routes"]))
+	if len(values) == 0 {
+		policy, ok := routePolicyMapValue(routes[llmutil.RoutePurposeMainLoop])
+		if ok {
+			delete(policy, "fallback_profiles")
+			if len(policy) == 0 {
+				delete(routes, llmutil.RoutePurposeMainLoop)
+			} else {
+				routes[llmutil.RoutePurposeMainLoop] = policy
+			}
+		}
+		if len(routes) == 0 {
+			delete(out, "routes")
+		} else {
+			out["routes"] = routes
+		}
+		return
+	}
+
+	policy, _ := routePolicyMapValue(routes[llmutil.RoutePurposeMainLoop])
+	if len(policy) == 0 {
+		policy = map[string]any{}
+	}
+	policy["fallback_profiles"] = values
+	routes[llmutil.RoutePurposeMainLoop] = policy
+	out["routes"] = routes
+}
+
+func routePolicyMapValue(raw any) (map[string]any, bool) {
+	switch value := raw.(type) {
+	case nil:
+		return nil, false
+	case string:
+		profile := strings.TrimSpace(value)
+		if profile == "" {
+			return map[string]any{}, true
+		}
+		return map[string]any{"profile": profile}, true
+	case map[string]any:
+		return cloneStringAnyMap(value), true
+	case map[any]any:
+		return cloneStringAnyMap(stringAnyMapFromAnyMap(value)), true
+	default:
+		return nil, false
+	}
+}
+
+func stringAnyMapFromAnyMap(raw map[any]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(raw))
+	for key, value := range raw {
+		name, ok := key.(string)
+		if !ok {
+			continue
+		}
+		out[name] = value
 	}
 	return out
 }

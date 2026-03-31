@@ -19,7 +19,7 @@ import (
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  fallback_profiles:\n    - cheap\n    - burst\n"+
+		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  routes:\n    main_loop:\n      fallback_profiles:\n        - cheap\n        - burst\n"+
 			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
 			"tools:\n  bash:\n    enabled: false\n",
 	), 0o600); err != nil {
@@ -602,7 +602,7 @@ func TestWriteAgentSettingsPersistsProfilesAndFallbacks(t *testing.T) {
 	if !strings.Contains(out, "profiles:") || !strings.Contains(out, "cheap:") || !strings.Contains(out, "cloudburst:") {
 		t.Fatalf("serialized config missing profiles block: %s", out)
 	}
-	if !strings.Contains(out, "fallback_profiles:") || !strings.Contains(out, "- cheap") || !strings.Contains(out, "- cloudburst") {
+	if !strings.Contains(out, "main_loop:") || !strings.Contains(out, "fallback_profiles:") || !strings.Contains(out, "- cheap") || !strings.Contains(out, "- cloudburst") {
 		t.Fatalf("serialized config missing fallback profile sequence: %s", out)
 	}
 	if !strings.Contains(out, "account_id: acc-456") || !strings.Contains(out, "api_token: cf-profile-token") {
@@ -707,8 +707,8 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 	if got := viper.GetString("llm.routes.heartbeat"); got != "burst" {
 		t.Fatalf("viper llm.routes.heartbeat = %q, want burst", got)
 	}
-	if got := viper.GetStringSlice("llm.fallback_profiles"); len(got) != 1 || got[0] != "cheap" {
-		t.Fatalf("viper llm.fallback_profiles = %#v", got)
+	if got := viper.GetStringSlice("llm.routes.main_loop.fallback_profiles"); len(got) != 1 || got[0] != "cheap" {
+		t.Fatalf("viper llm.routes.main_loop.fallback_profiles = %#v", got)
 	}
 	if got := viper.GetString("llm.profiles.cheap.model"); got != "gpt-4.1-mini" {
 		t.Fatalf("viper llm.profiles.cheap.model = %q, want gpt-4.1-mini", got)

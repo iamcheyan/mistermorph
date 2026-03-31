@@ -152,8 +152,10 @@ Core LLM:
 - Bedrock uses `llm.bedrock.*`.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
-- `llm.fallback_profiles` defines an ordered fallback chain for the implicit default profile when it hits transient errors (`timeout`, `429`, `529`).
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, `plan_create`, and `memory_draft`.
+- Each route can be a simple profile name or an object with `profile`, `candidates`, and `fallback_profiles`.
+- `candidates` enables per-run weighted traffic split; one candidate is selected once for the current run and reused for all LLM calls in that run.
+- `fallback_profiles` is route-local and only applies after the chosen primary route candidate fails with a fallback-eligible error.
 
 Logging and runtime limits:
 
@@ -201,8 +203,19 @@ llm:
   model: gpt-5.4
   api_key: "${OPENAI_API_KEY}"
   profiles:
+    cheap:
+      model: gpt-4.1-mini
     reasoning:
       provider: xai
       model: grok-4.1-fast-reasoning
       api_key: "${XAI_API_KEY}"
+  routes:
+    main_loop:
+      candidates:
+        - profile: default
+          weight: 1
+        - profile: cheap
+          weight: 1
+      fallback_profiles: [reasoning]
+    plan_create: reasoning
 ```

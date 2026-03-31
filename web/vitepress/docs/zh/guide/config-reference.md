@@ -36,12 +36,11 @@ description: config.yaml 的完整字段说明（逐字段解释）。
 | `llm.cloudflare.account_id` | Cloudflare Workers AI 账号 ID。 |
 | `llm.cloudflare.api_token` | Cloudflare Workers AI API Token。 |
 | `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 provider/model/key 等，用于路由不同任务。 |
-| `llm.fallback_profiles[]` | 默认 LLM profile 的回退链；仅在超时、`429`、`529` 这类瞬时错误时按顺序尝试。 |
-| `llm.routes.main_loop` | 主 agent 循环用哪个 profile。 |
-| `llm.routes.addressing` | 群聊“是否被点名”判定用哪个 profile。 |
-| `llm.routes.heartbeat` | 心跳任务用哪个 profile。 |
-| `llm.routes.plan_create` | `plan_create` 工具用哪个 profile。 |
-| `llm.routes.memory_draft` | memory 草稿/整理相关调用用哪个 profile。 |
+| `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/heartbeat/plan_create/memory_draft`。 |
+| `llm.routes.<purpose>.profile` | 固定把该 route 绑定到一个 profile。 |
+| `llm.routes.<purpose>.candidates[].profile` | 该 route 参与分流的 profile。 |
+| `llm.routes.<purpose>.candidates[].weight` | 该候选 profile 的权重；当前 run 内只会选中一个主候选。 |
+| `llm.routes.<purpose>.fallback_profiles[]` | 该 route 的本地回退链；主候选失败后按顺序尝试。 |
 
 ## Multimodal
 

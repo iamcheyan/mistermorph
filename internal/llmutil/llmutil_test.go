@@ -192,7 +192,7 @@ func TestResolveRoute_GlobalPurposeOverride(t *testing.T) {
 		},
 		Routes: RoutesConfig{
 			PurposeRoutes: PurposeRoutes{
-				MainLoop: "cheap",
+				MainLoop: RoutePolicyConfig{Profile: "cheap"},
 			},
 		},
 	}
@@ -223,7 +223,7 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 		},
 		Routes: RoutesConfig{
 			PurposeRoutes: PurposeRoutes{
-				Addressing: "cheap",
+				Addressing: RoutePolicyConfig{Profile: "cheap"},
 			},
 		},
 	}
@@ -256,7 +256,7 @@ func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
 		},
 		Routes: RoutesConfig{
 			PurposeRoutes: PurposeRoutes{
-				MemoryDraft: "memory",
+				MemoryDraft: RoutePolicyConfig{Profile: "memory"},
 			},
 		},
 	}
@@ -272,14 +272,13 @@ func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_DefaultFallbackProfiles(t *testing.T) {
+func TestResolveRoute_RouteLocalFallbackProfiles(t *testing.T) {
 	values := RuntimeValues{
 		Provider:          "openai",
 		Endpoint:          "https://api.openai.com",
 		APIKey:            "base-key",
 		Model:             "gpt-5.2",
 		RequestTimeoutRaw: "90s",
-		FallbackProfiles:  []string{"cheap", "reasoning", "cheap"},
 		Profiles: map[string]ProfileConfig{
 			"cheap": {
 				Model: "gpt-4.1-mini",
@@ -288,6 +287,13 @@ func TestResolveRoute_DefaultFallbackProfiles(t *testing.T) {
 				Provider: "xai",
 				Model:    "grok-4.1-fast-reasoning",
 				APIKey:   "xai-key",
+			},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				MainLoop: RoutePolicyConfig{
+					FallbackProfiles: []string{"cheap", "reasoning", "cheap"},
+				},
 			},
 		},
 	}
@@ -326,7 +332,7 @@ func TestResolveRoute_ProfileAPIKeyOverride(t *testing.T) {
 		},
 		Routes: RoutesConfig{
 			PurposeRoutes: PurposeRoutes{
-				PlanCreate: "reasoning",
+				PlanCreate: RoutePolicyConfig{Profile: "reasoning"},
 			},
 		},
 	}
@@ -367,7 +373,7 @@ func TestResolveRoute_MissingProfile(t *testing.T) {
 		Model:    "gpt-5.2",
 		Routes: RoutesConfig{
 			PurposeRoutes: PurposeRoutes{
-				PlanCreate: "reasoning",
+				PlanCreate: RoutePolicyConfig{Profile: "reasoning"},
 			},
 		},
 	}
@@ -380,11 +386,17 @@ func TestResolveRoute_MissingProfile(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_InvalidFallbackProfile(t *testing.T) {
+func TestResolveRoute_InvalidRouteFallbackProfile(t *testing.T) {
 	values := RuntimeValues{
-		Provider:         "openai",
-		Model:            "gpt-5.2",
-		FallbackProfiles: []string{"missing"},
+		Provider: "openai",
+		Model:    "gpt-5.2",
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				MainLoop: RoutePolicyConfig{
+					FallbackProfiles: []string{"missing"},
+				},
+			},
+		},
 	}
 	_, err := ResolveRoute(values, RoutePurposeMainLoop)
 	if err == nil {
@@ -395,18 +407,39 @@ func TestResolveRoute_InvalidFallbackProfile(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_DefaultCannotBeFallbackProfile(t *testing.T) {
+func TestResolveRoute_FallbackDedupesPrimaryAndCandidates(t *testing.T) {
 	values := RuntimeValues{
-		Provider:         "openai",
-		Model:            "gpt-5.2",
-		FallbackProfiles: []string{"default"},
+		Provider: "openai",
+		Model:    "gpt-5.2",
+		Profiles: map[string]ProfileConfig{
+			"cheap": {
+				Model: "gpt-4.1-mini",
+			},
+			"reasoning": {
+				Model: "grok-4.1-fast-reasoning",
+			},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				MainLoop: RoutePolicyConfig{
+					Candidates: []RouteCandidateConfig{
+						{Profile: "default", Weight: 1},
+						{Profile: "cheap", Weight: 1},
+					},
+					FallbackProfiles: []string{"default", "cheap", "reasoning"},
+				},
+			},
+		},
 	}
-	_, err := ResolveRoute(values, RoutePurposeMainLoop)
-	if err == nil {
-		t.Fatalf("expected default fallback profile error")
+	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "llm.fallback_profiles") {
-		t.Fatalf("unexpected error: %v", err)
+	if got := len(resolved.Fallbacks); got != 1 {
+		t.Fatalf("fallback count = %d, want 1", got)
+	}
+	if resolved.Fallbacks[0].Profile != "reasoning" {
+		t.Fatalf("fallback[0].profile = %q, want reasoning", resolved.Fallbacks[0].Profile)
 	}
 }
 
@@ -430,12 +463,17 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		},
 	})
 	v.Set("llm.routes", map[string]any{
-		"main_loop":    "default",
+		"main_loop": map[string]any{
+			"candidates": []map[string]any{
+				{"profile": "default", "weight": 1},
+				{"profile": "cheap", "weight": 1},
+			},
+			"fallback_profiles": []string{"reasoning"},
+		},
 		"addressing":   "cheap",
 		"plan_create":  "reasoning",
-		"memory_draft": "cheap",
+		"memory_draft": map[string]any{"profile": "cheap"},
 	})
-	v.Set("llm.fallback_profiles", []string{"cheap", "reasoning"})
 
 	values := RuntimeValuesFromReader(v)
 	if values.Profiles["cheap"].Model != "gpt-4.1-mini" {
@@ -447,19 +485,16 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.Profiles["reasoning"].APIKey != "xai-key" {
 		t.Fatalf("reasoning api key = %q, want xai-key", values.Profiles["reasoning"].APIKey)
 	}
-	if values.Routes.Addressing != "cheap" {
-		t.Fatalf("addressing route = %q, want cheap", values.Routes.Addressing)
+	if values.Routes.Addressing.Profile != "cheap" {
+		t.Fatalf("addressing route profile = %q, want cheap", values.Routes.Addressing.Profile)
 	}
-	if values.Routes.MainLoop != "default" {
-		t.Fatalf("main loop route = %q, want default", values.Routes.MainLoop)
+	if len(values.Routes.MainLoop.Candidates) != 2 {
+		t.Fatalf("main loop candidate count = %d, want 2", len(values.Routes.MainLoop.Candidates))
 	}
-	if values.Routes.MemoryDraft != "cheap" {
-		t.Fatalf("memory draft route = %q, want cheap", values.Routes.MemoryDraft)
+	if values.Routes.MainLoop.FallbackProfiles[0] != "reasoning" {
+		t.Fatalf("main loop fallback = %#v, want [reasoning]", values.Routes.MainLoop.FallbackProfiles)
 	}
-	if got := len(values.FallbackProfiles); got != 2 {
-		t.Fatalf("fallback profiles count = %d, want 2", got)
-	}
-	if values.FallbackProfiles[0] != "cheap" || values.FallbackProfiles[1] != "reasoning" {
-		t.Fatalf("fallback profiles = %#v, want [cheap reasoning]", values.FallbackProfiles)
+	if values.Routes.MemoryDraft.Profile != "cheap" {
+		t.Fatalf("memory draft route profile = %q, want cheap", values.Routes.MemoryDraft.Profile)
 	}
 }

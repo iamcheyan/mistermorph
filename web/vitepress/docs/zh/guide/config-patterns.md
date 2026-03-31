@@ -16,10 +16,16 @@ llm:
     backup:
       provider: xai
       model: grok-4.1-fast-reasoning
-  fallback_profiles: [cheap, backup]
   routes:
-    main_loop: default
-    addressing: cheap
+    main_loop:
+      candidates:
+        - profile: default
+          weight: 1
+        - profile: cheap
+          weight: 1
+      fallback_profiles: [backup]
+    addressing:
+      profile: cheap
     heartbeat: cheap
 ```
 

@@ -2,6 +2,7 @@ package llmutil
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -42,16 +43,35 @@ type ProfileConfig struct {
 	} `mapstructure:"cloudflare"`
 }
 
+type RouteCandidateConfig struct {
+	Profile string `mapstructure:"profile"`
+	Weight  int    `mapstructure:"weight"`
+}
+
+type RoutePolicyConfig struct {
+	Profile          string                 `mapstructure:"profile"`
+	Candidates       []RouteCandidateConfig `mapstructure:"candidates"`
+	FallbackProfiles []string               `mapstructure:"fallback_profiles"`
+}
+
 type PurposeRoutes struct {
-	MainLoop    string `mapstructure:"main_loop"`
-	Addressing  string `mapstructure:"addressing"`
-	Heartbeat   string `mapstructure:"heartbeat"`
-	PlanCreate  string `mapstructure:"plan_create"`
-	MemoryDraft string `mapstructure:"memory_draft"`
+	MainLoop    RoutePolicyConfig `mapstructure:"main_loop"`
+	Addressing  RoutePolicyConfig `mapstructure:"addressing"`
+	Heartbeat   RoutePolicyConfig `mapstructure:"heartbeat"`
+	PlanCreate  RoutePolicyConfig `mapstructure:"plan_create"`
+	MemoryDraft RoutePolicyConfig `mapstructure:"memory_draft"`
 }
 
 type RoutesConfig struct {
 	PurposeRoutes `mapstructure:",squash"`
+	ParseErr      error `mapstructure:"-"`
+}
+
+type ResolvedCandidate struct {
+	Profile      string
+	Values       RuntimeValues
+	ClientConfig llmconfig.ClientConfig
+	Weight       int
 }
 
 type ResolvedFallback struct {
@@ -62,13 +82,18 @@ type ResolvedFallback struct {
 
 type ResolvedRoute struct {
 	Purpose      string
+	Identity     string
 	Profile      string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
+	Candidates   []ResolvedCandidate
 	Fallbacks    []ResolvedFallback
 }
 
 func (r ResolvedRoute) SameProfile(other ResolvedRoute) bool {
+	if strings.TrimSpace(r.Identity) != "" || strings.TrimSpace(other.Identity) != "" {
+		return strings.TrimSpace(r.Identity) == strings.TrimSpace(other.Identity)
+	}
 	return strings.TrimSpace(r.Profile) == strings.TrimSpace(other.Profile)
 }
 
@@ -77,11 +102,40 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 	if !isSupportedRoutePurpose(purpose) {
 		return ResolvedRoute{}, fmt.Errorf("unsupported llm route purpose %q", strings.TrimSpace(purpose))
 	}
-	profileName := resolveRouteProfile(values.Routes, purpose)
+	if values.Routes.ParseErr != nil {
+		return ResolvedRoute{}, values.Routes.ParseErr
+	}
+
+	policy := resolveRoutePolicy(values.Routes, purpose)
+	if err := validateRoutePolicy(policy, purpose); err != nil {
+		return ResolvedRoute{}, err
+	}
+
+	if len(policy.Candidates) > 0 {
+		candidates, err := resolveRouteCandidates(values, policy.Candidates, purpose)
+		if err != nil {
+			return ResolvedRoute{}, err
+		}
+		primary := displayCandidate(candidates)
+		fallbacks, err := resolveFallbacks(values, policy.FallbackProfiles, candidateProfiles(candidates))
+		if err != nil {
+			return ResolvedRoute{}, err
+		}
+		return ResolvedRoute{
+			Purpose:      purpose,
+			Identity:     routePolicyIdentity(policy),
+			Profile:      primary.Profile,
+			Values:       primary.Values,
+			ClientConfig: primary.ClientConfig,
+			Candidates:   candidates,
+			Fallbacks:    fallbacks,
+		}, nil
+	}
+
+	profileName := strings.TrimSpace(policy.Profile)
 	if profileName == "" {
 		profileName = RouteProfileDefault
 	}
-
 	resolvedValues, err := resolveProfileValues(values, profileName)
 	if err != nil {
 		return ResolvedRoute{}, err
@@ -90,12 +144,13 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 	if err != nil {
 		return ResolvedRoute{}, err
 	}
-	fallbacks, err := resolveFallbacks(values, profileName)
+	fallbacks, err := resolveFallbacks(values, policy.FallbackProfiles, []string{profileName})
 	if err != nil {
 		return ResolvedRoute{}, err
 	}
 	return ResolvedRoute{
 		Purpose:      purpose,
+		Identity:     routePolicyIdentity(policy),
 		Profile:      profileName,
 		Values:       resolvedValues,
 		ClientConfig: cfg,
@@ -123,8 +178,14 @@ func loadLLMProfilesFromReader(r ConfigReader) map[string]ProfileConfig {
 }
 
 func loadLLMRoutesFromReader(r ConfigReader) RoutesConfig {
-	var routes RoutesConfig
-	_ = unmarshalKey(r, "llm.routes", &routes)
+	raw := map[string]any{}
+	if err := unmarshalKey(r, "llm.routes", &raw); err != nil || len(raw) == 0 {
+		return RoutesConfig{}
+	}
+	routes, err := parseRoutesConfig(raw)
+	if err != nil {
+		return RoutesConfig{ParseErr: err}
+	}
 	return normalizeRoutesConfig(routes)
 }
 
@@ -170,32 +231,48 @@ func normalizeRoutesConfig(cfg RoutesConfig) RoutesConfig {
 }
 
 func normalizePurposeRoutes(cfg PurposeRoutes) PurposeRoutes {
-	cfg.MainLoop = strings.TrimSpace(cfg.MainLoop)
-	cfg.Addressing = strings.TrimSpace(cfg.Addressing)
-	cfg.Heartbeat = strings.TrimSpace(cfg.Heartbeat)
-	cfg.PlanCreate = strings.TrimSpace(cfg.PlanCreate)
-	cfg.MemoryDraft = strings.TrimSpace(cfg.MemoryDraft)
+	cfg.MainLoop = normalizeRoutePolicy(cfg.MainLoop)
+	cfg.Addressing = normalizeRoutePolicy(cfg.Addressing)
+	cfg.Heartbeat = normalizeRoutePolicy(cfg.Heartbeat)
+	cfg.PlanCreate = normalizeRoutePolicy(cfg.PlanCreate)
+	cfg.MemoryDraft = normalizeRoutePolicy(cfg.MemoryDraft)
 	return cfg
 }
 
-func resolveRouteProfile(routes RoutesConfig, purpose string) string {
+func normalizeRoutePolicy(cfg RoutePolicyConfig) RoutePolicyConfig {
+	cfg.Profile = strings.TrimSpace(cfg.Profile)
+	cfg.FallbackProfiles = normalizeProfileNames(cfg.FallbackProfiles)
+	if len(cfg.Candidates) == 0 {
+		cfg.Candidates = nil
+		return cfg
+	}
+	out := make([]RouteCandidateConfig, 0, len(cfg.Candidates))
+	for _, candidate := range cfg.Candidates {
+		candidate.Profile = strings.TrimSpace(candidate.Profile)
+		out = append(out, candidate)
+	}
+	cfg.Candidates = out
+	return cfg
+}
+
+func resolveRoutePolicy(routes RoutesConfig, purpose string) RoutePolicyConfig {
 	return routeTargetForPurpose(routes.PurposeRoutes, purpose)
 }
 
-func routeTargetForPurpose(routes PurposeRoutes, purpose string) string {
+func routeTargetForPurpose(routes PurposeRoutes, purpose string) RoutePolicyConfig {
 	switch purpose {
 	case RoutePurposeMainLoop:
-		return strings.TrimSpace(routes.MainLoop)
+		return routes.MainLoop
 	case RoutePurposeAddressing:
-		return strings.TrimSpace(routes.Addressing)
+		return routes.Addressing
 	case RoutePurposeHeartbeat:
-		return strings.TrimSpace(routes.Heartbeat)
+		return routes.Heartbeat
 	case RoutePurposePlanCreate:
-		return strings.TrimSpace(routes.PlanCreate)
+		return routes.PlanCreate
 	case RoutePurposeMemoryDraft:
-		return strings.TrimSpace(routes.MemoryDraft)
+		return routes.MemoryDraft
 	default:
-		return ""
+		return RoutePolicyConfig{}
 	}
 }
 
@@ -216,7 +293,6 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 	out := values
 	out.Profiles = nil
 	out.Routes = RoutesConfig{}
-	out.FallbackProfiles = nil
 	return out
 }
 
@@ -277,19 +353,20 @@ func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) 
 	}, nil
 }
 
-func resolveFallbacks(values RuntimeValues, routeProfile string) ([]ResolvedFallback, error) {
-	if routeProfile != "" && routeProfile != RouteProfileDefault {
-		return nil, nil
-	}
-	names := normalizeProfileNames(values.FallbackProfiles)
+func resolveFallbacks(values RuntimeValues, names []string, excludedProfiles []string) ([]ResolvedFallback, error) {
+	names = normalizeProfileNames(names)
 	if len(names) == 0 {
 		return nil, nil
+	}
+	excluded := make(map[string]struct{}, len(excludedProfiles))
+	for _, profile := range normalizeProfileNames(excludedProfiles) {
+		excluded[profile] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(names))
 	out := make([]ResolvedFallback, 0, len(names))
 	for _, name := range names {
-		if name == RouteProfileDefault {
-			return nil, fmt.Errorf("llm.fallback_profiles cannot include %q", RouteProfileDefault)
+		if _, skip := excluded[name]; skip {
+			continue
 		}
 		if _, ok := seen[name]; ok {
 			continue
@@ -315,6 +392,42 @@ func resolveFallbacks(values RuntimeValues, routeProfile string) ([]ResolvedFall
 	return out, nil
 }
 
+func resolveRouteCandidates(values RuntimeValues, cfgs []RouteCandidateConfig, purpose string) ([]ResolvedCandidate, error) {
+	if len(cfgs) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(cfgs))
+	out := make([]ResolvedCandidate, 0, len(cfgs))
+	for idx, candidate := range cfgs {
+		profileName := strings.TrimSpace(candidate.Profile)
+		if profileName == "" {
+			return nil, fmt.Errorf("llm.routes.%s.candidates[%d].profile is required", purpose, idx)
+		}
+		if candidate.Weight <= 0 {
+			return nil, fmt.Errorf("llm.routes.%s.candidates[%d].weight must be > 0", purpose, idx)
+		}
+		if _, ok := seen[profileName]; ok {
+			return nil, fmt.Errorf("llm.routes.%s.candidates[%d].profile %q is duplicated", purpose, idx, profileName)
+		}
+		seen[profileName] = struct{}{}
+		resolvedValues, err := resolveProfileValues(values, profileName)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := resolvedClientConfig(resolvedValues)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ResolvedCandidate{
+			Profile:      profileName,
+			Values:       resolvedValues,
+			ClientConfig: cfg,
+			Weight:       candidate.Weight,
+		})
+	}
+	return out, nil
+}
+
 func normalizeProfileNames(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -327,6 +440,241 @@ func normalizeProfileNames(values []string) []string {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func validateRoutePolicy(policy RoutePolicyConfig, purpose string) error {
+	if strings.TrimSpace(policy.Profile) != "" && len(policy.Candidates) > 0 {
+		return fmt.Errorf("llm.routes.%s cannot set both profile and candidates", purpose)
+	}
+	return nil
+}
+
+func candidateProfiles(candidates []ResolvedCandidate) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if profile := strings.TrimSpace(candidate.Profile); profile != "" {
+			out = append(out, profile)
+		}
+	}
+	return out
+}
+
+func displayCandidate(candidates []ResolvedCandidate) ResolvedCandidate {
+	if len(candidates) == 0 {
+		return ResolvedCandidate{}
+	}
+	for _, candidate := range candidates {
+		if candidate.Profile == RouteProfileDefault {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
+func routePolicyIdentity(policy RoutePolicyConfig) string {
+	parts := make([]string, 0, 1+len(policy.Candidates)+len(policy.FallbackProfiles))
+	if profile := strings.TrimSpace(policy.Profile); profile != "" {
+		parts = append(parts, "profile="+profile)
+	}
+	if len(policy.Candidates) > 0 {
+		candidateParts := make([]string, 0, len(policy.Candidates))
+		for _, candidate := range policy.Candidates {
+			candidateParts = append(candidateParts, strings.TrimSpace(candidate.Profile)+"="+strconv.Itoa(candidate.Weight))
+		}
+		parts = append(parts, "candidates="+strings.Join(candidateParts, ","))
+	}
+	if len(policy.FallbackProfiles) > 0 {
+		parts = append(parts, "fallbacks="+strings.Join(policy.FallbackProfiles, ","))
+	}
+	if len(parts) == 0 {
+		return "profile=" + RouteProfileDefault
+	}
+	return strings.Join(parts, "|")
+}
+
+func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
+	mainLoop, err := parseRoutePolicyValue(raw[RoutePurposeMainLoop], "llm.routes."+RoutePurposeMainLoop)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
+	addressing, err := parseRoutePolicyValue(raw[RoutePurposeAddressing], "llm.routes."+RoutePurposeAddressing)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
+	heartbeat, err := parseRoutePolicyValue(raw[RoutePurposeHeartbeat], "llm.routes."+RoutePurposeHeartbeat)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
+	planCreate, err := parseRoutePolicyValue(raw[RoutePurposePlanCreate], "llm.routes."+RoutePurposePlanCreate)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
+	memoryDraft, err := parseRoutePolicyValue(raw[RoutePurposeMemoryDraft], "llm.routes."+RoutePurposeMemoryDraft)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
+	return RoutesConfig{
+		PurposeRoutes: PurposeRoutes{
+			MainLoop:    mainLoop,
+			Addressing:  addressing,
+			Heartbeat:   heartbeat,
+			PlanCreate:  planCreate,
+			MemoryDraft: memoryDraft,
+		},
+	}, nil
+}
+
+func parseRoutePolicyValue(raw any, path string) (RoutePolicyConfig, error) {
+	switch value := raw.(type) {
+	case nil:
+		return RoutePolicyConfig{}, nil
+	case string:
+		return RoutePolicyConfig{Profile: strings.TrimSpace(value)}, nil
+	case map[string]any:
+		return parseRoutePolicyMap(value, path)
+	case map[any]any:
+		return parseRoutePolicyMap(normalizeStringAnyMap(value), path)
+	default:
+		return RoutePolicyConfig{}, fmt.Errorf("%s must be a string or object", path)
+	}
+}
+
+func parseRoutePolicyMap(raw map[string]any, path string) (RoutePolicyConfig, error) {
+	profile, err := stringValue(raw["profile"], path+".profile")
+	if err != nil {
+		return RoutePolicyConfig{}, err
+	}
+	fallbacks, err := stringSliceValue(raw["fallback_profiles"], path+".fallback_profiles")
+	if err != nil {
+		return RoutePolicyConfig{}, err
+	}
+	candidates, err := candidateConfigsValue(raw["candidates"], path+".candidates")
+	if err != nil {
+		return RoutePolicyConfig{}, err
+	}
+	return RoutePolicyConfig{
+		Profile:          profile,
+		Candidates:       candidates,
+		FallbackProfiles: fallbacks,
+	}, nil
+}
+
+func candidateConfigsValue(raw any, path string) ([]RouteCandidateConfig, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var items []any
+	switch value := raw.(type) {
+	case []any:
+		items = value
+	case []map[string]any:
+		items = make([]any, 0, len(value))
+		for _, item := range value {
+			items = append(items, item)
+		}
+	case []map[any]any:
+		items = make([]any, 0, len(value))
+		for _, item := range value {
+			items = append(items, item)
+		}
+	default:
+		return nil, fmt.Errorf("%s must be a list", path)
+	}
+	out := make([]RouteCandidateConfig, 0, len(items))
+	for idx, item := range items {
+		var m map[string]any
+		switch value := item.(type) {
+		case map[string]any:
+			m = value
+		case map[any]any:
+			m = normalizeStringAnyMap(value)
+		default:
+			return nil, fmt.Errorf("%s[%d] must be an object", path, idx)
+		}
+		profile, err := stringValue(m["profile"], fmt.Sprintf("%s[%d].profile", path, idx))
+		if err != nil {
+			return nil, err
+		}
+		weight, err := intValue(m["weight"])
+		if err != nil {
+			return nil, fmt.Errorf("%s[%d].weight is invalid", path, idx)
+		}
+		out = append(out, RouteCandidateConfig{
+			Profile: profile,
+			Weight:  weight,
+		})
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func stringValue(raw any, path string) (string, error) {
+	switch value := raw.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return strings.TrimSpace(value), nil
+	default:
+		return "", fmt.Errorf("%s must be a string", path)
+	}
+}
+
+func stringSliceValue(raw any, path string) ([]string, error) {
+	switch value := raw.(type) {
+	case nil:
+		return nil, nil
+	case []string:
+		return normalizeProfileNames(value), nil
+	case []any:
+		out := make([]string, 0, len(value))
+		for idx, item := range value {
+			s, err := stringValue(item, fmt.Sprintf("%s[%d]", path, idx))
+			if err != nil {
+				return nil, err
+			}
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return normalizeProfileNames(out), nil
+	default:
+		return nil, fmt.Errorf("%s must be a list", path)
+	}
+}
+
+func intValue(raw any) (int, error) {
+	switch value := raw.(type) {
+	case int:
+		return value, nil
+	case int64:
+		return int(value), nil
+	case float64:
+		return int(value), nil
+	case string:
+		return strconv.Atoi(strings.TrimSpace(value))
+	default:
+		return 0, fmt.Errorf("invalid int value")
+	}
+}
+
+func normalizeStringAnyMap(raw map[any]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(raw))
+	for key, value := range raw {
+		k, ok := key.(string)
+		if !ok {
+			continue
+		}
+		out[k] = value
 	}
 	return out
 }

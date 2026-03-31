@@ -3,9 +3,11 @@ package llmutil
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -306,5 +308,156 @@ func TestBuildRouteClientBuildsPrimaryAndFallbackClients(t *testing.T) {
 	}
 	if len(wrapCalls) != 2 {
 		t.Fatalf("wrap calls = %d, want 2", len(wrapCalls))
+	}
+}
+
+func TestBuildRouteClientWeightedCandidatesStickPerRun(t *testing.T) {
+	client, err := BuildRouteClient(
+		ResolvedRoute{
+			Identity: "candidates=default=1,cheap=1",
+			Candidates: []ResolvedCandidate{
+				{
+					Profile: "default",
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "openai",
+						Model:    "gpt-5.2",
+					},
+					Weight: 1,
+				},
+				{
+					Profile: "cheap",
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "openai",
+						Model:    "gpt-4.1-mini",
+					},
+					Weight: 1,
+				},
+			},
+		},
+		nil,
+		func(cfg llmconfig.ClientConfig, _ RuntimeValues) (llm.Client, error) {
+			return &testLLMClient{
+				chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+					return llm.Result{Text: req.Model}, nil
+				},
+			}, nil
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("BuildRouteClient() error = %v", err)
+	}
+
+	ctxA := llmstats.WithRunID(context.Background(), "run-a")
+	first, err := client.Chat(ctxA, llm.Request{Scene: "runtime.loop"})
+	if err != nil {
+		t.Fatalf("first Chat() error = %v", err)
+	}
+	second, err := client.Chat(ctxA, llm.Request{Scene: "runtime.loop"})
+	if err != nil {
+		t.Fatalf("second Chat() error = %v", err)
+	}
+	if first.Text != second.Text {
+		t.Fatalf("same run selected different models: first=%q second=%q", first.Text, second.Text)
+	}
+	if first.Text != "gpt-5.2" && first.Text != "gpt-4.1-mini" {
+		t.Fatalf("unexpected selected model %q", first.Text)
+	}
+
+	foundDifferent := false
+	for i := 0; i < 128; i++ {
+		ctx := llmstats.WithRunID(context.Background(), fmt.Sprintf("run-%d", i))
+		got, err := client.Chat(ctx, llm.Request{Scene: "runtime.loop"})
+		if err != nil {
+			t.Fatalf("Chat(run-%d) error = %v", i, err)
+		}
+		if got.Text != first.Text {
+			foundDifferent = true
+			break
+		}
+	}
+	if !foundDifferent {
+		t.Fatal("weighted candidates never selected an alternate profile across sampled run IDs")
+	}
+}
+
+func TestBuildRouteClientWeightedCandidatesThenRouteFallbacks(t *testing.T) {
+	requestModels := make([]string, 0, 3)
+	client, err := BuildRouteClient(
+		ResolvedRoute{
+			Identity: "candidates=default=1,cheap=1|fallbacks=reasoning",
+			Candidates: []ResolvedCandidate{
+				{
+					Profile: "default",
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "openai",
+						Model:    "gpt-5.2",
+					},
+					Weight: 1,
+				},
+				{
+					Profile: "cheap",
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "openai",
+						Model:    "gpt-4.1-mini",
+					},
+					Weight: 1,
+				},
+			},
+			Fallbacks: []ResolvedFallback{
+				{
+					Profile: "reasoning",
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "xai",
+						Model:    "grok-4.1-fast-reasoning",
+					},
+				},
+			},
+		},
+		nil,
+		func(cfg llmconfig.ClientConfig, _ RuntimeValues) (llm.Client, error) {
+			switch cfg.Model {
+			case "gpt-5.2", "gpt-4.1-mini":
+				return &testLLMClient{
+					chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+						requestModels = append(requestModels, req.Model)
+						return llm.Result{}, errors.New("openai API request failed with status 429: too many requests")
+					},
+				}, nil
+			case "grok-4.1-fast-reasoning":
+				return &testLLMClient{
+					chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+						requestModels = append(requestModels, req.Model)
+						return llm.Result{Text: req.Model}, nil
+					},
+				}, nil
+			default:
+				t.Fatalf("unexpected build model %q", cfg.Model)
+				return nil, nil
+			}
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("BuildRouteClient() error = %v", err)
+	}
+
+	result, err := client.Chat(llmstats.WithRunID(context.Background(), "route-fallback"), llm.Request{Scene: "runtime.loop"})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if result.Text != "grok-4.1-fast-reasoning" {
+		t.Fatalf("result text = %q, want grok-4.1-fast-reasoning", result.Text)
+	}
+	if len(requestModels) != 3 {
+		t.Fatalf("request models = %#v, want 3 attempts", requestModels)
+	}
+	if requestModels[2] != "grok-4.1-fast-reasoning" {
+		t.Fatalf("final fallback model = %q, want grok-4.1-fast-reasoning", requestModels[2])
+	}
+	if requestModels[0] == requestModels[1] {
+		t.Fatalf("candidate retry order = %#v, want primary then alternate candidate", requestModels)
 	}
 }

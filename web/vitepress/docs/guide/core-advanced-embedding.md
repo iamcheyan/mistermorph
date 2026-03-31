@@ -33,6 +33,15 @@ cfg := integration.DefaultConfig()
 cfg.Set("llm.provider", "openai")
 cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
+cfg.Set("llm.routes", map[string]any{
+  "main_loop": map[string]any{
+    "candidates": []map[string]any{
+      {"profile": "default", "weight": 1},
+      {"profile": "cheap", "weight": 1},
+    },
+    "fallback_profiles": []string{"reasoning"},
+  },
+})
 cfg.Features.Skills = true
 cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
 cfg.AddPromptBlock(`[[ Project Policy ]]
@@ -172,6 +181,16 @@ cfg.Inspect.Prompt = true
 cfg.Inspect.Request = true
 cfg.Inspect.DumpDir = "./dump"
 ```
+
+## Route Policies
+
+`integration.Config.Set(...)` can configure the same route policies used by first-party runtimes.
+
+- fixed route: `plan_create: "reasoning"`
+- weighted split: `main_loop.candidates`
+- route-local fallback: `main_loop.fallback_profiles`
+
+One candidate is selected once for the current run and reused for that run's LLM calls.
 
 ## Telegram Channel Integration (Advanced)
 

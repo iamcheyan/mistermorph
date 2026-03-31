@@ -28,7 +28,6 @@ type RuntimeValues struct {
 	TemperatureRaw     string `config:"llm.temperature"`
 	ReasoningEffortRaw string `config:"llm.reasoning_effort"`
 	ReasoningBudgetRaw string `config:"llm.reasoning_budget_tokens"`
-	FallbackProfiles   []string
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
@@ -55,7 +54,6 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
 		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
 		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		FallbackProfiles:    loadStringSliceKeyFromReader(r, "llm.fallback_profiles"),
 		Profiles:            loadLLMProfilesFromReader(r),
 		Routes:              loadLLMRoutesFromReader(r),
 		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
@@ -174,6 +172,9 @@ type ClientWrapFunc func(client llm.Client, cfg llmconfig.ClientConfig, profile 
 func BuildRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConfig, build BaseClientBuilder, wrap ClientWrapFunc, logger *slog.Logger) (llm.Client, error) {
 	if build == nil {
 		return nil, fmt.Errorf("base client builder is nil")
+	}
+	if len(route.Candidates) > 0 {
+		return buildWeightedRouteClient(route, primaryOverride, build, wrap, logger)
 	}
 	primaryCfg := route.ClientConfig
 	if primaryOverride != nil {

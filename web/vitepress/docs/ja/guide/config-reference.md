@@ -32,12 +32,11 @@ description: config.yaml の完全フィールドマップ。
 - `llm.cloudflare.account_id`
 - `llm.cloudflare.api_token`
 - `llm.profiles.<profile>.*`
-- `llm.fallback_profiles[]`（暗黙の default profile が一時エラー `timeout` / `429` / `529` を返した時の順序付きフォールバック）
-- `llm.routes.main_loop`
-- `llm.routes.addressing`
-- `llm.routes.heartbeat`
-- `llm.routes.plan_create`
-- `llm.routes.memory_draft`
+- `llm.routes.<purpose>`（`main_loop|addressing|heartbeat|plan_create|memory_draft`）
+- `llm.routes.<purpose>.profile`
+- `llm.routes.<purpose>.candidates[].profile`
+- `llm.routes.<purpose>.candidates[].weight`
+- `llm.routes.<purpose>.fallback_profiles[]`
 
 ## Multimodal
 
