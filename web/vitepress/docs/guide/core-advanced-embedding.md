@@ -1,77 +1,84 @@
 ---
-title: Advanced Core Embedding
-description: "Integration runtime capabilities: config, registry, run engine, and channel runners."
+title: "Create Your Own AI Agent: Advanced"
+description: Focuses on integration.Config, custom tools, run modes, and channel integration.
 ---
 
-# Advanced Core Embedding
+# Create Your Own AI Agent: Advanced
 
-This page only covers capabilities provided by the `integration` package.
+## Config Layer
 
-## What `integration` Provides
+`integration.Config` is the only explicit config entry point in the `integration` package.
 
-- `integration.DefaultConfig()` / `integration.Config.Set(...)`
-- `integration.Config.AddPromptBlock(...)`
-- `integration.New(cfg)`
-- `rt.NewRegistry()`
-- `rt.NewRunEngine(...)`
-- `rt.NewRunEngineWithRegistry(...)`
-- `rt.RunTask(...)`
-- `rt.RequestTimeout()`
-- `rt.NewTelegramBot(...)`
-- `rt.NewSlackBot(...)`
+Your host program can read environment variables, config files, or a database, write the final values into `Config`, then pass it to `integration.New(cfg)`.
 
-## Config Layer (Inside `integration.Config`)
-
-- `Overrides` + `Set(key, value)`: override Viper keys.
-- `Features`: toggle built-in runtime wiring (`PlanTool`, `Guard`, `Skills`).
-- `BuiltinToolNames`: built-in tool whitelist (empty = all built-ins).
-- `AddPromptBlock(...)`: append static prompt blocks under system prompt `Additional Policies`.
-- `Inspect`: prompt/request dump behavior.
+### Example
 
 ```go
 cfg := integration.DefaultConfig()
 cfg.Set("llm.provider", "openai")
 cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
-cfg.Set("llm.routes", map[string]any{
-  "main_loop": map[string]any{
-    "candidates": []map[string]any{
-      {"profile": "default", "weight": 1},
-      {"profile": "cheap", "weight": 1},
-    },
-    "fallback_profiles": []string{"reasoning"},
-  },
-})
-cfg.Features.Skills = true
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
-cfg.AddPromptBlock(`[[ Project Policy ]]
-- Keep answers under 3 sentences unless detail is requested.`)
 ```
 
-## Prompt Blocks
+### Override Defaults
 
-Use `cfg.AddPromptBlock(...)` when you want integration-level prompt customization without moving to `agent.New(...)`.
+Mister Morph itself supports CLI flags, environment variables, and `config.yaml`.
+As an embedding user, you can use any configuration source you prefer, then call `Set(key, value)` to override any default value. Any field from `config.yaml` can be set this way. See [Config Fields Reference](/guide/config-reference).
+
+### Feature Toggles
+
+`Features.*` controls optional runtime features. The current toggles are:
+
+- `PlanTool`: whether to register the runtime helper tool `plan_create`.
+- `Guard`: whether to inject guard into the runtime.
+- `Skills`: whether to enable skill loading during prompt construction.
+
+### Built-in Tools
+
+`BuiltinToolNames` controls which built-in tools are enabled. Leave it empty to include all built-ins.
+
+### Custom Prompt
+
+If you want prompt customization at the `integration` layer, use `cfg.AddPromptBlock(...)`.
+
+These blocks are appended to the end of the system prompt automatically.
+
+### Inspectors
+
+Mister Morph provides inspector options so you can inspect lower-level LLM behavior:
 
 ```go
-cfg := integration.DefaultConfig()
-cfg.AddPromptBlock(`[[ Tenant Policy ]]
-- Always include tenant_id when talking about external jobs.`)
-
-rt := integration.New(cfg)
+cfg.Inspect.Prompt = true
+cfg.Inspect.Request = true
+cfg.Inspect.DumpDir = "./dump"
 ```
 
-Configured blocks are applied to:
+This writes detailed prompt and request dumps into the dump directory.
 
-- one-shot runs via `NewRunEngine(...)`, `NewRunEngineWithRegistry(...)`, and `RunTask(...)`
-- channel runtimes created by `NewTelegramBot(...)` and `NewSlackBot(...)`
+### LLM Route Policies
 
-This is intentionally static per `integration.Runtime`. If you need task-by-task prompt changes, use the lower-level agent APIs.
+Similarly, you can override `llm.routes.*` to customize which LLM route is used by each purpose.
 
-## Registry and Custom Tools
+You can define multiple profiles under `llm.profiles`, then use a route like this to require one feature to use a specific profile:
 
-`integration` lets you extend runtime registry before engine creation.
+```go
+// Use the profile named reasoning when creating plans.
+cfg.Set("llm.routes.plan_create", "reasoning")
+```
 
-### Runnable Example (Custom Tool + integration Runtime)
+Full route rules and examples are documented separately in the runtime docs.
+
+### Config Snapshot
+
+Once configuration is complete, call `integration.New(cfg)` to snapshot the config and create the agent runtime.
+
+## Custom Tools
+
+If you want to keep the built-in tools wired by `integration` and also add your own tools, use the runtime method `rt.NewRegistry()` to create a tool registry.
+
+### Custom Tool Example
+
+The following example shows how to define an echo tool and register it with the agent:
 
 ```go
 package main
@@ -138,13 +145,20 @@ func main() {
     panic(err)
   }
 
-  fmt.Println(final.Output)
+  fmt.Println("Agent:", final.Output)
 }
 ```
 
-## Run APIs
+## Runtime Execution Modes
 
 ### Prepared Engine API
+
+Use this when you want lifecycle control, session reuse, explicit cleanup, or your own scheduling/orchestration layer.
+
+- Controlled lifecycle: you decide when to call `Cleanup()`.
+- Reusability: reuse the same `prepared.Engine` across multiple runs.
+- Per-run flexibility: each `Run` call can receive different `RunOptions` such as `History`, `Meta`, or `OnStream`.
+- Better orchestration: you can access both `prepared.Model` and `Engine` directly.
 
 ```go
 prepared, err := rt.NewRunEngine(context.Background(), task)
@@ -158,14 +172,9 @@ final, _, err := prepared.Engine.Run(context.Background(), task, agent.RunOption
 })
 ```
 
-#### Why Use Prepared Engine API
-
-- Controlled lifecycle: you decide exactly when to call `Cleanup()`.
-- Reusability: reuse the same `prepared.Engine` for multiple runs.
-- Per-run flexibility: pass different `RunOptions` on each run.
-- Better orchestration: direct access to `prepared.Model` and `Engine` for your session/scheduler layer.
-
 ### Convenience API
+
+This is a good fit for one-shot tasks. If you need a custom registry, engine reuse, or explicit lifecycle control, prefer `PreparedRun`.
 
 ```go
 final, runCtx, err := rt.RunTask(context.Background(), task, agent.RunOptions{})
@@ -174,76 +183,20 @@ _ = runCtx
 _ = err
 ```
 
-## Inspect and Runtime Diagnostics
+## Channel Integration
 
-```go
-cfg.Inspect.Prompt = true
-cfg.Inspect.Request = true
-cfg.Inspect.DumpDir = "./dump"
-```
+Besides the Web UI, Mister Morph supports channels such as Telegram and Slack as conversation surfaces.
 
-## LLM Route Policies
+The integration path is straightforward:
 
-`integration.Config.Set(...)` can configure the same LLM route policies used by first-party runtimes.
-
-Route policy lives under `llm.routes.<purpose>`, where `purpose` can be:
-
-- `main_loop`
-- `addressing`
-- `heartbeat`
-- `plan_create`
-- `memory_draft`
-
-Each route can use one of these forms:
-
-- fixed profile: `plan_create: "reasoning"`
-- explicit object: `profile` + optional `fallback_profiles`
-- weighted split: `candidates` + optional `fallback_profiles`
-
-```go
-cfg := integration.DefaultConfig()
-cfg.Set("llm.profiles", map[string]any{
-  "cheap": map[string]any{
-    "model": "gpt-4.1-mini",
-  },
-  "reasoning": map[string]any{
-    "provider": "xai",
-    "model": "grok-4.1-fast-reasoning",
-    "api_key": os.Getenv("XAI_API_KEY"),
-  },
-})
-cfg.Set("llm.routes", map[string]any{
-  "main_loop": map[string]any{
-    "candidates": []map[string]any{
-      {"profile": "default", "weight": 1},
-      {"profile": "cheap", "weight": 1},
-    },
-    "fallback_profiles": []string{"reasoning"},
-  },
-  "plan_create": "reasoning",
-  "addressing": map[string]any{
-    "profile": "cheap",
-    "fallback_profiles": []string{"default"},
-  },
-})
-```
-
-Behavior:
-
-- `profile`: always use that one profile for the route.
-- `candidates`: select one primary candidate once for the current run, then reuse it for that run's LLM calls.
-- if the selected primary fails with a fallback-eligible error, the runtime tries the other route candidates first, then `fallback_profiles` in order.
-
-This applies to both `integration` and first-party runtimes, so the same config model works across embedded and built-in runtime entrypoints.
-
-## Telegram Channel Integration (Advanced)
+### Telegram
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
 _ = tg
 ```
 
-## Slack Channel Integration (Optional)
+### Slack
 
 ```go
 sl, _ := rt.NewSlackBot(integration.SlackOptions{
@@ -252,7 +205,3 @@ sl, _ := rt.NewSlackBot(integration.SlackOptions{
 })
 _ = sl
 ```
-
-## Out of Scope for This Page
-
-Low-level engine customization is documented in [Agent-Level Customization](/guide/agent-level-customization).

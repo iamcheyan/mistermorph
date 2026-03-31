@@ -12,7 +12,7 @@ description: より詳細な設計・実装文書への入口。
   - [クイックスタート（CLI）](/ja/guide/quickstart-cli)
 - 開発者（組み込み）
   - [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
-  - [Core 高度な組み込み](/ja/guide/core-advanced-embedding)
+  - [自分の AI Agent を作る：上級編](/ja/guide/core-advanced-embedding)
   - [Agent レイヤ拡張](/ja/guide/agent-level-customization)
 - Runtime
   - [Runtime モード](/ja/guide/runtime-modes)

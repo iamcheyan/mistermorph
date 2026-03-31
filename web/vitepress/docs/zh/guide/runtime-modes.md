@@ -29,6 +29,10 @@ mistermorph slack --log-level info
 mistermorph console serve
 ```
 
+## LLM 路由策略
+
+如果你想为 `main_loop`、`addressing`、`plan_create`、`heartbeat` 或 `memory_draft` 分别指定模型，见 [LLM 路由策略](/zh/guide/llm-routing)。
+
 ## 旧版守护进程（按需）
 
 ```bash

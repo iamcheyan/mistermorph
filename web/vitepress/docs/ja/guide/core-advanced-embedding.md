@@ -1,68 +1,84 @@
 ---
-title: Core 高度な組み込み
-description: integration パッケージの提供範囲のみを扱う（設定、レジストリ、実行、チャネルランナー）。
+title: 自分の AI Agent を作る：上級編
+description: integration.Config、カスタムツール、実行モード、チャネル接続に絞って説明する。
 ---
 
-# Core 高度な組み込み
+# 自分の AI Agent を作る：上級編
 
-このページは `integration` パッケージが直接提供する機能のみを扱います。
+## 設定レイヤ
 
-## `integration` が提供する機能
+`integration.Config` は `integration` パッケージにおける唯一の明示的な設定入口です。
 
-- `integration.DefaultConfig()` / `integration.Config.Set(...)`
-- `integration.Config.AddPromptBlock(...)`
-- `integration.New(cfg)`
-- `rt.NewRegistry()`
-- `rt.NewRunEngine(...)`
-- `rt.NewRunEngineWithRegistry(...)`
-- `rt.RunTask(...)`
-- `rt.RequestTimeout()`
-- `rt.NewTelegramBot(...)`
-- `rt.NewSlackBot(...)`
+ホストプログラム側で環境変数、設定ファイル、データベースなどを読み込み、最終的な値を `Config` に書き込んでから `integration.New(cfg)` に渡します。
 
-## 設定レイヤ（`integration.Config`）
-
-- `Overrides` + `Set(key, value)`: Viper キーを上書き。
-- `Features`: ランタイム機能注入の切り替え（`PlanTool` / `Guard` / `Skills`）。
-- `BuiltinToolNames`: 組み込みツールのホワイトリスト（空で全有効）。
-- `AddPromptBlock(...)`: system prompt の `Additional Policies` に静的 block を追加。
-- `Inspect`: Prompt/Request のダンプ制御。
+### 例
 
 ```go
 cfg := integration.DefaultConfig()
 cfg.Set("llm.provider", "openai")
 cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
-cfg.Features.Skills = true
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
-cfg.AddPromptBlock(`[[ Project Policy ]]
-- 詳細指定がない限り、回答は 3 文以内に保つ。`)
 ```
 
-## Prompt Block
+### デフォルト設定の上書き
 
-`agent.New(...)` まで下りずに integration 層で prompt を足したい場合は、`cfg.AddPromptBlock(...)` を使います。
+Mister Morph 自体は CLI 引数、環境変数、`config.yaml` で設定します。
+埋め込み側は好きな設定手段を使い、その最終値を `Set(key, value)` で上書きすれば十分です。`config.yaml` にある全フィールドをこの方法で設定できます。詳細は [設定フィールド一覧](/ja/guide/config-reference) を参照してください。
+
+### 機能フラグ
+
+`Features.*` は機能の ON/OFF に使います。現在使える項目は次の通りです。
+
+- `PlanTool`: runtime 補助ツール `plan_create` を登録するか。
+- `Guard`: runtime に guard を注入するか。
+- `Skills`: prompt 構築時に skills 読み込みを有効にするか。
+
+### 組み込みツール
+
+`BuiltinToolNames` で有効化する組み込みツールを指定します。空のままならすべて接続されます。
+
+### カスタム prompt
+
+`integration` 層で prompt を追加したい場合は `cfg.AddPromptBlock(...)` を使います。
+
+これらの block は system prompt の末尾に自動で追加されます。
+
+### インスペクタ
+
+Mister Morph には、LLM の下位挙動を確認するための inspector 設定があります。
 
 ```go
-cfg := integration.DefaultConfig()
-cfg.AddPromptBlock(`[[ Tenant Policy ]]
-- 外部ジョブを話題にするときは tenant_id を必ず含める。`)
-
-rt := integration.New(cfg)
+cfg.Inspect.Prompt = true
+cfg.Inspect.Request = true
+cfg.Inspect.DumpDir = "./dump"
 ```
 
-設定した block は次に適用されます。
+この設定で、prompt と request の詳細が dump ディレクトリに出力されます。
 
-- `NewRunEngine(...)`、`NewRunEngineWithRegistry(...)`、`RunTask(...)`
-- `NewTelegramBot(...)`、`NewSlackBot(...)`
+### LLM ルートポリシー
 
-これは `integration.Runtime` 単位の静的設定です。タスクごとに prompt を変えたい場合は、より低レベルの agent API を使ってください。
+同様に、`llm.routes.*` を上書きして用途ごとに異なる LLM ルートを設定できます。
 
-## レジストリとカスタムツール
+`llm.profiles` で複数 profile を定義しておけば、次のように特定の機能だけ特定 profile を使わせられます。
 
-エンジン作成前にツールレジストリを拡張できます。
+```go
+// plan_create では reasoning という名前の profile を使う
+cfg.Set("llm.routes.plan_create", "reasoning")
+```
 
-### 実行可能な例（カスタムツール + integration）
+完全なルールと具体例は runtime 側のドキュメントに分けてあります。
+
+### 設定の確定
+
+設定が終わったら `integration.New(cfg)` を呼び、設定をスナップショット化して agent runtime を作成します。
+
+## カスタムツール
+
+`integration` が用意した組み込みツールを残したまま独自ツールを足したい場合は、Runtime メソッド `rt.NewRegistry()` でツールレジストリを作ります。
+
+### カスタムツールの例
+
+次の例では echo ツールを定義して agent に登録しています。
 
 ```go
 package main
@@ -129,13 +145,20 @@ func main() {
     panic(err)
   }
 
-  fmt.Println(final.Output)
+  fmt.Println("Agent:", final.Output)
 }
 ```
 
-## 実行 API
+## Runtime の実行方法
 
 ### Prepared Engine API
+
+ライフサイクル制御、セッション再利用、明示的な cleanup、あるいは独自の上位スケジューリングをしたい場合に向いています。
+
+- ライフサイクル制御: `Cleanup()` のタイミングを自分で決められる。
+- 再利用性: 同じ `prepared.Engine` を複数回 `Run(...)` できる。
+- 実行ごとの柔軟性: 各 `Run` に異なる `RunOptions` を渡せる。
+- 編成しやすさ: `prepared.Model` と `Engine` を直接扱える。
 
 ```go
 prepared, err := rt.NewRunEngine(context.Background(), task)
@@ -149,14 +172,9 @@ final, _, err := prepared.Engine.Run(context.Background(), task, agent.RunOption
 })
 ```
 
-#### Prepared Engine API を選ぶ理由
-
-- ライフサイクル制御: `Cleanup()` のタイミングを明示的に管理できる。
-- 再利用性: 同じ `prepared.Engine` を複数回 `Run(...)` できる。
-- 実行ごとの柔軟性: 各 `Run` で異なる `RunOptions` を渡せる。
-- 編成しやすさ: `prepared.Model` と `Engine` を直接扱えるため、上位のセッション層に統合しやすい。
-
 ### 省略 API
+
+一回限りのタスクならこれで十分です。独自 registry、engine の再利用、明示的なライフサイクル管理が必要なら `PreparedRun` を使ってください。
 
 ```go
 final, runCtx, err := rt.RunTask(context.Background(), task, agent.RunOptions{})
@@ -165,76 +183,20 @@ _ = runCtx
 _ = err
 ```
 
-## デバッグと診断
+## Channels への接続
 
-```go
-cfg.Inspect.Prompt = true
-cfg.Inspect.Request = true
-cfg.Inspect.DumpDir = "./dump"
-```
+Mister Morph は Web UI だけでなく、Telegram や Slack のような channel も対話面として利用できます。
 
-## LLM ルートポリシー
+接続方法はかなりシンプルです。
 
-`integration.Config.Set(...)` では、ファーストパーティ runtime と同じ LLM ルートポリシーを設定できます。
-
-ルート設定は `llm.routes.<purpose>` に置きます。`purpose` は次を使えます。
-
-- `main_loop`
-- `addressing`
-- `heartbeat`
-- `plan_create`
-- `memory_draft`
-
-各 route は次のいずれかの形を取れます。
-
-- 固定 profile: `plan_create: "reasoning"`
-- 明示オブジェクト: `profile` + 任意の `fallback_profiles`
-- 分流オブジェクト: `candidates` + 任意の `fallback_profiles`
-
-```go
-cfg := integration.DefaultConfig()
-cfg.Set("llm.profiles", map[string]any{
-  "cheap": map[string]any{
-    "model": "gpt-4.1-mini",
-  },
-  "reasoning": map[string]any{
-    "provider": "xai",
-    "model": "grok-4.1-fast-reasoning",
-    "api_key": os.Getenv("XAI_API_KEY"),
-  },
-})
-cfg.Set("llm.routes", map[string]any{
-  "main_loop": map[string]any{
-    "candidates": []map[string]any{
-      {"profile": "default", "weight": 1},
-      {"profile": "cheap", "weight": 1},
-    },
-    "fallback_profiles": []string{"reasoning"},
-  },
-  "plan_create": "reasoning",
-  "addressing": map[string]any{
-    "profile": "cheap",
-    "fallback_profiles": []string{"default"},
-  },
-})
-```
-
-挙動は次の通りです。
-
-- `profile`: その route では常にその profile を使います。
-- `candidates`: 現在の run ごとに重み付きで primary を 1 つ選び、その run 中の LLM 呼び出しで再利用します。
-- 選ばれた primary がフォールバック対象エラーで失敗した場合、同じ route の他 candidate を先に試し、その後 `fallback_profiles` を順に試します。
-
-この設定モデルは `integration` とファーストパーティ runtime の両方で共通です。
-
-## Telegram チャネル接続（上級）
+### Telegram
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
 _ = tg
 ```
 
-## Slack チャネル接続（任意）
+### Slack
 
 ```go
 sl, _ := rt.NewSlackBot(integration.SlackOptions{
@@ -243,7 +205,3 @@ sl, _ := rt.NewSlackBot(integration.SlackOptions{
 })
 _ = sl
 ```
-
-## このページの範囲外
-
-より低レベルな内容は [Agent レイヤ拡張](/ja/guide/agent-level-customization) を参照してください。

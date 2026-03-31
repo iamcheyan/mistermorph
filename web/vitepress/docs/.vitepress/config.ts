@@ -13,7 +13,7 @@ const enSidebar = [
     text: 'Developer (Embedding)',
     items: [
       { text: 'Create Your Own AI Agent in 24 Lines', link: '/guide/build-your-own-agent' },
-      { text: 'Advanced Core Embedding', link: '/guide/core-advanced-embedding' },
+      { text: 'Create Your Own AI Agent: Advanced', link: '/guide/core-advanced-embedding' },
       { text: 'Agent-Level Customization', link: '/guide/agent-level-customization' }
     ]
   },
@@ -52,7 +52,8 @@ const zhSidebar = [
     text: '开发者',
     items: [
       { text: '创建自己的 AI Agent', link: '/zh/guide/build-your-own-agent' },
-      { text: 'Core 嵌入进阶', link: '/zh/guide/core-advanced-embedding' },
+      { text: '创建自己的 AI Agent：进阶', link: '/zh/guide/core-advanced-embedding' },
+      { text: 'integration API 参考', link: '/zh/guide/integration-references' },
       { text: 'Agent 底层扩展', link: '/zh/guide/agent-level-customization' }
     ]
   },
@@ -60,6 +61,7 @@ const zhSidebar = [
     text: '运行模式',
     items: [
       { text: 'Runtime 模式', link: '/zh/guide/runtime-modes' },
+      { text: 'LLM 路由策略', link: '/zh/guide/llm-routing' },
       { text: 'Prompt 组织（自顶向下）', link: '/zh/guide/prompt-architecture' },
       { text: 'Memory', link: '/zh/guide/memory' },
       { text: 'Skills', link: '/zh/guide/skills' },
@@ -91,7 +93,7 @@ const jaSidebar = [
     text: '開発者（組み込み）',
     items: [
       { text: '24行のコードで自分の AI Agent を作る', link: '/ja/guide/build-your-own-agent' },
-      { text: 'Core 高度な組み込み', link: '/ja/guide/core-advanced-embedding' },
+      { text: '自分の AI Agent を作る：上級編', link: '/ja/guide/core-advanced-embedding' },
       { text: 'Agent レイヤ拡張', link: '/ja/guide/agent-level-customization' }
     ]
   },

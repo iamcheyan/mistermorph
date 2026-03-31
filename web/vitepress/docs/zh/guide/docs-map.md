@@ -12,10 +12,12 @@ description: 仓库中更完整设计文档的入口索引。
   - [快速开始（CLI）](/zh/guide/quickstart-cli)
 - 开发者
   - [用 Core 快速搭建 Agent](/zh/guide/build-your-own-agent)
-  - [Core 嵌入进阶](/zh/guide/core-advanced-embedding)
+  - [创建自己的 AI Agent：进阶](/zh/guide/core-advanced-embedding)
+  - [integration API 参考](/zh/guide/integration-references)
   - [Agent 底层扩展](/zh/guide/agent-level-customization)
 - Runtime
   - [Runtime 模式](/zh/guide/runtime-modes)
+  - [LLM 路由策略](/zh/guide/llm-routing)
   - [Prompt 组织（自顶向下）](/zh/guide/prompt-architecture)
   - [Memory](/zh/guide/memory)
   - [Skills](/zh/guide/skills)

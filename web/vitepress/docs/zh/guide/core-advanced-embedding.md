@@ -1,68 +1,85 @@
 ---
-title: Core 嵌入进阶
-description: 仅覆盖 integration 包能力：配置、注册表、运行引擎与通道运行器。
+title: 创建自己的 AI Agent：进阶
+description: 聚焦 integration.Config、Registry、PreparedRun 与 Channel 接入；完整 API 清单单独放到 integration API 参考。
 ---
 
-# Core 嵌入进阶
+# 创建自己的 AI Agent：进阶
 
-本页只讲 `integration` 包直接提供的能力。
 
-## `integration` 提供了什么
+## 配置层
 
-- `integration.DefaultConfig()` / `integration.Config.Set(...)`
-- `integration.Config.AddPromptBlock(...)`
-- `integration.New(cfg)`
-- `rt.NewRegistry()`
-- `rt.NewRunEngine(...)`
-- `rt.NewRunEngineWithRegistry(...)`
-- `rt.RunTask(...)`
-- `rt.RequestTimeout()`
-- `rt.NewTelegramBot(...)`
-- `rt.NewSlackBot(...)`
+`integration.Config` 是 `integration` 包唯一的显式配置入口。
 
-## 配置层（`integration.Config`）
+宿主程序负责读取环境变量、配置文件或数据库，把最终值写进 `Config`，再交给 `integration.New(cfg)`。
 
-- `Overrides` + `Set(key, value)`：覆盖任意 Viper 配置键。
-- `Features`：控制运行时能力注入（`PlanTool`、`Guard`、`Skills`）。
-- `BuiltinToolNames`：内置工具白名单（空表示全部）。
-- `AddPromptBlock(...)`：向 system prompt 的 `Additional Policies` 追加静态 prompt block。
-- `Inspect`：Prompt/Request 落盘调试。
+### 示例
 
 ```go
 cfg := integration.DefaultConfig()
 cfg.Set("llm.provider", "openai")
 cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
-cfg.Features.Skills = true
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "todo_update"}
-cfg.AddPromptBlock(`[[ Project Policy ]]
-- 除非用户要求展开，否则回复控制在 3 句以内。`)
 ```
 
-## Prompt Block
+### 覆盖默认配置
 
-如果你想在 `integration` 层做 prompt 定制，而不是直接下沉到 `agent.New(...)`，用 `cfg.AddPromptBlock(...)`。
+Mister Morph 自己虽然使用命令行参数，环境变量，和 config.yaml 文件来进行配置。
+第三方可以使用自己喜欢的方式，然后使用 `Set(key, value)` 用来覆盖任意默认配置。所有 `config.yaml` 中的字段都可以这样设置，可参考 [配置字段总览](/zh/guide/config-reference)。
+
+### 开关功能特性
+
+`Features.*` 用于开关一些功能特性，目前支持如下几个功能：
+
+- `PlanTool`：是否注册运行时辅助工具 `plan_create`。
+- `Guard`：是否在 runtime 内注入 guard。
+- `Skills`：是否在 prompt 构造阶段启用 skills 加载。
+
+### 内置工具
+
+`BuiltinToolNames` 用来开启内置工具，留空表示接入全部内置工具。
+
+### 自定义 prompt
+
+如果你想在 `integration` 层做 prompt 定制，用 `cfg.AddPromptBlock(...)`。
+
+这些 block 会自动应用到 system prompt 的最后。
+
+### 探查器
+
+Mister Morph 提供了 inspector 的机制，帮你去探查大模型运作的底层信息：
 
 ```go
-cfg := integration.DefaultConfig()
-cfg.AddPromptBlock(`[[ Tenant Policy ]]
-- 讨论外部任务时总是带上 tenant_id。`)
-
-rt := integration.New(cfg)
+cfg.Inspect.Prompt = true
+cfg.Inspect.Request = true
+cfg.Inspect.DumpDir = "./dump"
 ```
 
-这些 block 会自动应用到：
+这样的配置会在 dump 目录生成对应的 prompt 和　request 的详细过程。
 
-- `NewRunEngine(...)`、`NewRunEngineWithRegistry(...)`、`RunTask(...)`
-- `NewTelegramBot(...)` 与 `NewSlackBot(...)`
+### LLM 路由策略
 
-这类 block 是 `integration.Runtime` 级别的静态配置。若你需要按任务动态修改 prompt，还是应使用更底层的 agent API。
+类似地，也可以直接覆盖 `llm.routes.*` 来定制不同的 llm 套路由策略。
 
-## 注册表与自定义工具
+可以通过 `llm.profiles` 定义一系列不同的 profiles，然后使用类似这样的写法，来要求某个功能使用某个指定 LLM：
 
-`integration` 支持在创建引擎前扩展工具注册表。
+```go
+// 要求创建计划的时候使用名为 reasoning 的 LLM profile
+cfg.Set("llm.routes.plan_create", "reasoning")
+```
 
-### 可运行示例（自定义工具 + integration）
+完整的规则和写法，见 [LLM 路由策略](/zh/guide/llm-routing)。
+
+### 配置生效
+
+配置完成以后，使用 `integration.New(cfg)` 快照化，创建 agent runtime。
+
+## 自定义工具
+
+如果你想保留 `integration` 组好的内置工具，又想加入自定义工具，可以使用 Runtime 的方法 `rt.NewRegistry()` 创建一个工具注册表。
+
+### 自定义工具示例
+
+下面这个例子展示了如何自定义一个 echo 工具并将其注册到 agent：
 
 ```go
 package main
@@ -129,13 +146,20 @@ func main() {
     panic(err)
   }
 
-  fmt.Println(final.Output)
+  fmt.Println("Agent:", final.Output)
 }
 ```
 
-## 运行 API
+## Runtime 运行方式
 
 ### Prepared Engine 方式
+
+适合你想把生命周期控制权拿回来，自己做会话、复用、资源释放或上层调度的时候。
+
+- 生命周期可控：你可以明确在何时 `Cleanup()`，适合接入你自己的进程管理。
+- 可复用：同一个 `prepared.Engine` 可以多次 `Run(...)`，避免重复准备。
+- 运行参数可变：每次 `Run` 都可传不同 `RunOptions`（如 `History`、`Meta`、`OnStream`）。
+- 便于编排：你能直接拿到 `prepared.Model` 与 `Engine`，更适合做上层会话/调度封装。
 
 ```go
 prepared, err := rt.NewRunEngine(context.Background(), task)
@@ -149,14 +173,9 @@ final, _, err := prepared.Engine.Run(context.Background(), task, agent.RunOption
 })
 ```
 
-#### 为什么选 Prepared Engine 方式
-
-- 生命周期可控：你可以明确在何时 `Cleanup()`，适合接入你自己的进程管理。
-- 可复用：同一个 `prepared.Engine` 可以多次 `Run(...)`，避免重复准备。
-- 运行参数可变：每次 `Run` 都可传不同 `RunOptions`（如 `History`、`Meta`、`OnStream`）。
-- 便于编排：你能直接拿到 `prepared.Model` 与 `Engine`，更适合做上层会话/调度封装。
-
 ### 便捷方式
+
+适合一次性任务；如果你要自定义 registry、复用 engine、或者自己控制生命周期，更适合用 `PreparedRun`。
 
 ```go
 final, runCtx, err := rt.RunTask(context.Background(), task, agent.RunOptions{})
@@ -165,76 +184,20 @@ _ = runCtx
 _ = err
 ```
 
-## 调试与诊断
+## 接入 Channels
 
-```go
-cfg.Inspect.Prompt = true
-cfg.Inspect.Request = true
-cfg.Inspect.DumpDir = "./dump"
-```
+除了 Web UI，Mister Morph 支持不同的 channel 作为沟通界面，例如，Telegram 和 Slack。
 
-## LLM 路由策略
+接入方法非常简单：
 
-`integration.Config.Set(...)` 可以配置和第一方 runtime 完全一致的 LLM 路由策略。
-
-路由配置统一放在 `llm.routes.<purpose>` 下，`purpose` 支持：
-
-- `main_loop`
-- `addressing`
-- `heartbeat`
-- `plan_create`
-- `memory_draft`
-
-每个 route 可以用这几种形态之一：
-
-- 固定 profile：`plan_create: "reasoning"`
-- 显式对象：`profile` + 可选 `fallback_profiles`
-- 分流对象：`candidates` + 可选 `fallback_profiles`
-
-```go
-cfg := integration.DefaultConfig()
-cfg.Set("llm.profiles", map[string]any{
-  "cheap": map[string]any{
-    "model": "gpt-4.1-mini",
-  },
-  "reasoning": map[string]any{
-    "provider": "xai",
-    "model": "grok-4.1-fast-reasoning",
-    "api_key": os.Getenv("XAI_API_KEY"),
-  },
-})
-cfg.Set("llm.routes", map[string]any{
-  "main_loop": map[string]any{
-    "candidates": []map[string]any{
-      {"profile": "default", "weight": 1},
-      {"profile": "cheap", "weight": 1},
-    },
-    "fallback_profiles": []string{"reasoning"},
-  },
-  "plan_create": "reasoning",
-  "addressing": map[string]any{
-    "profile": "cheap",
-    "fallback_profiles": []string{"default"},
-  },
-})
-```
-
-行为规则：
-
-- `profile`：该 route 固定走一个 profile。
-- `candidates`：当前 run 会先按权重选出一个主候选，并在这个 run 内复用。
-- 如果主候选遇到可回退错误，运行时会先尝试同 route 下其他 candidate，再按顺序尝试 `fallback_profiles`。
-
-这套配置同时适用于 `integration` 和第一方 runtime，因此嵌入场景与内建运行模式使用的是同一模型。
-
-## 接入 Telegram Channel（进阶）
+### 接入 Telegram
 
 ```go
 tg, _ := rt.NewTelegramBot(integration.TelegramOptions{BotToken: os.Getenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN")})
 _ = tg
 ```
 
-## 接入 Slack Channel（可选）
+### 接入 Slack
 
 ```go
 sl, _ := rt.NewSlackBot(integration.SlackOptions{
@@ -243,7 +206,3 @@ sl, _ := rt.NewSlackBot(integration.SlackOptions{
 })
 _ = sl
 ```
-
-## 本页不覆盖内容
-
-更底层的能力请看 [Agent 底层扩展](/zh/guide/agent-level-customization)。

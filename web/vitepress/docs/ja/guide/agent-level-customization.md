@@ -97,8 +97,8 @@ engine := agent.New(
 
 ## 範囲の切り分け
 
-- カスタムツール登録: [Core 高度な組み込み](/ja/guide/core-advanced-embedding)
-- Telegram チャネル接続: [Core 高度な組み込み](/ja/guide/core-advanced-embedding)
+- カスタムツール登録: [自分の AI Agent を作る：上級編](/ja/guide/core-advanced-embedding)
+- Telegram チャネル接続: [自分の AI Agent を作る：上級編](/ja/guide/core-advanced-embedding)
 
 ## 推奨方針
 
