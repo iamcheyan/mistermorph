@@ -77,7 +77,7 @@
 .morph-doc-title {
   margin: 0;
   font-family: var(--morph-font-display);
-  font-size: clamp(2.3rem, 4vw, 3.6rem);
+  font-size: clamp(1.61rem, 2.8vw, 2.52rem);
   font-weight: 600;
   line-height: 0.98;
   letter-spacing: -0.045em;
@@ -140,6 +140,9 @@
     width: clamp(15rem, 17vw, 17.5rem);
     max-width: clamp(15rem, 17vw, 17.5rem);
     padding-left: 0;
+    position: sticky !important;
+    top: calc(var(--vp-nav-height) + 1.7rem) !important;
+    align-self: start;
   }
 
   .VPContent.has-sidebar .VPDoc > .container > .aside .aside-container,
@@ -148,8 +151,8 @@
   }
 
   .VPContent.has-sidebar .VPDoc > .container > .aside .aside-container {
-    position: sticky;
-    top: calc(var(--vp-nav-height) + 1.7rem);
+    position: sticky !important;
+    top: calc(var(--vp-nav-height) + 1.7rem) !important;
     height: auto;
     max-height: none;
     overflow: visible;

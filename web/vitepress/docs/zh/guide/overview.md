@@ -5,23 +5,18 @@ description: 了解 Mister Morph 的能力边界和推荐阅读路径。
 
 # 总览
 
-Mister Morph 主要有两种使用方式：
+Mister Morph 主要有 3 种使用方式：
 
-- CLI 工作流（`mistermorph run`、`telegram`、`slack`、`console serve`）
-- Go 内嵌 core（`integration` 包）
+- 桌面 App，作为个人 AI 助理或者用它管理多个 Mister Morph 实例。
+- CLI 工作流
+  - 单独运行面向不同 Channels 的 Agent 进程，例如 Telegram、Slack 等等。
+  - 使用 Console Web 界面，也可以用来管理多个 Mister Murph 实例。
+  - 运行一次性 Agent 任务。
+- Go 内嵌 core 到你的程序，给你的程序注入机魂。
 
 ## 选择你的路径
 
-- 先快速跑通：看 [快速开始（CLI）](/zh/guide/quickstart-cli)
-- 嵌入到 Go 项目：看 [用 Core 快速搭建 Agent](/zh/guide/build-agent-with-core)
+- 先快速跑通：看 [快速开始](/zh/guide/quickstart-cli)
+- 嵌入到 Go 项目：看 [用 Mister Murph 嵌入 Agent 到自己的程序](/zh/guide/build-your-own-agent)
 - 了解长期运行入口：看 [Runtime 模式](/zh/guide/runtime-modes)
 - 上线前治理：看 [安全与 Guard](/zh/guide/security-and-guard)
-
-## 仓库结构快照
-
-- CLI 入口：`cmd/mistermorph/`
-- Agent 引擎：`agent/`
-- 嵌入 Core：`integration/`
-- 内置工具：`tools/`
-- Provider 后端：`providers/`
-- 详细文档：`docs/`

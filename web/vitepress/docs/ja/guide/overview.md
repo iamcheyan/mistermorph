@@ -1,27 +1,22 @@
 ---
 title: 概要
-description: Mister Morph の全体像と推奨読書順。
+description: Mister Morph の使い方と推奨読書順を把握する。
 ---
 
 # 概要
 
-Mister Morph には主に 2 つの使い方があります。
+Mister Morph には主に 3 つの使い方があります。
 
-- CLI ワークフロー（`mistermorph run`、`telegram`、`slack`、`console serve`）
-- Go への組み込み（`integration` パッケージ）
+- デスクトップ App。個人向け AI アシスタントとして使ったり、複数の Mister Morph インスタンスを管理したりできます。
+- CLI ワークフロー
+  - Telegram や Slack など、異なる Channels 向けの Agent プロセスを個別に動かせます。
+  - Console の Web UI を使えます。これも複数の Mister Morph インスタンス管理に使えます。
+  - 単発の Agent タスクを実行できます。
+- Go core を自分のプログラムに組み込み、Agent ランタイムを注入できます。
 
 ## 目的別の読み方
 
-- まず動かす: [クイックスタート（CLI）](/ja/guide/quickstart-cli)
-- Go に組み込む: [Core で Agent を素早く構築](/ja/guide/build-agent-with-core)
-- 常駐実行を理解: [Runtime モード](/ja/guide/runtime-modes)
-- 本番運用の安全化: [セキュリティと Guard](/ja/guide/security-and-guard)
-
-## リポジトリ構成（要点）
-
-- CLI エントリ: `cmd/mistermorph/`
-- Agent エンジン: `agent/`
-- 組み込み Core: `integration/`
-- 組み込みツール: `tools/`
-- Provider 実装: `providers/`
-- 詳細文書: `docs/`
+- まず素早く動かしたい: [クイックスタート（CLI）](/ja/guide/quickstart-cli)
+- Go プロジェクトに組み込みたい: [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
+- 長時間動かす入口を理解したい: [Runtime モード](/ja/guide/runtime-modes)
+- 本番前のガバナンスを確認したい: [セキュリティと Guard](/ja/guide/security-and-guard)

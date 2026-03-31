@@ -6,7 +6,7 @@ description: Docs for the CLI, channels, runtime modes, and Go embedding.
 
 hero:
   text: "Mister Morph Docs"
-  tagline: "Start with Quickstart. Then read setup, runtime modes, or Go embedding."
+  tagline: "Start with Quickstart. Then read config patterns, runtime modes, or Go embedding."
   actions:
     - theme: brand
       text: Quickstart
@@ -23,10 +23,10 @@ hero:
     <article class="morph-home-route">
       <div class="morph-home-route-head">
         <h3 class="morph-home-route-title">Configure providers</h3>
-        <p class="morph-home-route-copy">Set model keys, environment variables, and runtime defaults before you widen into other guides.</p>
+        <p class="morph-home-route-copy">Install the CLI, initialize the workspace, and set model keys, environment variables, and runtime defaults before you widen into other guides.</p>
       </div>
       <div class="morph-home-route-actions">
-        <a class="morph-home-route-primary" href="/guide/install-and-config">Install and Configure</a>
+        <a class="morph-home-route-primary" href="/guide/config-patterns">Config Patterns</a>
       </div>
     </article>
     <article class="morph-home-route">
@@ -44,7 +44,7 @@ hero:
         <p class="morph-home-route-copy">Reuse the same runtime inside a Go application when you need custom surfaces without giving up the built-in agent stack.</p>
       </div>
       <div class="morph-home-route-actions">
-        <a class="morph-home-route-primary" href="/guide/build-agent-with-core">Build with Core</a>
+        <a class="morph-home-route-primary" href="/guide/build-your-own-agent">Build with Core</a>
       </div>
     </article>
   </div>

@@ -1,27 +1,22 @@
 ---
 title: Overview
-description: What Mister Morph is, and the fastest path through these docs.
+description: Understand Mister Morph's usage modes and the recommended reading path.
 ---
 
 # Overview
 
-Mister Morph is a unified agent project with two primary usage patterns:
+Mister Morph mainly has three ways to use it:
 
-- CLI-first workflow (`mistermorph run`, `telegram`, `slack`, `console serve`)
-- Embedded Go core (`integration` package)
+- Desktop app, as a personal AI assistant or for managing multiple Mister Morph instances.
+- CLI workflows
+  - Run separate agent processes for different channels such as Telegram and Slack.
+  - Use the Console web UI, which can also manage multiple Mister Morph instances.
+  - Run one-off agent tasks.
+- Embed the Go core into your program to give it an agent runtime.
 
 ## Choose Your Path
 
-- Building automation quickly: start with [Quickstart (CLI)](/guide/quickstart-cli)
-- Embedding in your Go project: go to [Build an Agent with Core](/guide/build-agent-with-core)
-- Running long-lived channels: read [Runtime Modes](/guide/runtime-modes)
-- Production hardening: read [Security and Guard](/guide/security-and-guard)
-
-## Repository Structure Snapshot
-
-- CLI entry: `cmd/mistermorph/`
-- Agent engine: `agent/`
-- Embedding core: `integration/`
-- Built-in tools: `tools/`
-- Provider backends: `providers/`
-- Detailed docs: `docs/`
+- To get running quickly: read [Quickstart (CLI)](/guide/quickstart-cli)
+- To embed it into a Go project: read [Create Your Own AI Agent in 24 Lines](/guide/build-your-own-agent)
+- To understand long-running entry points: read [Runtime Modes](/guide/runtime-modes)
+- For pre-production governance: read [Security and Guard](/guide/security-and-guard)

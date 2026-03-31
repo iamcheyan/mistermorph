@@ -10,9 +10,8 @@ description: 仓库中更完整设计文档的入口索引。
 - 开始使用
   - [总览](/zh/guide/overview)
   - [快速开始（CLI）](/zh/guide/quickstart-cli)
-  - [安装与配置](/zh/guide/install-and-config)
-- 开发者（嵌入）
-  - [用 Core 快速搭建 Agent](/zh/guide/build-agent-with-core)
+- 开发者
+  - [用 Core 快速搭建 Agent](/zh/guide/build-your-own-agent)
   - [Core 嵌入进阶](/zh/guide/core-advanced-embedding)
   - [Agent 底层扩展](/zh/guide/agent-level-customization)
 - Runtime

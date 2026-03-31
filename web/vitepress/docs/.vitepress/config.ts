@@ -6,14 +6,13 @@ const enSidebar = [
     text: 'Getting Started',
     items: [
       { text: 'Overview', link: '/guide/overview' },
-      { text: 'Quickstart (CLI)', link: '/guide/quickstart-cli' },
-      { text: 'Install and Configure', link: '/guide/install-and-config' }
+      { text: 'Quickstart (CLI)', link: '/guide/quickstart-cli' }
     ]
   },
   {
     text: 'Developer (Embedding)',
     items: [
-      { text: 'Build an Agent with Core', link: '/guide/build-agent-with-core' },
+      { text: 'Create Your Own AI Agent in 24 Lines', link: '/guide/build-your-own-agent' },
       { text: 'Advanced Core Embedding', link: '/guide/core-advanced-embedding' },
       { text: 'Agent-Level Customization', link: '/guide/agent-level-customization' }
     ]
@@ -46,14 +45,13 @@ const zhSidebar = [
     text: '开始使用',
     items: [
       { text: '总览', link: '/zh/guide/overview' },
-      { text: '快速开始（CLI）', link: '/zh/guide/quickstart-cli' },
-      { text: '安装与配置', link: '/zh/guide/install-and-config' }
+      { text: '快速开始（CLI）', link: '/zh/guide/quickstart-cli' }
     ]
   },
   {
-    text: '开发者（嵌入）',
+    text: '开发者',
     items: [
-      { text: '用 Core 快速搭建 Agent', link: '/zh/guide/build-agent-with-core' },
+      { text: '创建自己的 AI Agent', link: '/zh/guide/build-your-own-agent' },
       { text: 'Core 嵌入进阶', link: '/zh/guide/core-advanced-embedding' },
       { text: 'Agent 底层扩展', link: '/zh/guide/agent-level-customization' }
     ]
@@ -86,14 +84,13 @@ const jaSidebar = [
     text: 'はじめに',
     items: [
       { text: '概要', link: '/ja/guide/overview' },
-      { text: 'クイックスタート（CLI）', link: '/ja/guide/quickstart-cli' },
-      { text: 'インストールと設定', link: '/ja/guide/install-and-config' }
+      { text: 'クイックスタート（CLI）', link: '/ja/guide/quickstart-cli' }
     ]
   },
   {
     text: '開発者（組み込み）',
     items: [
-      { text: 'Core で Agent を素早く構築', link: '/ja/guide/build-agent-with-core' },
+      { text: '24行のコードで自分の AI Agent を作る', link: '/ja/guide/build-your-own-agent' },
       { text: 'Core 高度な組み込み', link: '/ja/guide/core-advanced-embedding' },
       { text: 'Agent レイヤ拡張', link: '/ja/guide/agent-level-customization' }
     ]
@@ -174,7 +171,7 @@ export default defineConfig({
         nav: [
           { text: 'Home', link: '/' },
           { text: 'Overview', link: '/guide/overview' },
-          { text: 'Developer', link: '/guide/build-agent-with-core' }
+          { text: 'Developer', link: '/guide/build-your-own-agent' }
         ],
         sidebar: enSidebar,
         docFooter: { prev: 'Previous', next: 'Next' },
@@ -189,7 +186,7 @@ export default defineConfig({
         nav: [
           { text: '首页', link: '/zh/' },
           { text: '文档总览', link: '/zh/guide/overview' },
-          { text: '开发者', link: '/zh/guide/build-agent-with-core' }
+          { text: '开发者', link: '/zh/guide/build-your-own-agent' }
         ],
         sidebar: zhSidebar,
         docFooter: { prev: '上一页', next: '下一页' },
@@ -208,7 +205,7 @@ export default defineConfig({
         nav: [
           { text: 'ホーム', link: '/ja/' },
           { text: 'ドキュメント総覧', link: '/ja/guide/overview' },
-          { text: '開発者', link: '/ja/guide/build-agent-with-core' }
+          { text: '開発者', link: '/ja/guide/build-your-own-agent' }
         ],
         sidebar: jaSidebar,
         docFooter: { prev: '前へ', next: '次へ' },

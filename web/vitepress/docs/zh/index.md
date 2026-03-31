@@ -6,7 +6,7 @@ description: 包含 CLI、通道、运行模式和 Go 嵌入的文档。
 
 hero:
   text: "Mister Morph 文档"
-  tagline: "先看快速开始，再按需要看配置、运行模式或 Go 嵌入。"
+  tagline: "先看快速开始，再按需要看配置模式、运行模式或 Go 嵌入。"
   actions:
     - theme: brand
       text: 快速开始
@@ -23,10 +23,10 @@ hero:
     <article class="morph-home-route">
       <div class="morph-home-route-head">
         <h3 class="morph-home-route-title">配置 provider</h3>
-        <p class="morph-home-route-copy">先把模型 key、环境变量和默认值配好，再进入其它运行或嵌入文档。</p>
+        <p class="morph-home-route-copy">先完成 CLI 安装、工作目录初始化，再把模型 key、环境变量和默认值配好，然后再进入其它运行或嵌入文档。</p>
       </div>
       <div class="morph-home-route-actions">
-        <a class="morph-home-route-primary" href="/zh/guide/install-and-config">安装与配置</a>
+        <a class="morph-home-route-primary" href="/zh/guide/config-patterns">配置模式</a>
       </div>
     </article>
     <article class="morph-home-route">
@@ -44,7 +44,7 @@ hero:
         <p class="morph-home-route-copy">当你需要自定义前端或宿主层，但仍想复用同一套 agent runtime，就从这里开始。</p>
       </div>
       <div class="morph-home-route-actions">
-        <a class="morph-home-route-primary" href="/zh/guide/build-agent-with-core">用 Core 搭建 Agent</a>
+        <a class="morph-home-route-primary" href="/zh/guide/build-your-own-agent">用 Core 搭建 Agent</a>
       </div>
     </article>
   </div>

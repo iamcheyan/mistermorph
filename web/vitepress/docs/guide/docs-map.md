@@ -10,9 +10,8 @@ description: Where to find deeper design and runtime documents in the repo.
 - Getting Started
   - [Overview](/guide/overview)
   - [Quickstart (CLI)](/guide/quickstart-cli)
-  - [Install and Configure](/guide/install-and-config)
 - Developer (Embedding)
-  - [Build an Agent with Core](/guide/build-agent-with-core)
+  - [Create Your Own AI Agent in 24 Lines](/guide/build-your-own-agent)
   - [Advanced Core Embedding](/guide/core-advanced-embedding)
   - [Agent-Level Customization](/guide/agent-level-customization)
 - Runtime

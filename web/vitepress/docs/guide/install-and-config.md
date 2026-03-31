@@ -1,45 +1,10 @@
 ---
 title: Install and Configure
-description: Installation options and baseline configuration model.
+description: This content has moved into Config Patterns.
 ---
 
 # Install and Configure
 
-## Install Options
+This page has been merged into [Config Patterns](/guide/config-patterns).
 
-```bash
-# Release installer
-curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quailyquaily/mistermorph/refs/heads/master/scripts/install-release.sh
-sudo bash /tmp/install-mistermorph.sh
-```
-
-```bash
-# Go install
-go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
-```
-
-## Initialize Files
-
-```bash
-mistermorph install
-```
-
-Default workspace is `~/.morph/`.
-
-## Config Sources (precedence)
-
-- CLI flags
-- Environment variables
-- `config.yaml`
-
-## Minimal `config.yaml`
-
-```yaml
-llm:
-  provider: openai
-  model: gpt-5.4
-  endpoint: https://api.openai.com
-  api_key: ${OPENAI_API_KEY}
-```
-
-Use `assets/config/config.example.yaml` as the full key reference.
+Go there for install options, initialization, config source precedence, minimal `config.yaml`, and reusable configuration patterns.
