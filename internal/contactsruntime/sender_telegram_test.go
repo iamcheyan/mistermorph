@@ -1,11 +1,10 @@
-package contactscmd
+package contactsruntime
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/contacts"
-	"github.com/quailyquaily/mistermorph/internal/contactsruntime"
 )
 
 func TestResolveTelegramTargetPrefersPrivate(t *testing.T) {
@@ -16,7 +15,7 @@ func TestResolveTelegramTargetPrefersPrivate(t *testing.T) {
 		TGPrivateChatID: 1001,
 		TGGroupChatIDs:  []int64{-1002233},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTarget(contact)
+	target, chatType, err := ResolveTelegramTarget(contact)
 	if err != nil {
 		t.Fatalf("resolveTelegramTarget() error = %v", err)
 	}
@@ -37,7 +36,7 @@ func TestResolveTelegramTargetFallsBackToGroup(t *testing.T) {
 		TGPrivateChatID: 0,
 		TGGroupChatIDs:  []int64{-1008899},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTarget(contact)
+	target, chatType, err := ResolveTelegramTarget(contact)
 	if err != nil {
 		t.Fatalf("resolveTelegramTarget() error = %v", err)
 	}
@@ -58,7 +57,7 @@ func TestResolveTelegramTargetFallsBackToPrivate(t *testing.T) {
 		TGPrivateChatID: 1001,
 		TGGroupChatIDs:  []int64{-100111},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTarget(contact)
+	target, chatType, err := ResolveTelegramTarget(contact)
 	if err != nil {
 		t.Fatalf("resolveTelegramTarget() error = %v", err)
 	}
@@ -79,7 +78,7 @@ func TestResolveTelegramTargetWithChatIDMatchGroup(t *testing.T) {
 		TGPrivateChatID: 1001,
 		TGGroupChatIDs:  []int64{-100111},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTargetWithChatID(contact, "tg:-100111")
+	target, chatType, err := ResolveTelegramTargetWithChatID(contact, "tg:-100111")
 	if err != nil {
 		t.Fatalf("ResolveTelegramTargetWithChatID() error = %v", err)
 	}
@@ -100,7 +99,7 @@ func TestResolveTelegramTargetWithChatIDFallsBackToPrivate(t *testing.T) {
 		TGPrivateChatID: 1001,
 		TGGroupChatIDs:  []int64{-100111},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTargetWithChatID(contact, "tg:-100222")
+	target, chatType, err := ResolveTelegramTargetWithChatID(contact, "tg:-100222")
 	if err != nil {
 		t.Fatalf("ResolveTelegramTargetWithChatID() error = %v", err)
 	}
@@ -120,7 +119,7 @@ func TestResolveTelegramTargetWithChatIDNoPrivateFallback(t *testing.T) {
 		Channel:        contacts.ChannelTelegram,
 		TGGroupChatIDs: []int64{-100111},
 	}
-	target, chatType, err := contactsruntime.ResolveTelegramTargetWithChatID(contact, "tg:-100222")
+	target, chatType, err := ResolveTelegramTargetWithChatID(contact, "tg:-100222")
 	if err == nil {
 		t.Fatalf("ResolveTelegramTargetWithChatID() expected error when no private fallback")
 	}

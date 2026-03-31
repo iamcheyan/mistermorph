@@ -11,7 +11,6 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
-	"github.com/quailyquaily/mistermorph/cmd/mistermorph/contactscmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/linecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/runcmd"
@@ -187,7 +186,6 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(skillscmd.New())
-	cmd.AddCommand(contactscmd.New())
 	cmd.AddCommand(consolecmd.New())
 	cmd.AddCommand(newInstallCmd())
 	cmd.AddCommand(newVersionCmd())

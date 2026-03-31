@@ -168,6 +168,14 @@ const sidebarSpec: SidebarSpec = [
           zh: '环境变量',
           ja: '環境変数'
         }
+      },
+      {
+        slug: 'cli-flags',
+        text: {
+          en: 'CLI Flags',
+          zh: '命令行参数',
+          ja: 'CLI フラグ'
+        }
       }
     ]
   },
