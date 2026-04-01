@@ -1,114 +1,111 @@
 ---
 title: LLM ルーティングポリシー
-description: runtime purpose ごとに profile、候補分流、fallback チェーンを選ぶ。
+description: llm purpose ごとに profile、分流、エラー fallback を選ぶ。
 ---
 
 # LLM ルーティングポリシー
 
-`llm.routes.*` を使うと、runtime purpose ごとに異なるモデル設定を割り当てられます。
+Mister Morph には、次の問題を解決するための柔軟なルーティング設定があります。
 
-この設定は第一方 runtime と `integration.Config` の両方で共通なので、CLI / Console / Channel / Go 組み込みで同じルーティング意味論を使います。
+1. purpose ごとに向いた llm 設定を使い分けたい。
+2. llm リクエストを分流したい。
+3. ある llm 設定が失敗したときに、バックアップ llm 設定へ fallback したい。
 
-## routes が必要になる場面
+## LLM Profile
 
-典型的なケース:
+各 Profile は 1 つの LLM 設定です。トップレベルの `llm.*` 自体が default profile であり、`llm.profiles.<name>` で命名 profile を定義します。
 
-- メインループはデフォルトモデルのままにして移行コストを下げたい。
-- `addressing` は安くて速いモデルにしたい。
-- `plan_create` は強い推論モデルに固定したい。
-- `main_loop` で分流しつつ、失敗時の fallback チェーンも持たせたい。
+注意点:
 
-## 対応している purpose
+- 命名 profile はトップレベルの `llm.*` を継承し、変更したいフィールドだけを上書きします。
+- `default` は予約名で、「トップレベルの `llm.*` をそのまま使う」という意味です。
 
-- `main_loop`: Agent のメイン step loop。
-- `addressing`: グループやチャンネルでの addressing 判定。
-- `heartbeat`: 定期 heartbeat タスク。
-- `plan_create`: `plan_create` ツール内部の planning リクエスト。
-- `memory_draft`: memory 草稿の整理。
+下の例では、トップレベルのモデルは OpenAI の GPT-5.4 です。さらに 2 つの profile として GPT-4o mini と Claude Opus 4.6 を定義しています。
 
-## 最小構成
+profile の名前を見るだけでも意図が分かります。GPT-4o mini は安いタスク向け、Claude Opus 4.6 はより深い思考向けです。
 
 ```yaml
 llm:
-  provider: openai
-  model: gpt-5.4
-  api_key: ${OPENAI_API_KEY}
+  provider: "openai"
+  model: "gpt-5.4"
+  api_key: "${OPENAI_API_KEY}"
 
   profiles:
     cheap:
-      model: gpt-4.1-mini
+      model: "gpt-4o-mini"
     reasoning:
-      provider: xai
-      model: grok-4.1-fast-reasoning
-      api_key: ${XAI_API_KEY}
+      provider: "anthropic"
+      model: "claude-opus-4-6"
+      api_key: "${CLAUDE_API_KEY}"
+```
 
+つまり、profile は**再利用可能な LLM 設定が何か**を定義し、その後の route、分流、fallback 機能がそれを使います。
+
+## ルート
+
+`llm.routes.*` の設定では、異なる llm purpose に対してどのモデル設定を使うかを定義します。
+
+`main_loop` は Agent の実行そのものを担当しますが、それ以外の purpose は独立した llm 呼び出しです。単純な sub agent と考えても構いません。
+
+### 現在サポートしている purpose
+
+- `main_loop`: 主 Agent loop。
+- `addressing`: グループチャットやチャンネルでの addressing 判定にのみ使う。
+- `heartbeat`: 定期 heartbeat タスクにのみ使う。
+- `plan_create`: `plan_create` ツール内部の計画リクエストにのみ使う。
+- `memory_draft`: memory 草稿整理にのみ使う。
+
+下の例では、計画作成時には reasoning profile、つまり `claude-opus-4-6` を使い、グループチャットの addressing 判定では安い `gpt-4o-mini` を使います:
+
+```yaml
+llm:
   routes:
     plan_create: reasoning
     addressing: cheap
 ```
 
-この意味は次の通りです:
+### ルートの分流
 
-- デフォルトのメインループは引き続きトップレベルの `llm.*` を使う。
-- `plan_create` は `reasoning` に固定される。
-- `addressing` は `cheap` に固定される。
+Mister Morph は LLM リクエストのトラフィック分流をサポートしています。分流表は `candidates` フィールドで定義します。
 
-## 3つの書き方
-
-### 1. profile 名を直接書く
-
-最短形です:
-
-```yaml
-llm:
-  routes:
-    heartbeat: cheap
-```
-
-これは、その purpose を 1 つの profile に直接バインドする形です。
-
-### 2. 明示オブジェクト
-
-ローカルな fallback チェーンも持たせたい場合はオブジェクトで書けます:
-
-```yaml
-llm:
-  routes:
-    plan_create:
-      profile: reasoning
-      fallback_profiles: [default]
-```
-
-ルール:
-
-- `profile` はメインルートの profile。
-- `fallback_profiles` はその route 専用の fallback チェーン。
-
-### 3. 候補分流
-
-同じ purpose に対してトラフィック分流したい場合は `candidates` を使います:
+次の例では、`default_apple` と `default_banana` にトラフィックを分けています（あらかじめ `llm.profiles` で定義しておく必要があります）:
 
 ```yaml
 llm:
   routes:
     main_loop:
       candidates:
-        - profile: default
+        - profile: "default"
           weight: 1
-        - profile: cheap
+        - profile: "default_apple"
           weight: 1
-      fallback_profiles: [reasoning]
+        - profile: "default_banana"
+          weight: 1
 ```
 
 ルール:
 
-- `weight` は候補選択の重みを決めます。
-- 1 回の run ごとに 1 つの主候補を選び、その run 内で再利用します。
-- 主候補が fallback 可能なエラーに当たった場合は、同じ route 内の残り candidate を先に試し、その後 `fallback_profiles` を順に試します。
+- `candidates.weight` は選択重みを決めます。
+- 同じ Loop 内では 1 つの profile だけが使われ、途中で混在しません（`run_id` ベースで選ばれます）。
+- 現在の llm が fallback 可能なエラーに当たった場合は、runtime はまず同じ route にある残りの candidate を試します。
+
+### ルートの fallback
+
+分流に加えて、Mister Morph は LLM リクエストのエラー fallback もサポートしています。例えば:
+
+```yaml
+llm:
+  routes:
+    plan_create:
+      profile: "reasoning"
+      fallback_profiles: [ "default" ]
+```
+
+現在の llm が fallback 可能なエラーに当たり、ほかの candidate も使えない場合は、`fallback_profiles` に並んだ設定を順番に試します。
 
 ## integration ではどう書くか
 
-Go から組み込む場合も設定の考え方は同じで、YAML の代わりに `cfg.Set(...)` で書きます:
+設定の考え方は同じで、YAML の代わりに `cfg.Set(...)` を使うだけです:
 
 ```go
 cfg := integration.DefaultConfig()
@@ -118,5 +115,3 @@ cfg.Set("llm.routes.addressing", map[string]any{
   "fallback_profiles": []string{"default"},
 })
 ```
-
-全フィールド名を見たい場合は [設定フィールド](/ja/guide/config-reference)、よくある YAML パターンを見たい場合は [設定パターン](/ja/guide/config-patterns) を参照してください。

@@ -773,7 +773,28 @@ html:not(.dark) .vp-doc .vp-code span {
   overflow-x: auto;
 }
 
-.vp-doc blockquote,
+.vp-doc blockquote {
+  margin: 0.72rem 0 1rem;
+  padding: 0.12rem 0 0.12rem 0.78rem;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--morph-accent-strong) 66%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vp-doc blockquote > :first-child {
+  margin-top: 0;
+}
+
+.vp-doc blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.vp-doc blockquote p {
+  color: var(--morph-copy);
+}
+
 .vp-doc .custom-block {
   border-radius: 0;
   border: 1px solid color-mix(in srgb, var(--morph-line) 72%, transparent);

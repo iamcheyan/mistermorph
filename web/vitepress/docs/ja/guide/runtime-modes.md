@@ -1,17 +1,29 @@
 ---
-title: Runtime モード
-description: CLI、Bot、Console の実行モードを選ぶ。
+title: 実行モード総覧
+description: Mister Morph がサポートする実行モードを確認する。
 ---
 
-# Runtime モード
+# 実行モード総覧
 
 ## 単発タスク
+
+コマンドラインから Mister Morph を 1 回だけ呼び出してタスクを実行したい場合は、このモードを使います。
 
 ```bash
 mistermorph run --task "..."
 ```
 
+## Console
+
+機能の揃った Web UI を提供します。Agent と対話できるだけでなく、ほかの Mister Morph インスタンスを監視する用途にも使えます。
+
+```bash
+mistermorph console serve
+```
+
 ## Telegram Bot
+
+Telegram channel に接続した standalone runtime を起動し、Telegram 上で対話できます。
 
 ```bash
 mistermorph telegram --log-level info
@@ -19,25 +31,8 @@ mistermorph telegram --log-level info
 
 ## Slack Bot
 
+Telegram モードとほぼ同じですが、対話先が Slack になります。
+
 ```bash
 mistermorph slack --log-level info
 ```
-
-## Console バックエンド
-
-```bash
-mistermorph console serve
-```
-
-## LLM ルーティングポリシー
-
-`main_loop`、`addressing`、`plan_create`、`heartbeat`、`memory_draft` ごとに別のモデルを割り当てたい場合は、[LLM ルーティングポリシー](/ja/guide/llm-routing) を参照してください。
-
-詳細は次を参照:
-
-- `docs/console.md`
-- `docs/slack.md`
-- `docs/line.md`
-- `docs/lark.md`
-
-旧 standalone daemon モード `mistermorph serve` は削除されています。

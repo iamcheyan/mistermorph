@@ -1,117 +1,103 @@
 ---
-title: Prompt 設計（トップダウン）
-description: Identity 層から Runtime 層まで、システム Prompt の組み立て順を説明。
+title: Prompt 設計
+description: Agent の Prompt の仕組みを説明します。
 ---
 
-# Prompt 設計（トップダウン）
+# Prompt 設計
 
-以下は現行コードの実際の順序です。
+Mister Morph の主 Loop では、Prompt の唯一の目的は Agent にとって妥当な状態を組み立てることです。
 
-## トップダウン図
+> skill、identity、soul、todo、memory は別々の仕組みに見えますが、本質的にはどれもその状態を維持するためのものです。多くは同じものに対する syntax sugar です。
 
-```text
-PromptSpecWithSkills(...)
-        |
-        v
-ApplyPersonaIdentity(...)
-        |
-        v
-AppendLocalToolNotesBlock(...)
-        |
-        v
-AppendPlanCreateGuidanceBlock(...)
-        |
-        v
-AppendTodoWorkflowBlock(...)
-        |
-        v
-Channel PromptAugment(...)
-        |
-        v
-AppendMemorySummariesBlock(...)
-        |
-        v
-BuildSystemPrompt(...) -> system prompt テキスト
+Mister Morph では、これらは `agent/prompts/system.md` を骨格として組み立てられます。
+
+## 主 Loop
+
+### 静的 Prompt 骨格
+
+このテンプレートは概ね次のような形です。
+
+```md
+## Persona
+{{ identity }}
+
+## Available Skills
+{{ skills }}
+
+## Reference Format
+{{ 内部参照の約束 }}
+
+## Additional Policies
+{{ 追加の大きなポリシーブロック }}
+
+## Response Format
+{{ 出力形式の約束 }}
+
+## Rules
+{{ 組み込みルールと追加ルール }}
 ```
 
-## 1) Identity 層
+### 実行時 Prompt
 
-ベースは `agent.DefaultPromptSpec()`。
+具体的な run が始まると、runtime は現在の文脈をさらに足していきます。
 
-次にローカル persona ファイルで上書きされる場合があります。
+よくある入力元は次の通りです。
 
-- `file_state_dir/IDENTITY.md`
-- `file_state_dir/SOUL.md`
+- ローカル persona ファイルである `IDENTITY.md` と `SOUL.md`
+- その run で有効になっている skill のメタ情報
+- `SCRIPTS.md` のようなローカルスクリプト説明
+- 追加のポリシーブロック
+- memory summary
 
-適用関数は `promptprofile.ApplyPersonaIdentity(...)`。
+この層は現在の task、現在の channel、現在のローカル状態によって変わります。CLI、Telegram、Slack で使われる最終 prompt は完全に同じとは限りません。
 
-## 2) Skills 層
+### Prompt 以外のメッセージ編成
 
-`skillsutil.PromptSpecWithSkills(...)` は skill のメタ情報だけを注入します。
+最終 system prompt の準備ができたあと、主 Agent はリクエスト内でメッセージ列も編成します。
 
-- 名前
-- `SKILL.md` パス
-- 説明
-- `auth_profiles`（ある場合）
-
-実際の `SKILL.md` 本文は必要時に `read_file` で読みます。
-
-## 3) Core ポリシーブロック
-
-task runtime では次の順で追加されます。
-
-1. `SCRIPTS.md` のローカルツールノート
-2. `plan_create` ガイダンス
-3. TODO ワークフローポリシー
-
-## 4) チャネルブロック
-
-次にチャネルごとのブロックを追加します。
-
-- Telegram
-- Slack
-- LINE
-- Lark
-
-## 5) Memory 注入ブロック
-
-memory が有効な場合、memory summary ブロックを追加します。
-
-## 6) システム Prompt のレンダリング
-
-`agent.BuildSystemPrompt(...)` が `agent/prompts/system.md` を使って以下を統合します。
-
-- identity
-- skills メタ情報
-- 追加ブロック
-- ツール要約
-- 追加ルール
-
-## 7) LLM に送るメッセージ順
-
-`engine.Run(...)` の順序:
+順序は次のように理解できます。
 
 ```text
-[system] レンダリング済み system prompt
+[system] 最終 system prompt
    ->
-[user] mister_morph_meta（任意）
+[user] 実行時 metadata
    ->
-[history] system 以外の履歴
+[history] 履歴メッセージ
    ->
 [user] current message または raw task
 ```
 
-1. system prompt
-2. runtime metadata（`mister_morph_meta`）
-3. history（system 以外）
-4. current message または raw task
+## 独立 Prompt
 
-## 実務上の優先順位
+Mister Morph には、主 Agent の完全な system prompt を先に組み立てず、場合によってはツール付きの多段 Loop にも入らず、より小さな専用 prompt を作って `llm.Chat` を 1 回だけ呼ぶ別系統の処理もあります。
 
-Prompt を調整する時は次の順で拡張するのが安全です。
+この独立 Prompt は次のような用途で使われます。
 
-1. `IDENTITY.md` / `SOUL.md`
-2. `SKILL.md` + `skills.load`
-3. `SCRIPTS.md`
-4. runtime prompt augment
-5. `agent.WithPromptBuilder(...)`（完全カスタム時のみ）
+- グループチャットにどう介入するかの判断
+- タスク計画
+- Memory 整理
+- 一部の狭い意味判定や意味マッチング
+
+### 主 Loop との関係
+
+2 つの経路は次のように考えると分かりやすいです。
+
+```text
+主 Agent の主 Loop
+  -> 完全な system prompt
+  -> runtime metadata / history / current message
+  -> 多段実行でき、ツールも呼べる
+
+独立 llm.Chat
+  -> 専用 system prompt / user prompt
+  -> 単発呼び出し
+  -> 1つの狭い問題だけを解く
+```
+
+例えば Agent がグループチャットにどう入るかを判断する時には、次のようなことを見ます。
+
+- このメッセージは自分に向けられているか
+- 今ここで割り込むべきか
+- 絵文字のような軽い反応で足りるか
+
+この判断は主 Loop より前に起きるので、主 system prompt 全体を使うよりも、より小さく専用の Prompt の方が適しています。

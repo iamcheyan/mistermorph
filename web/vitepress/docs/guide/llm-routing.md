@@ -1,114 +1,111 @@
 ---
 title: LLM Routing Policies
-description: Choose profiles, traffic candidates, and fallback chains for different runtime purposes.
+description: Choose profiles, traffic splitting, and error fallback for different llm purposes.
 ---
 
 # LLM Routing Policies
 
-`llm.routes.*` lets you assign different model configs to different runtime purposes.
+Mister Morph provides flexible routing policies to solve the following problems:
 
-These routes work the same way in first-party runtimes and in `integration.Config`, so CLI, Console, Channels, and Go embedding all share the same routing semantics.
+1. Different purposes may need different LLM configs.
+2. LLM requests may need traffic splitting.
+3. When one LLM config fails, it should be possible to fall back to a backup LLM config.
 
-## When you need routes
+## LLM Profiles
 
-Typical cases:
+Each profile is an LLM config. Top-level `llm.*` is itself the default profile, and `llm.profiles.<name>` is used to declare named profiles.
 
-- Keep the main loop on the default model to reduce migration cost.
-- Send `addressing` to a cheaper and faster model.
-- Pin `plan_create` to a stronger reasoning model.
-- Split `main_loop` traffic and prepare a fallback chain for failures.
+Notes:
 
-## Supported purposes
+- Named profiles inherit from top-level `llm.*` and only override the fields they change.
+- `default` is a reserved name that means "continue using top-level `llm.*`".
 
-- `main_loop`: main agent step loop.
-- `addressing`: group or channel addressing detection.
-- `heartbeat`: scheduled heartbeat tasks.
-- `plan_create`: planning requests inside the `plan_create` tool.
-- `memory_draft`: memory draft consolidation.
+In the example below, the top-level model is OpenAI GPT-5.4. Two additional profiles are defined: GPT-4o mini and Claude Opus 4.6.
 
-## Minimal config
+From the names, you can already see the intent: GPT-4o mini is for cheaper work, while Claude Opus 4.6 is for deeper reasoning.
 
 ```yaml
 llm:
-  provider: openai
-  model: gpt-5.4
-  api_key: ${OPENAI_API_KEY}
+  provider: "openai"
+  model: "gpt-5.4"
+  api_key: "${OPENAI_API_KEY}"
 
   profiles:
     cheap:
-      model: gpt-4.1-mini
+      model: "gpt-4o-mini"
     reasoning:
-      provider: xai
-      model: grok-4.1-fast-reasoning
-      api_key: ${XAI_API_KEY}
+      provider: "anthropic"
+      model: "claude-opus-4-6"
+      api_key: "${CLAUDE_API_KEY}"
+```
 
+In other words, profiles define which reusable LLM configs exist, so that the routing, traffic splitting, and fallback features can use them later.
+
+## Routing
+
+`llm.routes.*` defines how different llm purposes should use different model configs.
+
+Besides `main_loop`, which is responsible for running the agent itself, the other purposes are separate llm calls. You can think of them as simple sub-agents.
+
+### Currently supported purposes
+
+- `main_loop`: main agent loop.
+- `addressing`: only used for addressing detection in group chats or channels.
+- `heartbeat`: only used for scheduled heartbeat tasks.
+- `plan_create`: only used for planning requests inside the `plan_create` tool.
+- `memory_draft`: only used for memory draft consolidation.
+
+In the example below, plan creation uses the `reasoning` profile, which means `claude-opus-4-6`; group-chat addressing uses the cheaper `gpt-4o-mini` through `cheap`:
+
+```yaml
+llm:
   routes:
     plan_create: reasoning
     addressing: cheap
 ```
 
-This means:
+### Traffic splitting for a route
 
-- The default main loop still uses the top-level `llm.*` settings.
-- `plan_create` is pinned to `reasoning`.
-- `addressing` is pinned to `cheap`.
+Mister Morph supports traffic splitting for LLM requests. Use the `candidates` field to define the split table.
 
-## Three forms
-
-### 1. Direct profile name
-
-The shortest form:
-
-```yaml
-llm:
-  routes:
-    heartbeat: cheap
-```
-
-This means that the purpose is bound directly to one profile.
-
-### 2. Explicit object
-
-If you also want a local fallback chain, use an object:
-
-```yaml
-llm:
-  routes:
-    plan_create:
-      profile: reasoning
-      fallback_profiles: [default]
-```
-
-Rules:
-
-- `profile` is the primary route profile.
-- `fallback_profiles` is the route-local fallback chain.
-
-### 3. Candidate-based routing
-
-If you want traffic splitting for the same purpose, use `candidates`:
+The example below shows how to split traffic between `default_apple` and `default_banana` (you need to define them first under `llm.profiles`):
 
 ```yaml
 llm:
   routes:
     main_loop:
       candidates:
-        - profile: default
+        - profile: "default"
           weight: 1
-        - profile: cheap
+        - profile: "default_apple"
           weight: 1
-      fallback_profiles: [reasoning]
+        - profile: "default_banana"
+          weight: 1
 ```
 
 Rules:
 
-- `weight` controls candidate selection weight.
-- Each run picks one primary candidate and reuses it for the whole run.
-- If the primary candidate hits a retryable fallback error, the runtime first tries the remaining candidates in the same route, then tries `fallback_profiles` in order.
+- `candidates.weight` controls the selection weight.
+- Within one run loop, only one profile is used. Profiles are not interleaved. Selection is based on `run_id`.
+- If the current llm hits a fallback-eligible error, the runtime first tries the remaining candidates under the same route.
+
+### Route fallback
+
+Besides traffic splitting, Mister Morph supports error fallback for LLM requests. For example:
+
+```yaml
+llm:
+  routes:
+    plan_create:
+      profile: "reasoning"
+      fallback_profiles: [ "default" ]
+```
+
+If the current llm hits a fallback-eligible error, and no other candidate is available, the runtime tries the configs in `fallback_profiles` one by one.
 
 ## How to write this in integration
 
-If you are embedding from Go, the config style is the same, but written with `cfg.Set(...)` instead of YAML:
+The configuration style is similar. You just replace YAML with `cfg.Set(...)`:
 
 ```go
 cfg := integration.DefaultConfig()
@@ -118,5 +115,3 @@ cfg.Set("llm.routes.addressing", map[string]any{
   "fallback_profiles": []string{"default"},
 })
 ```
-
-If you want the full field list, see [Config Fields](/guide/config-reference). If you want common YAML patterns, see [Config Patterns](/guide/config-patterns).

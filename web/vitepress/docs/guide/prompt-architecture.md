@@ -1,119 +1,103 @@
 ---
-title: Prompt Architecture (Top-Down)
-description: How system prompt content is assembled from identity to runtime blocks.
+title: Prompt Architecture
+description: Introduces how the Agent's prompt mechanism works.
 ---
 
-# Prompt Architecture (Top-Down)
+# Prompt Architecture
 
-This is the runtime order used in current code.
+In Mister Morph's main loop, the only purpose of the prompt is to assemble a reasonable state for the Agent.
 
-## Top-Down Flow Diagram
+> Skills, identity, soul, todo, and memory may look like separate systems, but in the end they are all ways of maintaining that state. They are mostly syntax sugar around the same thing.
 
-```text
-PromptSpecWithSkills(...)
-        |
-        v
-ApplyPersonaIdentity(...)
-        |
-        v
-AppendLocalToolNotesBlock(...)
-        |
-        v
-AppendPlanCreateGuidanceBlock(...)
-        |
-        v
-AppendTodoWorkflowBlock(...)
-        |
-        v
-Channel PromptAugment(...)
-        |
-        v
-AppendMemorySummariesBlock(...)
-        |
-        v
-BuildSystemPrompt(...) -> system prompt text
+In Mister Morph, these layers are assembled around `agent/prompts/system.md`.
+
+## Main Loop
+
+### Static Prompt Skeleton
+
+This template roughly looks like this:
+
+```md
+## Persona
+{{ identity }}
+
+## Available Skills
+{{ skills }}
+
+## Reference Format
+{{ internal reference conventions }}
+
+## Additional Policies
+{{ large extra policy blocks }}
+
+## Response Format
+{{ expected output format }}
+
+## Rules
+{{ built-in rules and additional rules }}
 ```
 
-## 1) Identity Layer
+### Runtime Prompt
 
-Base identity comes from `agent.DefaultPromptSpec()`.
+Once a concrete run starts, the runtime keeps adding current context.
 
-Then runtime may replace it via local persona files:
+Common sources include:
 
-- `file_state_dir/IDENTITY.md`
-- `file_state_dir/SOUL.md`
+- local persona files such as `IDENTITY.md` and `SOUL.md`
+- metadata for the skills enabled in this run
+- local script notes such as `SCRIPTS.md`
+- extra policy blocks
+- memory summary
 
-Applied by `promptprofile.ApplyPersonaIdentity(...)`.
+This layer changes with the current task, current channel, and current local state. The final prompt used in CLI, Telegram, and Slack does not have to be identical.
 
-## 2) Skills Layer
+### Message Orchestration Outside the Prompt
 
-`skillsutil.PromptSpecWithSkills(...)` discovers selected skills and injects only metadata into the system prompt:
+After the final system prompt is ready, the main Agent still arranges a message stack in the request.
 
-- skill name
-- `SKILL.md` path
-- short description
-- required `auth_profiles` (if provided)
-
-The model reads the actual skill file through `read_file` when needed.
-
-## 3) Core Policy Blocks
-
-Common blocks are appended in task runtime order:
-
-1. local tool notes (`SCRIPTS.md`) via `AppendLocalToolNotesBlock`
-2. `plan_create` guidance via `AppendPlanCreateGuidanceBlock`
-3. TODO workflow policy via `AppendTodoWorkflowBlock`
-
-## 4) Channel Blocks
-
-Channel runtime then appends channel-specific blocks.
-
-Examples:
-
-- Telegram: `AppendTelegramRuntimeBlocks(...)`
-- Slack: `AppendSlackRuntimeBlocks(...)`
-- LINE: `AppendLineRuntimeBlocks(...)`
-- Lark: `AppendLarkRuntimeBlocks(...)`
-
-## 5) Memory Injection Block
-
-If enabled, memory snapshot text is appended as another block through `AppendMemorySummariesBlock(...)`.
-
-## 6) System Prompt Rendering
-
-`agent.BuildSystemPrompt(...)` renders `agent/prompts/system.md` with:
-
-- identity
-- skills metadata
-- appended blocks
-- tool summary from registry
-- rules list
-
-## 7) Message Stack Sent to LLM
-
-In `engine.Run(...)`, message order is:
+The order can be understood like this:
 
 ```text
-[system] rendered system prompt
+[system] final system prompt
    ->
-[user] mister_morph_meta (optional)
+[user] runtime metadata
    ->
-[history] non-system messages
+[history] history messages
    ->
 [user] current message or raw task
 ```
 
-1. system prompt
-2. injected runtime metadata message (`mister_morph_meta`, if present)
-3. history messages (non-system)
-4. current message (if provided) or raw task text
+## Independent Prompts
 
-## Practical Rule
+Mister Morph also has another class of calls that does not first build the main Agent's full system prompt, and may not enter the multi-step tool loop at all. Instead, it builds a smaller dedicated prompt and makes a single `llm.Chat` call.
 
-If you need to customize prompt behavior, prefer these extension points in order:
+Independent prompts are used for:
 
-1. `IDENTITY.md` / `SOUL.md`
-2. `SKILL.md` + `skills.load`
-3. `SCRIPTS.md`
-4. runtime-specific prompt augment
-5. low-level `agent.WithPromptBuilder(...)` (only for full custom wiring)
+- deciding how to step into a group chat
+- task planning
+- memory consolidation
+- some narrow semantic judgment or matching tasks
+
+### Relationship to the Main Loop
+
+You can think of the two paths like this:
+
+```text
+Main Agent main loop
+  -> full system prompt
+  -> runtime metadata / history / current message
+  -> can run multiple steps and call tools
+
+Independent llm.Chat
+  -> dedicated system prompt / user prompt
+  -> single call
+  -> solves one narrow problem only
+```
+
+For example, when the Agent decides how to enter a group chat, it checks:
+
+- whether this message is addressing it
+- whether it should interject now
+- whether a lightweight response, such as an emoji, is enough
+
+That decision happens before the main loop, so a smaller dedicated prompt is more suitable than the full main system prompt.

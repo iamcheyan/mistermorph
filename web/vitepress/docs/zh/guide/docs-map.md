@@ -12,12 +12,12 @@ description: 仓库中更完整设计文档的入口索引。
   - [快速开始（CLI）](/zh/guide/quickstart-cli)
 - Runtime
   - [Runtime 模式](/zh/guide/runtime-modes)
-  - [LLM 路由策略](/zh/guide/llm-routing)
-  - [Prompt 组织（自顶向下）](/zh/guide/prompt-architecture)
+  - [Prompt 组织](/zh/guide/prompt-architecture)
   - [Memory](/zh/guide/memory)
   - [Skills](/zh/guide/skills)
   - [内置工具](/zh/guide/built-in-tools)
   - [MCP](/zh/guide/mcp)
+  - [LLM 路由策略](/zh/guide/llm-routing)
 - 开发者
   - [创建自己的 AI Agent](/zh/guide/build-your-own-agent)
   - [创建自己的 AI Agent：进阶](/zh/guide/build-your-own-agent-advanced)

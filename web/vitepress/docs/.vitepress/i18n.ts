@@ -56,19 +56,11 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
-        slug: 'llm-routing',
-        text: {
-          en: 'LLM Routing Policies',
-          zh: 'LLM 路由策略',
-          ja: 'LLM ルーティングポリシー'
-        }
-      },
-      {
         slug: 'prompt-architecture',
         text: {
-          en: 'Prompt Architecture (Top-Down)',
-          zh: 'Prompt 组织（自顶向下）',
-          ja: 'Prompt 設計（トップダウン）'
+          en: 'Prompt Architecture',
+          zh: 'Prompt 组织',
+          ja: 'Prompt 設計'
         }
       },
       {
@@ -101,6 +93,14 @@ const sidebarSpec: SidebarSpec = [
           en: 'MCP',
           zh: 'MCP',
           ja: 'MCP'
+        }
+      },
+      {
+        slug: 'llm-routing',
+        text: {
+          en: 'LLM Routing Policies',
+          zh: 'LLM 路由策略',
+          ja: 'LLM ルーティングポリシー'
         }
       }
     ]

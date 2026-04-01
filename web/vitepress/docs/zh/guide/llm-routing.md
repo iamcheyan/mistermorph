@@ -1,114 +1,110 @@
 ---
 title: LLM 路由策略
-description: 为不同 runtime purpose 选择 profile、分流候选与 fallback 链。
+description: 为不同 llm purpose 选择 profile、分流与错误回退。
 ---
 
 # LLM 路由策略
 
-`llm.routes.*` 用来给不同的 runtime purpose 指定不同的模型配置。
+Mister Morph 提供了灵活的路由策略来解决如下问题：
 
-这套配置同时适用于第一方 runtime 和 `integration.Config`，所以 CLI / Console / Channel / Go 嵌入用的是同一套路由语义。
+1. 不同 purpose 有适合该目的的 llm 配置
+2. llm 请求需要分流
+3. 当某个 llm 配置出问题时可以回退到备份 llm 配置
 
-## 什么时候需要 routes
+## LLM Profile
 
-典型场景：
+每个 Profile 就是一个 LLM 配置。顶层 `llm.*` 本身就是默认 profile，`llm.profiles.<name>` 用来声明命名 profile。
 
-- 主循环用默认模型，降低迁移成本。
-- `addressing` 用更便宜更快的模型。
-- `plan_create` 固定走更强的推理模型。
-- `main_loop` 做分流，并给失败请求准备 fallback 链。
+注意：
+- 命名 profile 会继承顶层 `llm.*`，只覆盖自己改动的字段。
+- `default` 是保留名字，表示“继续使用顶层 `llm.*`”。
 
-## 支持的 purpose
+在下面这个例子中，顶层模型是 OpenAI 的 GPT-5.4。同时还定义了两个 profile，分别是 GPT-4o mini 和 Claude Opus 4.6。
 
-- `main_loop`：主 Agent step loop。
-- `addressing`：群聊或频道里的 addressing 判定。
-- `heartbeat`：定时 heartbeat 任务。
-- `plan_create`：`plan_create` 工具内部的规划请求。
-- `memory_draft`：memory 草稿整理。
-
-## 最小配置
+从 profile 的命名上可以看出，其中 GPT-4o mini 是为了解决一些便宜的任务，Claude Opus 4.6 是为了更深度地思考。
 
 ```yaml
 llm:
-  provider: openai
-  model: gpt-5.4
-  api_key: ${OPENAI_API_KEY}
+  provider: "openai"
+  model: "gpt-5.4"
+  api_key: "${OPENAI_API_KEY}"
 
   profiles:
     cheap:
-      model: gpt-4.1-mini
+      model: "gpt-4o-mini"
     reasoning:
-      provider: xai
-      model: grok-4.1-fast-reasoning
-      api_key: ${XAI_API_KEY}
+      provider: "anthropic"
+      model: "claude-opus-4-6"
+      api_key: "${CLAUDE_API_KEY}"
+```
 
+也就是说，profile 负责定义有**哪些可复用的 LLM 配置**，让接下来的路由，分流和回退功能调用。
+
+## 路由
+
+配置 `llm.routes.*` 中定义了如何给不同的 llm purpose 指定不同的模型配置。
+
+除了 `main_loop` 负责 Agent 的运行以外，其他 purposes 都是独立的 llm 调用（也可以理解成简单的 sub agent）
+
+### 目前支持的 purpose
+
+- `main_loop`：主 Agent loop。
+- `addressing`：只用于群聊或频道里的 addressing 判定。
+- `heartbeat`：只用于定时 heartbeat 任务。
+- `plan_create`：只用于 `plan_create` 工具内部的计划请求。
+- `memory_draft`：只用于 memory 草稿整理。
+
+在下面这个例子中，创建计划时，LLM 使用 reasoning 的 profile，也就是 "claude-opus-4-6"；进行群聊的 addressing 判定时，则用了便宜的 "gpt-4o-mini":
+
+```yaml
+llm:
   routes:
     plan_create: reasoning
     addressing: cheap
 ```
 
-这里的含义是：
+### 路由的分流
 
-- 默认主循环继续走顶层 `llm.*`
-- `plan_create` 固定走 `reasoning`
-- `addressing` 固定走 `cheap`
+Mister Morph 支持对 LLM 请求做流量分流，用 `candidates` 字段来定义分流表。
 
-## 三种写法
-
-### 1. 直接写 profile 名
-
-最短写法：
-
-```yaml
-llm:
-  routes:
-    heartbeat: cheap
-```
-
-等价于“这个 purpose 固定绑定到一个 profile”。
-
-### 2. 显式对象
-
-当你还想加本地 fallback 链时，可以写成对象：
-
-```yaml
-llm:
-  routes:
-    plan_create:
-      profile: reasoning
-      fallback_profiles: [default]
-```
-
-规则：
-
-- `profile` 是主路由 profile。
-- `fallback_profiles` 是这个 route 自己的回退链。
-
-### 3. 候选分流
-
-如果要对同一个 purpose 做流量分流，用 `candidates`：
+下面的例子展示了如何把流量分到 `default_apple` 和 `default_banana`（需要在 `llm.profiles` 预先定义他们）：
 
 ```yaml
 llm:
   routes:
     main_loop:
       candidates:
-        - profile: default
+        - profile: "default"
           weight: 1
-        - profile: cheap
+        - profile: "default_apple"
           weight: 1
-      fallback_profiles: [reasoning]
+        - profile: "default_banana"
+          weight: 1
 ```
 
 规则：
 
-- `candidates` 里的 `weight` 用来决定主候选的选择权重。
-- 同一个 run 会先选出一个主候选，并在这个 run 内复用。
-- 如果主候选遇到可回退错误，运行时会先尝试同 route 下剩余 candidate，再按顺序尝试 `fallback_profiles`。
+- `candidates.weight` 用来决定选择权重。
+- 同一个 Loop 内只会使用某一个 profile，不会穿插使用（按 `run_id` 来选择）。
+- 如果当前 llm 遇到可回退错误，运行时会先尝试同 route 下剩余 candidate。
 
-## 在 integration 里怎么写
+### 路由的回退
 
-如果你是 Go 嵌入，配置方式还是一样，只是把 YAML 改成 `cfg.Set(...)`：
+除了分流，Mister Morph 支持对 LLM 请求进行错误回退。例如：
+
+```yaml
+llm:
+  routes:
+    plan_create:
+      profile: "reasoning"
+      fallback_profiles: [ "default" ]
+```
+
+如果当前 llm 遇到可回退错误，如果其他 candidate 都不可用，会挨个尝试 `fallback_profiles` 中的配置。
+
+## 在 integration 里的写法
+
+配置方式类似，只是把 YAML 改成 `cfg.Set(...)`：
 
 ```go
 cfg := integration.DefaultConfig()
@@ -118,5 +114,3 @@ cfg.Set("llm.routes.addressing", map[string]any{
   "fallback_profiles": []string{"default"},
 })
 ```
-
-如果要查所有字段名，见 [配置字段](/zh/guide/config-reference)；如果要看常见 YAML 模式，见 [配置模式](/zh/guide/config-patterns)。

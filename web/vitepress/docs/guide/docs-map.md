@@ -12,12 +12,12 @@ description: Where to find deeper design and runtime documents in the repo.
   - [Quickstart (CLI)](/guide/quickstart-cli)
 - Runtime
   - [Runtime Modes](/guide/runtime-modes)
-  - [LLM Routing Policies](/guide/llm-routing)
-  - [Prompt Architecture (Top-Down)](/guide/prompt-architecture)
+  - [Prompt Architecture](/guide/prompt-architecture)
   - [Memory](/guide/memory)
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
   - [MCP](/guide/mcp)
+  - [LLM Routing Policies](/guide/llm-routing)
 - Developer
   - [Create Your Own AI Agent](/guide/build-your-own-agent)
   - [Create Your Own AI Agent: Advanced](/guide/build-your-own-agent-advanced)

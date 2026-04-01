@@ -1,43 +1,38 @@
 ---
-title: Runtime Modes
-description: Which runtime to use for CLI, bots, or web console.
+title: Runtime Modes Overview
+description: See which runtime modes Mister Morph supports.
 ---
 
-# Runtime Modes
+# Runtime Modes Overview
 
 ## One-shot task
+
+If you only need to call Mister Morph from the command line for a single task, use this mode.
 
 ```bash
 mistermorph run --task "..."
 ```
 
-## Telegram bot
+## Console
 
-```bash
-mistermorph telegram --log-level info
-```
-
-## Slack bot
-
-```bash
-mistermorph slack --log-level info
-```
-
-## Console backend
+This provides a full Web UI. Besides interacting with the agent directly, you can also use it to monitor other Mister Morph instances.
 
 ```bash
 mistermorph console serve
 ```
 
-## LLM Routing Policies
+## Telegram Bot
 
-If you want to assign different models to `main_loop`, `addressing`, `plan_create`, `heartbeat`, or `memory_draft`, see [LLM Routing Policies](/guide/llm-routing).
+Run a standalone runtime connected to a Telegram channel and interact with Mister Morph inside Telegram.
 
-Detailed setup docs:
+```bash
+mistermorph telegram --log-level info
+```
 
-- `docs/console.md`
-- `docs/slack.md`
-- `docs/line.md`
-- `docs/lark.md`
+## Slack Bot
 
-Legacy standalone daemon mode (`mistermorph serve`) has been removed.
+Similar to the Telegram mode, but provides the interaction inside Slack.
+
+```bash
+mistermorph slack --log-level info
+```
