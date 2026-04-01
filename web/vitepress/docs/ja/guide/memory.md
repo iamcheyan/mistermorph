@@ -1,60 +1,50 @@
 ---
 title: Memory
-description: WAL ベースの memory アーキテクチャ、注入、書き戻しルール。
+description: WAL ベースの memory アーキテクチャ、投影、注入ルールを説明します。
 ---
 
 # Memory
 
-Mister Morph の memory は「WAL 先行書き込み + 非同期投影」です。
+Mister Morph の memory システムは、先に WAL（Write-ahead logging）へ追記し、その後で非同期投影する仕組みです。
 
-## アーキテクチャ
+## WAL
 
-- 真のデータ源: `memory/log/*.jsonl`（WAL）
-- 読み取りモデル:
-  - `memory/index.md`（長期）
-  - `memory/YYYY-MM-DD/*.md`（短期）
-- ホットパスは WAL のみ書き込み。Markdown 更新は非同期。
+平たく言えば、起きたことは大小を問わず jsonl 形式で発生順に生データとして記録されます。だから WAL が本当のデータ源になります。
 
-## 実行フロー
+パスは `memory/log/` で、ファイル名は `since-YYYY-MM-DD-0001.jsonl` の形式です。
 
-1. LLM 呼び出し前に snapshot を作成し prompt block へ注入
-2. 最終返信後に raw memory event を WAL へ追記
-3. projection worker が WAL を再生して markdown を更新
+WAL ファイルが一定サイズに達すると、`.jsonl.gz` で終わるファイルへローテーションされます。
 
-## 注入条件
+## 投影
 
-すべて満たすときのみ注入:
+Mister Morph は WAL から次の 2 つへ単純な投影を行います。
+
+- `memory/index.md`（長期記憶）
+- `memory/YYYY-MM-DD/*.md`（短期記憶）
+  - 短期記憶ファイルは Channel ごとに分離されます。例えば Telegram では別々のグループチャット間で記憶は共有されません。
+
+投影とは、一定期間の WAL を読み、LLM で要約し、対応する対象ファイルへ書き出すことです。
+
+投影の記録点ファイルは `memory/log/checkpoint.json` で、中身はおおよそ次のようになります。
+
+```json
+{
+  "file": "since-2026-02-28-0001.jsonl",
+  "line": 18,
+  "updated_at": "2026-02-28T06:30:12Z"
+}
+```
+
+## 注入
+
+次の設定が有効なとき、一部の記憶投影が prompt に注入されます。
 
 - `memory.enabled = true`
 - `memory.injection.enabled = true`
-- 有効な `subject_id` がある
-- snapshot が空でない
 
-`memory.injection.max_items` で注入件数を制限します。
+`memory.injection.max_items` は注入する項目数の上限を制御します。
 
-## 書き戻し条件
+## 備考
 
-すべて満たすときのみ書き戻し:
-
-- 最終返信が実際に publish される
-- memory orchestrator が存在
-- `subject_id` が存在
-
-軽量返信や空出力では書き戻しをスキップします。
-
-## 主要設定
-
-```yaml
-memory:
-  enabled: true
-  dir_name: "memory"
-  short_term_days: 7
-  injection:
-    enabled: true
-    max_items: 50
-```
-
-## 運用メモ
-
-- 投影 markdown が壊れても WAL から再構築可能
-- 本番では `file_state_dir` を永続ストレージに置く
+1. Memory 投影が壊れても WAL から再構築できます。`memory/log/checkpoint.json` を削除して Agent を継続実行すればよいです。
+2. 本番環境では、memory を含む実行状態を維持するために `file_state_dir` を永続ストレージへ置いてください。

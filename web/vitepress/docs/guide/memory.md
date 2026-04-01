@@ -1,61 +1,50 @@
 ---
 title: Memory
-description: WAL-based memory architecture, injection, and writeback behavior.
+description: Introduces the WAL-based memory architecture, projection, and injection rules.
 ---
 
 # Memory
 
-Mister Morph memory is append-first and rebuildable.
+Mister Morph memory uses an append-first WAL (Write-ahead logging) model plus asynchronous projection.
 
-## Architecture
+## WAL
 
-- Source of truth: `memory/log/*.jsonl` (WAL)
-- Read model: markdown projections
-  - `memory/index.md` (long-term)
-  - `memory/YYYY-MM-DD/*.md` (short-term)
-- Projection runs asynchronously; hot path writes only WAL.
+In plain terms, anything that happens is first written as raw data to a jsonl file in order. That is why WAL is the real source of truth.
 
-## Runtime Flow
+The path is `memory/log/`, and file names follow the format `since-YYYY-MM-DD-0001.jsonl`.
 
-1. Before LLM call: runtime prepares memory snapshot and injects it into prompt blocks.
-2. After final reply: runtime records raw memory event to WAL.
-3. Projection worker replays WAL and updates markdown files.
+When a WAL file reaches a certain size, it is rotated into a file ending in `.jsonl.gz`.
 
-## Injection Rules
+## Projection
 
-Memory injection runs only when all conditions match:
+Mister Morph builds simple projections from WAL into two targets:
+
+- `memory/index.md` (long-term memory)
+- `memory/YYYY-MM-DD/*.md` (short-term memory)
+  - Short-term memory files are isolated by channel. For example, memories from different Telegram group chats do not mix.
+
+Projection means reading WAL for a period of time, summarizing it with an LLM, and writing the result into those target files.
+
+The projection checkpoint file is `memory/log/checkpoint.json`, and it looks roughly like this:
+
+```json
+{
+  "file": "since-2026-02-28-0001.jsonl",
+  "line": 18,
+  "updated_at": "2026-02-28T06:30:12Z"
+}
+```
+
+## Injection
+
+When the following config is enabled, part of the projected memory is injected into the prompt:
 
 - `memory.enabled = true`
 - `memory.injection.enabled = true`
-- runtime provides a valid `subject_id`
-- snapshot content is not empty
 
-`memory.injection.max_items` limits injected summary items.
+`memory.injection.max_items` controls the maximum number of injected items.
 
-## Writeback Rules
+## Notes
 
-Writeback runs only when:
-
-- final reply is actually published
-- memory orchestrator exists
-- `subject_id` exists
-
-If final output is empty/lightweight, writeback may be skipped.
-
-## Config Keys
-
-```yaml
-memory:
-  enabled: true
-  dir_name: "memory"
-  short_term_days: 7
-  injection:
-    enabled: true
-    max_items: 50
-```
-
-## Operational Notes
-
-- If markdown projections are damaged, rebuild from WAL.
-- Treat `memory/log/*.jsonl` as durable data.
-- Keep `file_state_dir` on persistent storage in production.
+1. If memory projections are damaged, rebuild them from WAL by deleting `memory/log/checkpoint.json` and letting the Agent continue running.
+2. In production, keep `file_state_dir` on persistent storage so runtime state, including memory, survives.
