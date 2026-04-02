@@ -14,7 +14,7 @@
 user_agent: "mistermorph/1.0 (+https://github.com/quailyquaily)"
 
 llm:
-  # LLM provider name. Supported: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
+  # LLM provider name. Supported: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
   provider: openai
   # Default model used by the main agent loop.
   model: "gpt-5.4"
@@ -22,6 +22,10 @@ llm:
   endpoint: "https://api.openai.com"
   # Provider API key. Use ${ENV_VAR} to avoid committing secrets.
   api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
+  # Optional custom HTTP headers for LLM requests.
+  # headers:
+  #   YOUR-HEADER: "${YOUR_HEADER_VALUE}"
+  #   "-X-ABC-TOKEN": "${ABC_TOKEN}"
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).

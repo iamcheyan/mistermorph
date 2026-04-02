@@ -233,6 +233,24 @@ func TestBuildChatOptionsAppliesConfiguredDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsSkipsReasoningBudgetForOpenAIResp(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+	}
+	reasoningBudget := 8192
+	opts := buildChatOptions(req, "openai_resp", false, uniaiapi.ToolsEmulationOff, nil, "high", &reasoningBudget)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.ReasoningEffort == nil || *built.Options.ReasoningEffort != uniaichat.ReasoningEffortHigh {
+		t.Fatalf("reasoning effort = %#v, want high", built.Options.ReasoningEffort)
+	}
+	if built.Options.ReasoningBudget != nil {
+		t.Fatalf("reasoning budget = %#v, want nil", built.Options.ReasoningBudget)
+	}
+}
+
 func TestBuildChatOptionsRequestTemperatureOverridesConfiguredDefault(t *testing.T) {
 	req := llm.Request{
 		Messages:   []llm.Message{{Role: "user", Content: "hello"}},

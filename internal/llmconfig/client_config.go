@@ -7,5 +7,6 @@ type ClientConfig struct {
 	Endpoint       string
 	APIKey         string
 	Model          string
+	Headers        map[string]string
 	RequestTimeout time.Duration
 }

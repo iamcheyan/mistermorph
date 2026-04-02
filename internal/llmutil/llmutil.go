@@ -22,6 +22,7 @@ type RuntimeValues struct {
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
 	Model              string `config:"llm.model"`
+	Headers            map[string]string
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
 	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
@@ -48,6 +49,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
 		APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
 		Model:               strings.TrimSpace(r.GetString("llm.model")),
+		Headers:             loadStringMapKeyFromReader(r, "llm.headers"),
 		AzureDeployment:     strings.TrimSpace(r.GetString("llm.azure.deployment")),
 		RequestTimeoutRaw:   strings.TrimSpace(r.GetString("llm.request_timeout")),
 		ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
@@ -131,13 +133,18 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if err != nil {
 		return nil, err
 	}
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "openai", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if provider == "openai_resp" && reasoningBudget != nil {
+		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
+	}
+	switch provider {
+	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c := uniaiProvider.New(uniaiProvider.Config{
-			Provider:           strings.ToLower(strings.TrimSpace(cfg.Provider)),
+			Provider:           provider,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),
+			Headers:            cloneStringMap(cfg.Headers),
 			RequestTimeout:     cfg.RequestTimeout,
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
@@ -304,4 +311,35 @@ func loadStringSliceKeyFromReader(r ConfigReader, key string) []string {
 		return normalizeProfileNames(raw)
 	}
 	return nil
+}
+
+func loadStringMapKeyFromReader(r ConfigReader, key string) map[string]string {
+	var raw map[string]string
+	if err := unmarshalKey(r, key, &raw); err == nil {
+		return cloneStringMap(raw)
+	}
+	if getter, ok := any(r).(interface {
+		GetStringMapString(string) map[string]string
+	}); ok {
+		return cloneStringMap(getter.GetStringMapString(key))
+	}
+	return nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		out[k] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

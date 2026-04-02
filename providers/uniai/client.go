@@ -21,6 +21,7 @@ type Config struct {
 	Endpoint string
 	APIKey   string
 	Model    string
+	Headers  map[string]string
 
 	RequestTimeout  time.Duration
 	Temperature     *float64
@@ -74,6 +75,7 @@ func New(cfg Config) *Client {
 		OpenAIAPIKey:        openAIKey,
 		OpenAIAPIBase:       openAIBase,
 		OpenAIModel:         strings.TrimSpace(cfg.Model),
+		ChatHeaders:         cloneStringMap(cfg.Headers),
 		AzureOpenAIAPIKey:   strings.TrimSpace(azureAPIKey),
 		AzureOpenAIEndpoint: strings.TrimSpace(azureEndpoint),
 		AzureOpenAIModel:    strings.TrimSpace(azureDeployment),
@@ -233,7 +235,7 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	if effort := strings.TrimSpace(defaultReasoningEffort); effort != "" {
 		opts = append(opts, uniaiapi.WithReasoningEffort(uniaiapi.ReasoningEffort(effort)))
 	}
-	if defaultReasoningBudget != nil {
+	if defaultReasoningBudget != nil && !strings.EqualFold(strings.TrimSpace(provider), "openai_resp") {
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
@@ -297,6 +299,17 @@ func cloneInt(v *int) *int {
 	}
 	out := *v
 	return &out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func normalizeToolsEmulationMode(mode string) uniaiapi.ToolsEmulationMode {

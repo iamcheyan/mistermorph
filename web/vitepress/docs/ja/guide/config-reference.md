@@ -19,10 +19,11 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.model`
 - `llm.endpoint`
 - `llm.api_key`
+- `llm.headers.<name>`（任意のカスタム HTTP ヘッダー）
 - `llm.request_timeout`
 - `llm.temperature`（任意）
 - `llm.reasoning_effort`
-- `llm.reasoning_budget_tokens`（任意）
+- `llm.reasoning_budget_tokens`（任意。`openai_resp` では warning を出して無視）
 - `llm.tools_emulation_mode`（`off|fallback|force`）
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
@@ -32,6 +33,7 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.cloudflare.account_id`
 - `llm.cloudflare.api_token`
 - `llm.profiles.<profile>.*`
+- `llm.profiles.<profile>.headers.<name>`（profile 単位のカスタムヘッダー）
 - `llm.routes.<purpose>`（`main_loop|addressing|heartbeat|plan_create|memory_draft`）
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`

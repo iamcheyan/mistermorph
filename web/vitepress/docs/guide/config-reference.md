@@ -19,10 +19,11 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.model`
 - `llm.endpoint`
 - `llm.api_key`
+- `llm.headers.<name>` (optional custom HTTP headers)
 - `llm.request_timeout`
 - `llm.temperature` (optional)
 - `llm.reasoning_effort`
-- `llm.reasoning_budget_tokens` (optional)
+- `llm.reasoning_budget_tokens` (optional; ignored with a warning for `openai_resp`)
 - `llm.tools_emulation_mode` (`off|fallback|force`)
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
@@ -32,6 +33,7 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.cloudflare.account_id`
 - `llm.cloudflare.api_token`
 - `llm.profiles.<profile>.*` (named profile overrides)
+- `llm.profiles.<profile>.headers.<name>` (optional profile-scoped headers)
 - `llm.routes.<purpose>` (`main_loop|addressing|heartbeat|plan_create|memory_draft`)
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`

@@ -81,6 +81,28 @@ func TestRuntimeValuesFromReader_UsesEnvWhenConfigOmitsLLMAPIKey(t *testing.T) {
 	}
 }
 
+func TestRuntimeValuesFromReader_ReadsLLMHeaders(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  provider: openai_resp
+  headers:
+    "-X-ABC-TOKEN": "${ABC_TOKEN}"
+    OpenAI-Organization: org_123
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	values := RuntimeValuesFromReader(v)
+	if got := values.Headers["-x-abc-token"]; got != "${ABC_TOKEN}" {
+		t.Fatalf("headers[-x-abc-token] = %q, want ${ABC_TOKEN}", got)
+	}
+	if got := values.Headers["openai-organization"]; got != "org_123" {
+		t.Fatalf("headers[openai-organization] = %q, want org_123", got)
+	}
+}
+
 func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	values := RuntimeValues{
 		Model:           "gpt-5.2",
@@ -214,10 +236,12 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 		Endpoint:          "https://api.openai.com",
 		APIKey:            "base-key",
 		Model:             "gpt-5.2",
+		Headers:           map[string]string{"X-App-Name": "mistermorph", "X-Trace": "base"},
 		RequestTimeoutRaw: "90s",
 		Profiles: map[string]ProfileConfig{
 			"cheap": {
 				Model:          "gpt-4.1-mini",
+				Headers:        map[string]string{"X-Trace": "cheap", "-X-ABC-TOKEN": "p1"},
 				TemperatureRaw: "0.2",
 			},
 		},
@@ -236,6 +260,15 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 	}
 	if resolved.Values.TemperatureRaw != "0.2" {
 		t.Fatalf("temperature raw = %q, want 0.2", resolved.Values.TemperatureRaw)
+	}
+	if got := resolved.ClientConfig.Headers["X-App-Name"]; got != "mistermorph" {
+		t.Fatalf("headers[X-App-Name] = %q, want mistermorph", got)
+	}
+	if got := resolved.ClientConfig.Headers["X-Trace"]; got != "cheap" {
+		t.Fatalf("headers[X-Trace] = %q, want cheap", got)
+	}
+	if got := resolved.ClientConfig.Headers["-X-ABC-TOKEN"]; got != "p1" {
+		t.Fatalf("headers[-X-ABC-TOKEN] = %q, want p1", got)
 	}
 	if len(resolved.Fallbacks) != 0 {
 		t.Fatalf("fallbacks = %d, want 0", len(resolved.Fallbacks))

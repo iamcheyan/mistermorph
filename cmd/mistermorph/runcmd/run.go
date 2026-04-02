@@ -314,7 +314,7 @@ func New(deps Dependencies) *cobra.Command {
 
 	cmd.Flags().String("task", "", "Task to run (if empty, reads from stdin).")
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
-	cmd.Flags().String("provider", "openai", "Provider: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo.")
+	cmd.Flags().String("provider", "openai", "Provider: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.")
 	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
 	cmd.Flags().String("model", "gpt-5.2", "Model name.")
 	cmd.Flags().String("api-key", "", "API key.")

@@ -19,14 +19,15 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 
 | 字段 | 含义 |
 |---|---|
-| `llm.provider` | 主模型提供方（如 `openai`、`azure`、`bedrock`、`cloudflare` 等）。 |
+| `llm.provider` | 主模型提供方（如 `openai`、`openai_resp`、`azure`、`bedrock`、`cloudflare` 等）。 |
 | `llm.model` | 主循环默认模型名。 |
 | `llm.endpoint` | OpenAI 兼容提供方的 API 基础地址。 |
 | `llm.api_key` | 提供方 API Key。建议写成 `${ENV_VAR}`。 |
+| `llm.headers.<name>` | 可选的自定义 LLM 请求头。 |
 | `llm.request_timeout` | 单次 LLM 请求超时时间。 |
 | `llm.temperature` | 可选的默认采样温度；未设置时不强制传给提供方。 |
 | `llm.reasoning_effort` | 可选推理强度（`none/minimal/low/medium/high/max/xhigh`）。 |
-| `llm.reasoning_budget_tokens` | 可选推理预算 token。 |
+| `llm.reasoning_budget_tokens` | 可选推理预算 token；`openai_resp` 下会忽略并记录 warning。 |
 | `llm.tools_emulation_mode` | 工具调用仿真策略（`off/fallback/force`）。 |
 | `llm.azure.deployment` | Azure OpenAI 的 deployment 名称。 |
 | `llm.bedrock.aws_key` | Bedrock 的 AWS Access Key。 |
@@ -36,6 +37,7 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.cloudflare.account_id` | Cloudflare Workers AI 账号 ID。 |
 | `llm.cloudflare.api_token` | Cloudflare Workers AI API Token。 |
 | `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 provider/model/key 等，用于路由不同任务。 |
+| `llm.profiles.<profile>.headers.<name>` | profile 级自定义请求头；同名 header 会覆盖顶层 `llm.headers`。 |
 | `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/heartbeat/plan_create/memory_draft`。 |
 | `llm.routes.<purpose>.profile` | 固定把该 route 绑定到一个 profile。 |
 | `llm.routes.<purpose>.candidates[].profile` | 该 route 参与分流的 profile。 |

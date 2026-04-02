@@ -85,6 +85,7 @@ func mergeClientConfig(base llmconfig.ClientConfig, override llmconfig.ClientCon
 	if model := strings.TrimSpace(override.Model); model != "" {
 		base.Model = model
 	}
+	base.Headers = mergeStringMaps(base.Headers, override.Headers)
 	if override.RequestTimeout > 0 {
 		base.RequestTimeout = override.RequestTimeout
 	}

@@ -23,6 +23,7 @@ type ProfileConfig struct {
 	Endpoint           string `mapstructure:"endpoint"`
 	APIKey             string `mapstructure:"api_key"`
 	Model              string `mapstructure:"model"`
+	Headers            map[string]string `mapstructure:"headers"`
 	RequestTimeoutRaw  string `mapstructure:"request_timeout"`
 	ToolsEmulationMode string `mapstructure:"tools_emulation_mode"`
 	TemperatureRaw     string `mapstructure:"temperature"`
@@ -210,6 +211,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
 	cfg.ToolsEmulationMode = strings.TrimSpace(cfg.ToolsEmulationMode)
 	cfg.TemperatureRaw = strings.TrimSpace(cfg.TemperatureRaw)
@@ -302,6 +304,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)
+	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
 	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
 	applyStringOverride(&out.TemperatureRaw, override.TemperatureRaw)
@@ -349,8 +352,26 @@ func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) 
 		Endpoint:       EndpointForProviderWithValues(provider, values),
 		APIKey:         APIKeyForProviderWithValues(provider, values),
 		Model:          ModelForProviderWithValues(provider, values),
+		Headers:        cloneStringMap(values.Headers),
 		RequestTimeout: requestTimeout,
 	}, nil
+}
+
+func mergeStringMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := cloneStringMap(base)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for key, value := range cloneStringMap(override) {
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func resolveFallbacks(values RuntimeValues, names []string, excludedProfiles []string) ([]ResolvedFallback, error) {
