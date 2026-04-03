@@ -2,12 +2,14 @@ package consolecmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -164,6 +166,61 @@ func TestConsoleLocalRuntimeMaybeRefreshTopicTitleUsesShortOutput(t *testing.T) 
 	}
 	if updated.LLMTitleGeneratedAt != nil {
 		t.Fatal("updated.LLMTitleGeneratedAt != nil, want nil for direct title path")
+	}
+}
+
+func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
+	start := time.Date(2026, time.April, 4, 12, 34, 56, 0, time.UTC)
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{
+		Metrics: &agent.Metrics{
+			LLMRounds:    3,
+			TotalTokens:  120,
+			TotalCost:    0.42,
+			StartTime:    start,
+			ElapsedMs:    1500,
+			ToolCalls:    2,
+			ParseRetries: 1,
+		},
+	})
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Metrics map[string]any `json:"metrics"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+
+	if payload.Metrics["llm_rounds"] != float64(3) {
+		t.Fatalf("metrics.llm_rounds = %#v, want 3", payload.Metrics["llm_rounds"])
+	}
+	if payload.Metrics["total_tokens"] != float64(120) {
+		t.Fatalf("metrics.total_tokens = %#v, want 120", payload.Metrics["total_tokens"])
+	}
+	if payload.Metrics["total_cost"] != 0.42 {
+		t.Fatalf("metrics.total_cost = %#v, want 0.42", payload.Metrics["total_cost"])
+	}
+	if payload.Metrics["elapsed_ms"] != float64(1500) {
+		t.Fatalf("metrics.elapsed_ms = %#v, want 1500", payload.Metrics["elapsed_ms"])
+	}
+	if payload.Metrics["tool_calls"] != float64(2) {
+		t.Fatalf("metrics.tool_calls = %#v, want 2", payload.Metrics["tool_calls"])
+	}
+	if payload.Metrics["parse_retries"] != float64(1) {
+		t.Fatalf("metrics.parse_retries = %#v, want 1", payload.Metrics["parse_retries"])
+	}
+	if got := payload.Metrics["start_time"]; got != start.Format(time.RFC3339) {
+		t.Fatalf("metrics.start_time = %#v, want %q", got, start.Format(time.RFC3339))
+	}
+	if _, ok := payload.Metrics["LLMRounds"]; ok {
+		t.Fatalf("metrics unexpectedly contains camelCase key: %#v", payload.Metrics)
+	}
+	if _, ok := payload.Metrics["TotalTokens"]; ok {
+		t.Fatalf("metrics unexpectedly contains camelCase key: %#v", payload.Metrics)
 	}
 }
 

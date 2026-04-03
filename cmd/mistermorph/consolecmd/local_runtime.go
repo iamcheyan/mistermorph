@@ -730,10 +730,27 @@ func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context) map[strin
 		"final": final,
 	}
 	if runCtx != nil {
-		out["metrics"] = runCtx.Metrics
+		out["metrics"] = buildConsoleTaskMetrics(runCtx.Metrics)
 		out["steps"] = summarizeConsoleSteps(runCtx)
 	}
 	return out
+}
+
+// Keep Metrics untagged for resume-state compatibility and normalize only the
+// console task projection that is exposed via task logs and APIs.
+func buildConsoleTaskMetrics(metrics *agent.Metrics) map[string]any {
+	if metrics == nil {
+		return nil
+	}
+	return map[string]any{
+		"llm_rounds":    metrics.LLMRounds,
+		"total_tokens":  metrics.TotalTokens,
+		"total_cost":    metrics.TotalCost,
+		"start_time":    metrics.StartTime,
+		"elapsed_ms":    metrics.ElapsedMs,
+		"tool_calls":    metrics.ToolCalls,
+		"parse_retries": metrics.ParseRetries,
+	}
 }
 
 func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, finalOutput string) {
