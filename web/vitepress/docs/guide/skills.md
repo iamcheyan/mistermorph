@@ -98,7 +98,7 @@ Remote skill installation does not simply download files straight into the local
                   |
                   v
 +--------------------------------------+
-  Write to ~/.morph/skills/<name>/     |
+  Write to ~/.morph/skills/<name>/
 +--------------------------------------+
 ```
 
