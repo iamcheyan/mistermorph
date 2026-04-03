@@ -103,6 +103,33 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | `Model` | `string` | 当前主路由解析出来的模型名。 |
 | `Cleanup` | `func() error` | 释放 inspect / MCP 等临时资源。 |
 
+### `type LLMProfile struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `Name` | `string` | profile 名称。 |
+| `Provider` | `string` | 解析后的 provider 名。 |
+| `ModelName` | `string` | 解析后的 model 名。 |
+| `APIBase` | `string` | 若存在则为解析后的 API base。 |
+
+### `type LLMProfileCandidate struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `LLMProfile` | `integration.LLMProfile` | 候选 profile 信息。 |
+| `Weight` | `int` | `llm.routes.main_loop.candidates` 里的权重。 |
+
+### `type LLMProfileSelection struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `Mode` | `string` | `auto` 或 `manual`。 |
+| `ManualProfile` | `string` | 当 `Mode` 为 `manual` 时的手动覆盖目标。 |
+| `RouteType` | `string` | `profile` 或 `candidates`。 |
+| `Current` | `*integration.LLMProfile` | 当策略是单一 profile 时，表示当前解析出的 profile。 |
+| `Candidates` | `[]integration.LLMProfileCandidate` | 当策略是 `candidates` 时，列出加权候选项。 |
+| `FallbackProfiles` | `[]integration.LLMProfile` | 路由解析出的 fallback profiles。 |
+
 ### `(*Runtime).NewRegistry() *tools.Registry`
 
 | 项目 | 内容 |
@@ -134,6 +161,38 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | 参数 | `ctx context.Context`：运行上下文；`task string`：任务文本；`opts agent.RunOptions`：本次运行参数 |
 | 返回值 | `*agent.Final`、`*agent.Context`、`error` |
 | 说明 | 一次性便捷入口。内部会临时准备引擎，执行后自动 `Cleanup()`。 |
+
+### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | 无 |
+| 返回值 | `integration.LLMProfileSelection`、`error` |
+| 说明 | 返回当前 runtime 实例的 `main_loop` selection 视图。若当前策略是 `candidates`，这里返回的是加权策略，而不是强行给出一个单一 profile。 |
+
+### `(*Runtime).ListLLMProfiles() ([]LLMProfile, error)`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | 无 |
+| 返回值 | `[]integration.LLMProfile`、`error` |
+| 说明 | 列出所有已配置的 LLM profiles，包含 `name`、`provider`、`model_name` 和可选的 `api_base`。 |
+
+### `(*Runtime).SetLLMProfile(profileName string) error`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | `profileName string`：要强制给 `main_loop` 使用的 profile 名称 |
+| 返回值 | `error` |
+| 说明 | 把当前 runtime 实例切到 `manual` 模式，仅覆盖 `main_loop`。像 `plan_create` 这样的其他 route purpose 不受影响。 |
+
+### `(*Runtime).ResetLLMProfile()`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | 无 |
+| 返回值 | 无 |
+| 说明 | 清除当前 runtime 实例上的 `main_loop` 手动覆盖，回到配置里的 route policy。 |
 
 ### `(*Runtime).RequestTimeout() time.Duration`
 

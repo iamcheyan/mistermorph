@@ -68,6 +68,39 @@ cfg.Set("llm.routes.plan_create", "reasoning")
 
 Full route rules and examples are documented separately in [LLM Routing Policies](/guide/llm-routing).
 
+### Switch Main LLM Profile at Runtime
+
+If your host app needs a model picker, `integration.Runtime` can inspect and override the current `main_loop` profile at runtime.
+
+```go
+profiles, err := rt.ListLLMProfiles()
+if err != nil {
+  panic(err)
+}
+
+selection, err := rt.GetLLMProfileSelection()
+if err != nil {
+  panic(err)
+}
+
+fmt.Println("mode:", selection.Mode)
+
+if len(profiles) > 0 {
+  if err := rt.SetLLMProfile(profiles[0].Name); err != nil {
+    panic(err)
+  }
+}
+
+rt.ResetLLMProfile()
+```
+
+Important semantics:
+
+- This state is scoped to one `integration.Runtime` instance.
+- `SetLLMProfile(...)` only overrides `main_loop`.
+- `ResetLLMProfile()` returns to the configured `llm.routes.main_loop` policy.
+- If `main_loop` uses weighted `candidates`, `GetLLMProfileSelection()` reports the strategy as candidates instead of pretending there is one fixed profile.
+
 ### Config Snapshot
 
 Once configuration is complete, call `integration.New(cfg)` to snapshot the config and create the agent runtime.

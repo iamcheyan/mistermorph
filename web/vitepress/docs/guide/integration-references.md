@@ -103,6 +103,33 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | `Model` | `string` | Model name resolved from the current main route. |
 | `Cleanup` | `func() error` | Releases temporary resources such as inspect output or MCP wiring. |
 
+### `type LLMProfile struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `Name` | `string` | Profile name. |
+| `Provider` | `string` | Resolved provider name. |
+| `ModelName` | `string` | Resolved model name. |
+| `APIBase` | `string` | Resolved API base when present. |
+
+### `type LLMProfileCandidate struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `LLMProfile` | `integration.LLMProfile` | Candidate profile info. |
+| `Weight` | `int` | Candidate weight from `llm.routes.main_loop.candidates`. |
+
+### `type LLMProfileSelection struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `Mode` | `string` | `auto` or `manual`. |
+| `ManualProfile` | `string` | Manual override target when `Mode` is `manual`. |
+| `RouteType` | `string` | `profile` or `candidates`. |
+| `Current` | `*integration.LLMProfile` | Current resolved profile when the strategy is a single profile. |
+| `Candidates` | `[]integration.LLMProfileCandidate` | Weighted candidates when the strategy is `candidates`. |
+| `FallbackProfiles` | `[]integration.LLMProfile` | Fallback profiles resolved from the route. |
+
 ### `(*Runtime).NewRegistry() *tools.Registry`
 
 | Item | Value |
@@ -134,6 +161,38 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | Parameters | `ctx context.Context`: run context; `task string`: task text; `opts agent.RunOptions`: run options for this execution |
 | Returns | `*agent.Final`, `*agent.Context`, `error` |
 | Description | One-shot convenience entry point. It prepares an engine internally and calls `Cleanup()` automatically after execution. |
+
+### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
+
+| Item | Value |
+| --- | --- |
+| Parameters | none |
+| Returns | `integration.LLMProfileSelection`, `error` |
+| Description | Returns the current `main_loop` selection view for this runtime instance. In `candidates` mode it reports the weighted strategy instead of forcing a single profile. |
+
+### `(*Runtime).ListLLMProfiles() ([]LLMProfile, error)`
+
+| Item | Value |
+| --- | --- |
+| Parameters | none |
+| Returns | `[]integration.LLMProfile`, `error` |
+| Description | Lists all configured LLM profiles with `name`, `provider`, `model_name`, and optional `api_base`. |
+
+### `(*Runtime).SetLLMProfile(profileName string) error`
+
+| Item | Value |
+| --- | --- |
+| Parameters | `profileName string`: profile name to force for `main_loop` |
+| Returns | `error` |
+| Description | Switches this runtime instance to `manual` mode for `main_loop`. Other route purposes such as `plan_create` are unchanged. |
+
+### `(*Runtime).ResetLLMProfile()`
+
+| Item | Value |
+| --- | --- |
+| Parameters | none |
+| Returns | none |
+| Description | Clears the manual `main_loop` override for this runtime instance and returns to the configured route policy. |
 
 ### `(*Runtime).RequestTimeout() time.Duration`
 

@@ -94,3 +94,42 @@ cfg.Set("llm.routes", map[string]any{
 ```
 
 When a route uses `candidates`, one primary profile is selected once for the current run and reused for that run's LLM calls. If the selected primary fails with a fallback-eligible error, the route's `fallback_profiles` are tried in order.
+
+## Runtime LLM Profile Selection
+
+`integration.Runtime` also exposes runtime-level helpers for reading and overriding the current `main_loop` LLM profile selection:
+
+- `rt.GetLLMProfileSelection()`
+- `rt.ListLLMProfiles()`
+- `rt.SetLLMProfile(profileName)`
+- `rt.ResetLLMProfile()`
+
+These methods are scoped to one `integration.Runtime` instance, not process-global state.
+
+- If your host creates one runtime, the behavior feels global inside that host.
+- If your host creates multiple runtimes, each runtime keeps its own selection state.
+- `ResetLLMProfile()` clears the manual override and returns to the configured `llm.routes.main_loop` policy.
+
+Example:
+
+```go
+selection, err := rt.GetLLMProfileSelection()
+if err != nil { /* ... */ }
+
+profiles, err := rt.ListLLMProfiles()
+if err != nil { /* ... */ }
+
+if len(profiles) > 0 {
+	if err := rt.SetLLMProfile(profiles[0].Name); err != nil { /* ... */ }
+}
+
+rt.ResetLLMProfile()
+```
+
+`GetLLMProfileSelection()` returns a structured view of the current strategy, not always a single active profile.
+
+- In `manual` mode, `Current` describes the forced main profile.
+- In `auto` mode with `llm.routes.main_loop: some_profile`, `Current` describes that resolved profile.
+- In `auto` mode with `llm.routes.main_loop.candidates`, `RouteType` is `candidates`, `Candidates` lists the weighted profiles, and `Current` may be empty because the configured strategy is not a single fixed profile.
+
+This override only changes `main_loop`. Other purposes such as `plan_create` still follow config unless you explicitly change their routes.

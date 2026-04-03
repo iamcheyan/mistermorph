@@ -69,6 +69,39 @@ cfg.Set("llm.routes.plan_create", "reasoning")
 
 完整的规则和写法，见 [LLM 路由策略](/zh/guide/llm-routing)。
 
+### 运行时切换主 LLM Profile
+
+如果你的宿主程序需要做模型选择器，`integration.Runtime` 也支持在运行时查看和覆盖当前 `main_loop` profile。
+
+```go
+profiles, err := rt.ListLLMProfiles()
+if err != nil {
+  panic(err)
+}
+
+selection, err := rt.GetLLMProfileSelection()
+if err != nil {
+  panic(err)
+}
+
+fmt.Println("mode:", selection.Mode)
+
+if len(profiles) > 0 {
+  if err := rt.SetLLMProfile(profiles[0].Name); err != nil {
+    panic(err)
+  }
+}
+
+rt.ResetLLMProfile()
+```
+
+需要注意：
+
+- 这个状态只作用于单个 `integration.Runtime` 实例。
+- `SetLLMProfile(...)` 只覆盖 `main_loop`。
+- `ResetLLMProfile()` 会回到配置里的 `llm.routes.main_loop` 策略。
+- 如果 `main_loop` 配的是加权 `candidates`，`GetLLMProfileSelection()` 返回的是当前策略视图，而不是伪造一个固定 profile。
+
 ### 配置生效
 
 配置完成以后，使用 `integration.New(cfg)` 快照化，创建 agent runtime。

@@ -68,6 +68,39 @@ cfg.Set("llm.routes.plan_create", "reasoning")
 
 完全なルールと具体例は [LLM ルーティングポリシー](/ja/guide/llm-routing) に分けてあります。
 
+### 実行時にメイン LLM Profile を切り替える
+
+ホスト側でモデルピッカーを作りたい場合、`integration.Runtime` から現在の `main_loop` profile を確認し、実行時に上書きできます。
+
+```go
+profiles, err := rt.ListLLMProfiles()
+if err != nil {
+  panic(err)
+}
+
+selection, err := rt.GetLLMProfileSelection()
+if err != nil {
+  panic(err)
+}
+
+fmt.Println("mode:", selection.Mode)
+
+if len(profiles) > 0 {
+  if err := rt.SetLLMProfile(profiles[0].Name); err != nil {
+    panic(err)
+  }
+}
+
+rt.ResetLLMProfile()
+```
+
+ポイント:
+
+- この状態は 1 つの `integration.Runtime` インスタンスに閉じます。
+- `SetLLMProfile(...)` が上書きするのは `main_loop` だけです。
+- `ResetLLMProfile()` は設定済みの `llm.routes.main_loop` ポリシーに戻します。
+- `main_loop` が重み付き `candidates` の場合、`GetLLMProfileSelection()` は単一 profile を偽装せず、現在の戦略を返します。
+
 ### 設定の確定
 
 設定が終わったら `integration.New(cfg)` を呼び、設定をスナップショット化して agent runtime を作成します。
