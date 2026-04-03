@@ -122,7 +122,6 @@ func runLarkTask(
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
-		Model:          rt.MainModel,
 		Scene:          "lark.loop",
 		History:        llmHistory,
 		Meta:           meta,

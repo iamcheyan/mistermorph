@@ -53,8 +53,6 @@ type telegramJob struct {
 	MentionUsers     []string
 }
 
-type Dependencies = depsutil.CommonDependencies
-
 type telegramPlanProgressLine struct {
 	Text  string
 	Emoji string
@@ -105,7 +103,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		allowed[id] = true
 	}
 
-	logger, err := depsutil.LoggerFromCommon(d)
+	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
 	if err != nil {
 		return err
 	}
@@ -238,21 +236,21 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			Model:            strings.TrimSpace(route.ClientConfig.Model),
 		})
 	}
-	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+	execRuntime, err := taskruntime.Bootstrap(d.CommonDependencies, taskruntime.BootstrapOptions{
 		AgentConfig:     opts.AgentLimits.ToConfig(),
 		ClientDecorator: decorateRuntimeClient,
 	})
 	if err != nil {
 		return err
 	}
-	mainRoute := execRuntime.MainRoute
-	model := execRuntime.MainModel
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	mainRoute := execRuntime.BootstrapMainRoute
+	model := execRuntime.BootstrapMainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d.CommonDependencies, llmutil.RoutePurposeAddressing)
 	if err != nil {
 		return err
 	}
 	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	addressingClient := execRuntime.MainClient
+	addressingClient := execRuntime.BootstrapMainClient
 	if !addressingRoute.SameProfile(mainRoute) {
 		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
 		if err != nil {
@@ -260,7 +258,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
 	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+	memRuntime, err := runtimecore.NewMemoryRuntime(d.CommonDependencies, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        logger,
@@ -585,7 +583,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 	}
 
-	sharedGuard = depsutil.GuardFromCommon(d, logger)
+	sharedGuard = depsutil.GuardFromCommon(d.CommonDependencies, logger)
 	if sharedGuard != nil {
 		for _, warn := range sharedGuard.Warnings() {
 			enqueueSystemWarning(warn)
@@ -930,7 +928,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := newMessageTimeoutCtx()
-						questions, questionMsg, err := buildInitQuestions(initCtx, execRuntime.MainClient, model, draft, text)
+						mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
+						if mainErr != nil {
+							cancel()
+							typingStop()
+							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+mainErr.Error(), true)
+							continue
+						}
+						questions, questionMsg, err := buildInitQuestions(initCtx, mainClient, mainModel, draft, text)
+						cleanupMain()
 						cancel()
 						typingStop()
 						if err != nil {
@@ -973,7 +979,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := newMessageTimeoutCtx()
-						applyResult, err := applyInitFromAnswer(initCtx, execRuntime.MainClient, model, draft, initSession, text, fromUsername, fromDisplay)
+						mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
+						if mainErr != nil {
+							cancel()
+							typingStop()
+							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+mainErr.Error(), true)
+							continue
+						}
+						applyResult, err := applyInitFromAnswer(initCtx, mainClient, mainModel, draft, initSession, text, fromUsername, fromDisplay)
+						cleanupMain()
 						cancel()
 						typingStop()
 						if err != nil {
@@ -988,7 +1002,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						mu.Unlock()
 						typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						greetCtx, greetCancel := newMessageTimeoutCtx()
-						greeting, greetErr := generatePostInitGreeting(greetCtx, execRuntime.MainClient, model, draft, initSession, text, applyResult)
+						mainClient, mainModel, cleanupMain, mainErr = resolveTelegramMainForUse(execRuntime)
+						if mainErr != nil {
+							greetCancel()
+							typingStop2()
+							_ = api.sendMessageHTML(context.Background(), chatID, "init applied, but greeting failed: "+mainErr.Error(), true)
+							continue
+						}
+						greeting, greetErr := generatePostInitGreeting(greetCtx, mainClient, mainModel, draft, initSession, text, applyResult)
+						cleanupMain()
 						greetCancel()
 						typingStop2()
 						if greetErr != nil {
@@ -1003,11 +1025,22 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/start", "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /echo <msg>, /humanize, /reset, /id\n\n" +
+					"Commands: /echo <msg>, /humanize, /model, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
 				_ = api.sendMessageHTML(context.Background(), chatID, help, true)
+				continue
+			case "/model":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					continue
+				}
+				if executeTelegramProfileCommand(d, api, chatID, text) {
+					continue
+				}
+				_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString("missing llm profile command handler"), true)
 				continue
 			case "/id":
 				_ = api.sendMessageHTML(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
@@ -1024,7 +1057,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 				typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 				humanizeCtx, cancel := newMessageTimeoutCtx()
-				updated, err := humanizeSoulProfile(humanizeCtx, execRuntime.MainClient, model)
+				mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
+				if mainErr != nil {
+					cancel()
+					typingStop()
+					_ = api.sendMessageHTML(context.Background(), chatID, "humanize failed: "+mainErr.Error(), true)
+					continue
+				}
+				updated, err := humanizeSoulProfile(humanizeCtx, mainClient, mainModel)
+				cleanupMain()
 				cancel()
 				typingStop()
 				if err != nil {

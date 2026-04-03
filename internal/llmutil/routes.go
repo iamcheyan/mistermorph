@@ -2,6 +2,7 @@ package llmutil
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -19,16 +20,16 @@ const (
 )
 
 type ProfileConfig struct {
-	Provider           string `mapstructure:"provider"`
-	Endpoint           string `mapstructure:"endpoint"`
-	APIKey             string `mapstructure:"api_key"`
-	Model              string `mapstructure:"model"`
+	Provider           string            `mapstructure:"provider"`
+	Endpoint           string            `mapstructure:"endpoint"`
+	APIKey             string            `mapstructure:"api_key"`
+	Model              string            `mapstructure:"model"`
 	Headers            map[string]string `mapstructure:"headers"`
-	RequestTimeoutRaw  string `mapstructure:"request_timeout"`
-	ToolsEmulationMode string `mapstructure:"tools_emulation_mode"`
-	TemperatureRaw     string `mapstructure:"temperature"`
-	ReasoningEffortRaw string `mapstructure:"reasoning_effort"`
-	ReasoningBudgetRaw string `mapstructure:"reasoning_budget_tokens"`
+	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
+	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode"`
+	TemperatureRaw     string            `mapstructure:"temperature"`
+	ReasoningEffortRaw string            `mapstructure:"reasoning_effort"`
+	ReasoningBudgetRaw string            `mapstructure:"reasoning_budget_tokens"`
 	Azure              struct {
 		Deployment string `mapstructure:"deployment"`
 	} `mapstructure:"azure"`
@@ -77,6 +78,12 @@ type ResolvedCandidate struct {
 
 type ResolvedFallback struct {
 	Profile      string
+	Values       RuntimeValues
+	ClientConfig llmconfig.ClientConfig
+}
+
+type ResolvedProfile struct {
+	Name         string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
 }
@@ -155,6 +162,83 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		Profile:      profileName,
 		Values:       resolvedValues,
 		ClientConfig: cfg,
+		Fallbacks:    fallbacks,
+	}, nil
+}
+
+func ResolveProfile(values RuntimeValues, profileName string) (ResolvedProfile, error) {
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" {
+		profileName = RouteProfileDefault
+	}
+	resolvedValues, err := resolveProfileValues(values, profileName)
+	if err != nil {
+		return ResolvedProfile{}, err
+	}
+	cfg, err := resolvedClientConfig(resolvedValues)
+	if err != nil {
+		return ResolvedProfile{}, err
+	}
+	return ResolvedProfile{
+		Name:         profileName,
+		Values:       resolvedValues,
+		ClientConfig: cfg,
+	}, nil
+}
+
+func ListProfiles(values RuntimeValues) ([]ResolvedProfile, error) {
+	names := make([]string, 0, 1+len(values.Profiles))
+	names = append(names, RouteProfileDefault)
+	for name := range values.Profiles {
+		name = strings.TrimSpace(name)
+		if name == "" || name == RouteProfileDefault {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) > 1 {
+		sort.Strings(names[1:])
+	}
+	out := make([]ResolvedProfile, 0, len(names))
+	for _, name := range names {
+		profile, err := ResolveProfile(values, name)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, profile)
+	}
+	return out, nil
+}
+
+func ResolveRouteWithProfileOverride(values RuntimeValues, purpose string, profileName string) (ResolvedRoute, error) {
+	purpose = normalizeRoutePurpose(purpose)
+	if !isSupportedRoutePurpose(purpose) {
+		return ResolvedRoute{}, fmt.Errorf("unsupported llm route purpose %q", strings.TrimSpace(purpose))
+	}
+	if values.Routes.ParseErr != nil {
+		return ResolvedRoute{}, values.Routes.ParseErr
+	}
+	policy := resolveRoutePolicy(values.Routes, purpose)
+	if err := validateRoutePolicy(policy, purpose); err != nil {
+		return ResolvedRoute{}, err
+	}
+	profile, err := ResolveProfile(values, profileName)
+	if err != nil {
+		return ResolvedRoute{}, err
+	}
+	fallbacks, err := resolveFallbacks(values, policy.FallbackProfiles, []string{profile.Name})
+	if err != nil {
+		return ResolvedRoute{}, err
+	}
+	overridePolicy := policy
+	overridePolicy.Profile = profile.Name
+	overridePolicy.Candidates = nil
+	return ResolvedRoute{
+		Purpose:      purpose,
+		Identity:     routePolicyIdentity(overridePolicy),
+		Profile:      profile.Name,
+		Values:       profile.Values,
+		ClientConfig: profile.ClientConfig,
 		Fallbacks:    fallbacks,
 	}, nil
 }

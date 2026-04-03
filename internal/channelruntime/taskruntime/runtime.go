@@ -3,6 +3,7 @@ package taskruntime
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -26,17 +27,18 @@ type BootstrapOptions struct {
 type Runtime struct {
 	commonDeps depsutil.CommonDependencies
 
-	Logger      *slog.Logger
-	LogOptions  agent.LogOptions
-	AgentConfig agent.Config
+	Logger          *slog.Logger
+	LogOptions      agent.LogOptions
+	AgentConfig     agent.Config
+	ClientDecorator ClientDecorator
 
 	BaseRegistry *tools.Registry
 	SharedGuard  *guard.Guard
 
-	MainRoute    llmutil.ResolvedRoute
-	MainClient   llm.Client
-	MainModel    string
-	MainProvider string
+	BootstrapMainRoute    llmutil.ResolvedRoute
+	BootstrapMainClient   llm.Client
+	BootstrapMainModel    string
+	BootstrapMainProvider string
 
 	PlanRoute  llmutil.ResolvedRoute
 	PlanClient llm.Client
@@ -119,19 +121,20 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 		baseRegistry = tools.NewRegistry()
 	}
 	return &Runtime{
-		commonDeps:   d,
-		Logger:       logger,
-		LogOptions:   logOpts,
-		AgentConfig:  opts.AgentConfig,
-		BaseRegistry: baseRegistry,
-		SharedGuard:  depsutil.GuardFromCommon(d, logger),
-		MainRoute:    mainRoute,
-		MainClient:   mainClient,
-		MainModel:    mainModel,
-		MainProvider: strings.TrimSpace(mainRoute.ClientConfig.Provider),
-		PlanRoute:    planRoute,
-		PlanClient:   planClient,
-		PlanModel:    strings.TrimSpace(planRoute.ClientConfig.Model),
+		commonDeps:            d,
+		Logger:                logger,
+		LogOptions:            logOpts,
+		AgentConfig:           opts.AgentConfig,
+		ClientDecorator:       opts.ClientDecorator,
+		BaseRegistry:          baseRegistry,
+		SharedGuard:           depsutil.GuardFromCommon(d, logger),
+		BootstrapMainRoute:    mainRoute,
+		BootstrapMainClient:   mainClient,
+		BootstrapMainModel:    mainModel,
+		BootstrapMainProvider: strings.TrimSpace(mainRoute.ClientConfig.Provider),
+		PlanRoute:             planRoute,
+		PlanClient:            planClient,
+		PlanModel:             strings.TrimSpace(planRoute.ClientConfig.Model),
 	}, nil
 }
 
@@ -158,13 +161,22 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = rt.MainModel
-	}
 	scene := strings.TrimSpace(req.Scene)
 	if scene == "" {
 		scene = "runtime.loop"
+	}
+	mainRoute, err := rt.ResolveMainRouteForRun()
+	if err != nil {
+		return RunResult{}, err
+	}
+	mainClient, err := rt.CreateClientForRoute(mainRoute)
+	if err != nil {
+		return RunResult{}, err
+	}
+	defer closeRuntimeClient(logger, mainClient)
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = strings.TrimSpace(mainRoute.ClientConfig.Model)
 	}
 
 	reg := req.Registry
@@ -172,13 +184,14 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		reg = CloneRegistry(rt.BaseRegistry)
 	}
 	toolsutil.RegisterRuntimeTools(reg, rt.commonDeps.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    rt.MainClient,
+		DefaultClient:    mainClient,
 		DefaultModel:     model,
 		PlanCreateClient: rt.PlanClient,
 		PlanCreateModel:  rt.PlanModel,
 	})
 
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(rt.commonDeps, ctx, logger, rt.LogOptions, task, rt.MainClient, model, req.StickySkills)
+	_ = mainRoute
+	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(rt.commonDeps, ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -208,7 +221,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(req.PlanStepUpdate))
 	}
 	engine := agent.New(
-		rt.MainClient,
+		mainClient,
 		reg,
 		agentCfg,
 		promptSpec,
@@ -233,6 +246,44 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Context:      runCtx,
 		LoadedSkills: loadedSkills,
 	}, nil
+}
+
+func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
+	if rt == nil {
+		return llmutil.ResolvedRoute{}, fmt.Errorf("task runtime is nil")
+	}
+	route, err := depsutil.ResolveLLMRouteFromCommon(rt.commonDeps, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return llmutil.ResolvedRoute{}, err
+	}
+	return route, nil
+}
+
+func (rt *Runtime) CreateClientForRoute(route llmutil.ResolvedRoute) (llm.Client, error) {
+	if rt == nil {
+		return nil, fmt.Errorf("task runtime is nil")
+	}
+	client, err := depsutil.CreateClientFromCommon(rt.commonDeps, route)
+	if err != nil {
+		return nil, err
+	}
+	if rt.ClientDecorator != nil {
+		client = rt.ClientDecorator(client, route)
+	}
+	return client, nil
+}
+
+func closeRuntimeClient(logger *slog.Logger, client llm.Client) {
+	if client == nil {
+		return
+	}
+	closer, ok := client.(io.Closer)
+	if !ok {
+		return
+	}
+	if err := closer.Close(); err != nil && logger != nil {
+		logger.Warn("task_runtime_client_close_failed", "error", err.Error())
+	}
 }
 
 func (rt *Runtime) applyMemoryInjection(logger *slog.Logger, promptSpec *agent.PromptSpec, hooks MemoryHooks) error {

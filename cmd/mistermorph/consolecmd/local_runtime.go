@@ -26,6 +26,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -128,7 +129,11 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 			return logOpts
 		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
+			values := llmutil.RuntimeValuesFromViper()
+			if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
+				return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
+			}
+			return llmutil.ResolveRoute(values, purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			return llmutil.BuildRouteClient(
@@ -172,9 +177,9 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 		_ = inspectors.Close()
 		return nil, err
 	}
-	if warning := consoleLLMCredentialsWarning(execRuntime.MainRoute); warning != "" {
+	if warning := consoleLLMCredentialsWarning(execRuntime.BootstrapMainRoute); warning != "" {
 		logger.Warn("console_llm_credentials_missing",
-			"provider", execRuntime.MainProvider,
+			"provider", execRuntime.BootstrapMainProvider,
 			"hint", warning,
 		)
 	}
@@ -239,8 +244,8 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 	out.bundle = &consoleLocalRuntimeBundle{
 		taskRuntime:     execRuntime,
 		mcpHost:         mcpHost,
-		defaultModel:    execRuntime.MainModel,
-		defaultProvider: execRuntime.MainProvider,
+		defaultModel:    execRuntime.BootstrapMainModel,
+		defaultProvider: execRuntime.BootstrapMainProvider,
 	}
 	out.managedRuntimeRunning = map[string]bool{}
 	out.commonDeps = commonDeps
@@ -293,6 +298,12 @@ func (r *consoleLocalRuntime) currentBundle() *consoleLocalRuntimeBundle {
 }
 
 func (r *consoleLocalRuntime) defaultLLMConfig() (string, string) {
+	if r != nil {
+		route, err := depsutil.ResolveLLMRouteFromCommon(r.commonDeps, llmutil.RoutePurposeMainLoop)
+		if err == nil {
+			return strings.TrimSpace(route.ClientConfig.Provider), strings.TrimSpace(route.ClientConfig.Model)
+		}
+	}
 	bundle := r.currentBundle()
 	if bundle == nil {
 		return "", ""
@@ -319,17 +330,17 @@ func (r *consoleLocalRuntime) ReloadAgentConfig() error {
 		}
 		return err
 	}
-	if warning := consoleLLMCredentialsWarning(rt.MainRoute); warning != "" {
+	if warning := consoleLLMCredentialsWarning(rt.BootstrapMainRoute); warning != "" {
 		r.logger.Warn("console_llm_credentials_missing",
-			"provider", rt.MainProvider,
+			"provider", rt.BootstrapMainProvider,
 			"hint", warning,
 		)
 	}
 	nextBundle := &consoleLocalRuntimeBundle{
 		taskRuntime:     rt,
 		mcpHost:         mcpHost,
-		defaultModel:    rt.MainModel,
-		defaultProvider: rt.MainProvider,
+		defaultModel:    rt.BootstrapMainModel,
+		defaultProvider: rt.BootstrapMainProvider,
 	}
 	r.bundleMu.Lock()
 	prevBundle := r.bundle
@@ -402,7 +413,7 @@ func (r *consoleLocalRuntime) canSubmit() bool {
 	if bundle == nil || bundle.taskRuntime == nil {
 		return false
 	}
-	return consoleLLMCredentialsWarning(bundle.taskRuntime.MainRoute) == ""
+	return consoleLLMCredentialsWarning(bundle.taskRuntime.BootstrapMainRoute) == ""
 }
 
 func (r *consoleLocalRuntime) canPokeHeartbeat() bool {
@@ -492,24 +503,59 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		}
 		timeout = d
 	}
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		_, model = r.defaultLLMConfig()
-	}
 	trigger := normalizeConsoleTrigger(req.Trigger, daemonruntime.TaskTrigger{
 		Source: "ui",
 		Event:  "chat_submit",
 		Ref:    "web/console",
 	})
+	task := strings.TrimSpace(req.Task)
+	if output, handled := r.handleConsoleModelCommand(task); handled {
+		return r.submitSyntheticTask(task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+	}
+	model := strings.TrimSpace(req.Model)
 	return r.submitTaskViaBus(
 		ctx,
-		strings.TrimSpace(req.Task),
+		task,
 		model,
 		timeout,
 		strings.TrimSpace(req.TopicID),
 		strings.TrimSpace(req.TopicTitle),
 		trigger,
 	)
+}
+
+func (r *consoleLocalRuntime) handleConsoleModelCommand(task string) (string, bool) {
+	output, handled, err := llmselect.ExecuteCommandText(llmutil.RuntimeValuesFromViper(), llmselect.ProcessStore(), task)
+	if !handled {
+		return "", false
+	}
+	if err != nil {
+		return "error: " + strings.TrimSpace(err.Error()), true
+	}
+	return output, true
+}
+
+func (r *consoleLocalRuntime) submitSyntheticTask(task string, output string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, _, err := r.acceptTask(task, "", timeout, topicID, topicTitle, trigger)
+	if err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
+	finishedAt := time.Now().UTC()
+	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskDone
+		info.Error = ""
+		info.FinishedAt = &finishedAt
+		info.Result = map[string]any{
+			"final": map[string]any{
+				"output": strings.TrimSpace(output),
+			},
+		}
+	})
+	return daemonruntime.SubmitTaskResponse{
+		ID:      job.TaskID,
+		Status:  daemonruntime.TaskDone,
+		TopicID: job.TopicID,
+	}, nil
 }
 
 func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {

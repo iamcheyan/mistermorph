@@ -53,7 +53,12 @@ func runLineTask(
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")
 	}
-	historyMsg, currentMsg, err := buildLinePromptMessages(history, job, rt.MainModel, runtimeOpts.ImageRecognitionEnabled, logger)
+	mainRoute, err := rt.ResolveMainRouteForRun()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	historyMsg, currentMsg, err := buildLinePromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -109,7 +114,7 @@ func runLineTask(
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
-		Model:          rt.MainModel,
+		Model:          mainModel,
 		Scene:          "line.loop",
 		History:        llmHistory,
 		Meta:           meta,

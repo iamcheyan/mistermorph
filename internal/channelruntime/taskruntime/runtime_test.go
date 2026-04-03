@@ -60,8 +60,8 @@ func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {
 	if createCalls != 1 {
 		t.Fatalf("CreateLLMClient calls = %d, want 1", createCalls)
 	}
-	if rt.MainClient != rt.PlanClient {
-		t.Fatal("PlanClient should reuse MainClient for same profile")
+	if rt.BootstrapMainClient != rt.PlanClient {
+		t.Fatal("PlanClient should reuse BootstrapMainClient for same profile")
 	}
 }
 
@@ -223,7 +223,62 @@ func TestBootstrapLeavesMainModelEmptyWhenRouteModelMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
-	if rt.MainModel != "" {
-		t.Fatalf("MainModel = %q, want empty", rt.MainModel)
+	if rt.BootstrapMainModel != "" {
+		t.Fatalf("BootstrapMainModel = %q, want empty", rt.BootstrapMainModel)
+	}
+}
+
+func TestRunResolvesMainModelLate(t *testing.T) {
+	client := &stubTaskRuntimeClient{}
+	currentModel := "gpt-5.2"
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "openai",
+					Model:    currentModel,
+				},
+			}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			return tools.NewRegistry()
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if strings.TrimSpace(model) == "" {
+				t.Fatal("PromptSpec received empty model")
+			}
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	if _, err := rt.Run(context.Background(), RunRequest{Task: "first"}); err != nil {
+		t.Fatalf("Run(first) error = %v", err)
+	}
+	currentModel = "gpt-4.1-mini"
+	if _, err := rt.Run(context.Background(), RunRequest{Task: "second"}); err != nil {
+		t.Fatalf("Run(second) error = %v", err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("client requests = %d, want 2", len(client.requests))
+	}
+	if got := client.requests[0].Model; got != "gpt-5.2" {
+		t.Fatalf("first request model = %q, want gpt-5.2", got)
+	}
+	if got := client.requests[1].Model; got != "gpt-4.1-mini" {
+		t.Fatalf("second request model = %q, want gpt-4.1-mini", got)
 	}
 }

@@ -143,7 +143,6 @@ func runSlackTask(
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
-		Model:          rt.MainModel,
 		Scene:          "slack.loop",
 		History:        llmHistory,
 		Meta:           meta,

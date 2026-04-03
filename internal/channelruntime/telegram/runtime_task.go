@@ -9,6 +9,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -58,7 +59,17 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	logger := rt.Logger
 	task := job.Text
-	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, rt.MainModel, runtimeOpts.ImageRecognitionEnabled, logger)
+	mainRoute, err := rt.ResolveMainRouteForRun()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	mainClient, err := rt.CreateClientForRoute(mainRoute)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer closeTelegramMainClient(mainClient)
+	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -110,7 +121,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		if runCtx == nil || runCtx.Plan == nil {
 			return
 		}
-		msg, err := generateTelegramPlanProgressMessage(ctx, rt.MainClient, rt.MainModel, task, runCtx.Plan, update, requestTimeout)
+		msg, err := generateTelegramPlanProgressMessage(ctx, mainClient, mainModel, task, runCtx.Plan, update, requestTimeout)
 		if err != nil {
 			logger.Warn("telegram_plan_progress_error", "error", err.Error())
 			return
@@ -139,7 +150,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
-		Model:          rt.MainModel,
+		Model:          mainModel,
 		Scene:          "telegram.loop",
 		History:        llmHistory,
 		Meta:           meta,
@@ -178,6 +189,14 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		}
 	}
 	return result.Final, result.Context, result.LoadedSkills, reaction, nil
+}
+
+func closeTelegramMainClient(client llm.Client) {
+	closer, ok := client.(io.Closer)
+	if !ok {
+		return
+	}
+	_ = closer.Close()
 }
 
 func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {

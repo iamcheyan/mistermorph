@@ -1,4 +1,4 @@
-package slack
+package telegram
 
 import "github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 

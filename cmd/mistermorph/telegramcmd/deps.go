@@ -1,6 +1,12 @@
 package telegramcmd
 
-import heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+import (
+	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
+)
 
 // Dependencies defines runtime wiring hooks for telegram + heartbeat mode.
-type Dependencies = heartbeatruntime.Dependencies
+type Dependencies struct {
+	heartbeatruntime.Dependencies
+	HandleModelCommand telegramruntime.HandleModelCommandFunc
+}

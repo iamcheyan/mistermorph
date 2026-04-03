@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
@@ -121,14 +122,17 @@ func buildSlackRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 ) slackruntime.Dependencies {
 	return slackruntime.Dependencies{
-		Logger:             d.Logger,
-		LogOptions:         d.LogOptions,
-		ResolveLLMRoute:    d.ResolveLLMRoute,
-		CreateLLMClient:    d.CreateLLMClient,
-		Registry:           d.Registry,
-		RuntimeToolsConfig: runtimeToolsConfig,
-		Guard:              d.Guard,
-		PromptSpec:         d.PromptSpec,
+		CommonDependencies: depsutil.CommonDependencies{
+			Logger:             d.Logger,
+			LogOptions:         d.LogOptions,
+			ResolveLLMRoute:    d.ResolveLLMRoute,
+			CreateLLMClient:    d.CreateLLMClient,
+			Registry:           d.Registry,
+			RuntimeToolsConfig: runtimeToolsConfig,
+			Guard:              d.Guard,
+			PromptSpec:         d.PromptSpec,
+		},
+		HandleModelCommand: d.HandleModelCommand,
 	}
 }
 

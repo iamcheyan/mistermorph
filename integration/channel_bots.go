@@ -11,8 +11,10 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -251,6 +253,7 @@ func (r *slackBotRunner) runtimeHooks() slackruntime.Hooks {
 type runtimeSharedDependencies struct {
 	Logger             func() (*slog.Logger, error)
 	LogOptions         func() agent.LogOptions
+	HandleModelCommand func(text string) (string, bool, error)
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
 	Registry           func() *tools.Registry
@@ -271,7 +274,13 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return slog.Default(), nil
 		},
 		LogOptions: func() agent.LogOptions { return cloneLogOptions(snap.LogOptions) },
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
+		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
+				return llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
+			}
 			return llmutil.ResolveRoute(snap.LLMValues, purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
@@ -301,30 +310,36 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return telegramruntime.Dependencies{
-		Logger:             base.Logger,
-		LogOptions:         base.LogOptions,
-		ResolveLLMRoute:    base.ResolveLLMRoute,
-		CreateLLMClient:    base.CreateLLMClient,
-		Registry:           base.Registry,
-		RuntimeToolsConfig: base.RuntimeToolsConfig,
-		Guard:              base.Guard,
-		PromptSpec:         base.PromptSpec,
-		PromptAugment:      base.PromptAugment,
+		CommonDependencies: depsutil.CommonDependencies{
+			Logger:             base.Logger,
+			LogOptions:         base.LogOptions,
+			ResolveLLMRoute:    base.ResolveLLMRoute,
+			CreateLLMClient:    base.CreateLLMClient,
+			Registry:           base.Registry,
+			RuntimeToolsConfig: base.RuntimeToolsConfig,
+			Guard:              base.Guard,
+			PromptSpec:         base.PromptSpec,
+			PromptAugment:      base.PromptAugment,
+		},
+		HandleModelCommand: base.HandleModelCommand,
 	}
 }
 
 func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return slackruntime.Dependencies{
-		Logger:             base.Logger,
-		LogOptions:         base.LogOptions,
-		ResolveLLMRoute:    base.ResolveLLMRoute,
-		CreateLLMClient:    base.CreateLLMClient,
-		Registry:           base.Registry,
-		RuntimeToolsConfig: base.RuntimeToolsConfig,
-		Guard:              base.Guard,
-		PromptSpec:         base.PromptSpec,
-		PromptAugment:      base.PromptAugment,
+		CommonDependencies: depsutil.CommonDependencies{
+			Logger:             base.Logger,
+			LogOptions:         base.LogOptions,
+			ResolveLLMRoute:    base.ResolveLLMRoute,
+			CreateLLMClient:    base.CreateLLMClient,
+			Registry:           base.Registry,
+			RuntimeToolsConfig: base.RuntimeToolsConfig,
+			Guard:              base.Guard,
+			PromptSpec:         base.PromptSpec,
+			PromptAugment:      base.PromptAugment,
+		},
+		HandleModelCommand: base.HandleModelCommand,
 	}
 }
 

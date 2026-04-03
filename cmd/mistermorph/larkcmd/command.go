@@ -85,5 +85,6 @@ func buildLarkRuntimeDeps(
 		RuntimeToolsConfig: runtimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
+		PromptAugment:      d.PromptAugment,
 	}
 }

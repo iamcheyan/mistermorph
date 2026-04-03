@@ -142,7 +142,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	allowedTeams := toAllowlist(opts.AllowedTeamIDs)
 	allowedChannels := toAllowlist(opts.AllowedChannelIDs)
 
-	logger, err := depsutil.LoggerFromCommon(d)
+	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
 	if err != nil {
 		return err
 	}
@@ -257,21 +257,21 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Model:            strings.TrimSpace(route.ClientConfig.Model),
 		})
 	}
-	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+	execRuntime, err := taskruntime.Bootstrap(d.CommonDependencies, taskruntime.BootstrapOptions{
 		AgentConfig:     opts.AgentLimits.ToConfig(),
 		ClientDecorator: decorateRuntimeClient,
 	})
 	if err != nil {
 		return err
 	}
-	mainRoute := execRuntime.MainRoute
-	model := execRuntime.MainModel
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	mainRoute := execRuntime.BootstrapMainRoute
+	model := execRuntime.BootstrapMainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d.CommonDependencies, llmutil.RoutePurposeAddressing)
 	if err != nil {
 		return err
 	}
 	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	addressingClient := execRuntime.MainClient
+	addressingClient := execRuntime.BootstrapMainClient
 	if !addressingRoute.SameProfile(mainRoute) {
 		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
 		if err != nil {
@@ -279,7 +279,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		}
 		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
 	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+	memRuntime, err := runtimecore.NewMemoryRuntime(d.CommonDependencies, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        logger,
@@ -795,6 +795,28 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
+			handledCommand, cmdErr := maybeHandleSlackProfileCommand(context.Background(), d, inprocBus, event, botUserID)
+			if cmdErr != nil {
+				logger.Warn("slack_profile_command_error",
+					"conversation_key", conversationKey,
+					"team_id", event.TeamID,
+					"channel_id", event.ChannelID,
+					"message_ts", event.MessageTS,
+					"error", cmdErr.Error(),
+				)
+				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
+					Stage:           ErrorStagePublishOutbound,
+					ConversationKey: conversationKey,
+					TeamID:          event.TeamID,
+					ChannelID:       event.ChannelID,
+					MessageTS:       event.MessageTS,
+					Err:             cmdErr,
+				})
+				return nil
+			}
+			if handledCommand {
+				return nil
+			}
 
 			isGroup := isSlackGroupChat(event.ChatType)
 			if isGroup {

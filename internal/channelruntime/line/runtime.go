@@ -150,14 +150,14 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	if err != nil {
 		return err
 	}
-	mainRoute := execRuntime.MainRoute
-	model := execRuntime.MainModel
+	mainRoute := execRuntime.BootstrapMainRoute
+	model := execRuntime.BootstrapMainModel
 	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
 	if err != nil {
 		return err
 	}
 	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	addressingClient := execRuntime.MainClient
+	addressingClient := execRuntime.BootstrapMainClient
 	if !addressingRoute.SameProfile(mainRoute) {
 		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
 		if err != nil {

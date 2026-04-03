@@ -16,6 +16,7 @@ import (
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -223,8 +224,14 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 			cleanup()
 			return nil, nil, err
 		}
+		runtimeDeps := telegramruntime.Dependencies{
+			CommonDependencies: deps,
+			HandleModelCommand: func(text string) (string, bool, error) {
+				return llmselect.ExecuteCommandText(llmutil.RuntimeValuesFromViper(), llmselect.ProcessStore(), text)
+			},
+		}
 		return func(ctx context.Context) error {
-			return telegramruntime.Run(ctx, deps, runOpts)
+			return telegramruntime.Run(ctx, runtimeDeps, runOpts)
 		}, cleanup, nil
 	case managedRuntimeSlack:
 		botToken := strings.TrimSpace(viper.GetString("slack.bot_token"))
@@ -252,8 +259,14 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 			return nil, nil, err
 		}
 		runOpts.TaskStore = taskStore
+		runtimeDeps := slackruntime.Dependencies{
+			CommonDependencies: deps,
+			HandleModelCommand: func(text string) (string, bool, error) {
+				return llmselect.ExecuteCommandText(llmutil.RuntimeValuesFromViper(), llmselect.ProcessStore(), text)
+			},
+		}
 		return func(ctx context.Context) error {
-			return slackruntime.Run(ctx, deps, runOpts)
+			return slackruntime.Run(ctx, runtimeDeps, runOpts)
 		}, cleanup, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported managed runtime %q", kind)
@@ -326,7 +339,11 @@ func buildManagedRuntimeDeps(logger *slog.Logger) (depsutil.CommonDependencies, 
 			return logOpts
 		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
+			values := llmutil.RuntimeValuesFromViper()
+			if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
+				return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
+			}
+			return llmutil.ResolveRoute(values, purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			return llmutil.BuildRouteClient(

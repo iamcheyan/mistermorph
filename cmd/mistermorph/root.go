@@ -18,9 +18,11 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
+	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -101,22 +103,27 @@ func newRootCmd() *cobra.Command {
 		GuardFromViper:    guardResolver.Guard,
 	}))
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
-		Logger:          logutil.LoggerFromViper,
-		LogOptions:      logutil.LogOptionsFromViper,
-		ResolveLLMRoute: telegramLLM.ResolveRoute,
-		CreateLLMClient: telegramLLM.CreateClient,
-		Registry:        registryResolver.Registry,
-		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-			cfg := telegramSkills.Config()
-			if len(stickySkills) > 0 {
-				cfg.Requested = append(cfg.Requested, stickySkills...)
-			}
-			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		Dependencies: heartbeatruntime.Dependencies{
+			Logger:          logutil.LoggerFromViper,
+			LogOptions:      logutil.LogOptionsFromViper,
+			ResolveLLMRoute: telegramLLM.ResolveRoute,
+			CreateLLMClient: telegramLLM.CreateClient,
+			Registry:        registryResolver.Registry,
+			Guard:           guardResolver.Guard,
+			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+				cfg := telegramSkills.Config()
+				if len(stickySkills) > 0 {
+					cfg.Requested = append(cfg.Requested, stickySkills...)
+				}
+				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+			},
+			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
+			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+			},
 		},
-		BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(telegramLLM.Values(), llmselect.ProcessStore(), text)
 		},
 	}))
 
@@ -128,22 +135,27 @@ func newRootCmd() *cobra.Command {
 	larkSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
-		Logger:          logutil.LoggerFromViper,
-		LogOptions:      logutil.LogOptionsFromViper,
-		ResolveLLMRoute: slackLLM.ResolveRoute,
-		CreateLLMClient: slackLLM.CreateClient,
-		Registry:        registryResolver.Registry,
-		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-			cfg := slackSkills.Config()
-			if len(stickySkills) > 0 {
-				cfg.Requested = append(cfg.Requested, stickySkills...)
-			}
-			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		Dependencies: heartbeatruntime.Dependencies{
+			Logger:          logutil.LoggerFromViper,
+			LogOptions:      logutil.LogOptionsFromViper,
+			ResolveLLMRoute: slackLLM.ResolveRoute,
+			CreateLLMClient: slackLLM.CreateClient,
+			Registry:        registryResolver.Registry,
+			Guard:           guardResolver.Guard,
+			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+				cfg := slackSkills.Config()
+				if len(stickySkills) > 0 {
+					cfg.Requested = append(cfg.Requested, stickySkills...)
+				}
+				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+			},
+			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
+			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+			},
 		},
-		BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(slackLLM.Values(), llmselect.ProcessStore(), text)
 		},
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
@@ -279,6 +291,9 @@ func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Clie
 
 func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {
 	values := r.Values()
+	if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
+		return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
+	}
 	return llmutil.ResolveRoute(values, purpose)
 }
 

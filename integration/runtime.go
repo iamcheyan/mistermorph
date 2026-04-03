@@ -10,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -24,6 +25,7 @@ type Runtime struct {
 	promptBlocks     []string
 	builtinToolNames []string
 	snap             runtimeSnapshot
+	selection        *llmselect.Store
 }
 
 type PreparedRun struct {
@@ -40,6 +42,7 @@ func New(cfg Config) *Runtime {
 		promptBlocks:     append([]string(nil), cfg.PromptBlocks...),
 		builtinToolNames: append([]string(nil), cfg.BuiltinToolNames...),
 		snap:             loadRuntimeSnapshot(cfg),
+		selection:        llmselect.NewStore(),
 	}
 }
 
@@ -139,7 +142,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	slog.SetDefault(logger)
 	logOpts := cloneLogOptions(snap.LogOptions)
 
-	mainRoute, err := llmutil.ResolveRoute(snap.LLMValues, llmutil.RoutePurposeMainLoop)
+	mainRoute, err := llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
 	if err != nil {
 		return nil, err
 	}
