@@ -67,7 +67,7 @@ const sidebarSpec: SidebarSpec = [
         slug: 'memory',
         text: {
           en: 'Memory',
-          zh: 'Memory',
+          zh: '记忆',
           ja: 'Memory'
         }
       },
@@ -75,7 +75,7 @@ const sidebarSpec: SidebarSpec = [
         slug: 'skills',
         text: {
           en: 'Skills',
-          zh: 'Skills',
+          zh: '技能',
           ja: 'Skills'
         }
       },

@@ -1,5 +1,5 @@
 ---
-title: Skills
+title: 技能（Skills）
 description: Skill 发现、加载策略与运行时行为。
 ---
 

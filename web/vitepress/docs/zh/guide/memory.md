@@ -1,5 +1,5 @@
 ---
-title: Memory
+title: 记忆（Memory）
 description: 介绍基于 WAL 的 memory 架构、注入和回写规则。
 ---
 
