@@ -1,36 +1,32 @@
 ---
 title: MCP
-description: Configure MCP servers and expose remote tools as local agent tools.
+description: Configure MCP and expose MCP tools in the local agent loop.
 ---
 
 # MCP
 
-Mister Morph can connect to MCP servers and expose their tools in the same tool-calling loop.
+Mister Morph can connect to MCP and register MCP-provided tools into the same tool-calling loop.
 
 ## Tool Name Mapping
 
-MCP tools are registered as:
+MCP tools are registered as: `mcp_<server_name>__<tool_name>`
 
-- `mcp_<server_name>__<tool_name>`
-
-Example:
-
-- `mcp_filesystem__read_file`
+Example: `mcp_example__read_file`
 
 ## Supported Transports
 
 - `stdio` (default)
 - `http`
 
-## Config Shape
+## Configuration
 
 ```yaml
 mcp:
   servers:
-    - name: filesystem
+    - name: example_cmd
       type: stdio
       command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      args: ["-y", "@modelcontextprotocol/example_cmd", "/tmp"]
       allowed_tools: []
 
     - name: remote
@@ -41,11 +37,10 @@ mcp:
       allowed_tools: ["search"]
 ```
 
-Field behavior:
+Where:
 
-- `enable: false` disables a server entry
-- `allowed_tools: []` means all tools from that server
-- invalid server config is skipped with warning
+- `enable`: enables or disables a server entry
+- `allowed_tools`: limits which tools from that server are usable; leave it empty for no restriction
 
 ## Lifecycle
 
@@ -54,15 +49,3 @@ Field behavior:
 3. List server tools.
 4. Adapt and register tools into local registry.
 5. On shutdown, close MCP sessions.
-
-## Failure Model
-
-- Per-server failures are isolated.
-- Other servers and built-in tools keep working.
-- If no server connects, runtime still runs without MCP tools.
-
-## Security Notes
-
-- Prefer `allowed_tools` to reduce blast radius.
-- Keep auth headers in env vars (`${ENV_VAR}`), not plain text.
-- Combine with guard/network policy for outbound controls.
