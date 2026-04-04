@@ -58,7 +58,7 @@ Build desktop binary:
 go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
 ```
 
-For local Linux builds with DevTools enabled, use [`scripts/build-desktop.sh`](/home/lyric/Codework/arch/mistermorph/scripts/build-desktop.sh). It automatically switches Linux debug builds to `wailsdesktop dev devtools`, because Wails v3 alpha does not currently support `linux + production + devtools`.
+For local Linux builds with DevTools enabled, use `scripts/build-desktop.sh`. It automatically switches Linux debug builds to `wailsdesktop dev devtools`, because Wails v3 alpha does not currently support `linux + production + devtools`.
 
 ## Config file forwarding
 

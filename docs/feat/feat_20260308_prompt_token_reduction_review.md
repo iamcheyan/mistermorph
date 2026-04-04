@@ -99,8 +99,8 @@ There is one especially obvious duplication:
 
 Relevant code:
 
-- system prompt injects tool summaries via [prompt_template.go](/home/lyric/Codework/arch/mistermorph/agent/prompt_template.go#L90)
-- tool summaries come from [registry.go](/home/lyric/Codework/arch/mistermorph/tools/registry.go#L44)
+- system prompt injects tool summaries via `agent/prompt_template.go`
+- tool summaries come from `tools/registry.go`
 
 First-principles judgment:
 
@@ -121,14 +121,14 @@ Yet the resulting summary was just:
 Relevant code path:
 
 - main runtime always records memory after a published text reply:
-  - [runtime_task.go](/home/lyric/Codework/arch/mistermorph/internal/channelruntime/telegram/runtime_task.go#L198)
+  - `internal/channelruntime/telegram/runtime_task.go`
 - memory draft is built from a dedicated LLM request:
-  - [memory_flow.go](/home/lyric/Codework/arch/mistermorph/internal/channelruntime/telegram/memory_flow.go#L277)
+  - `internal/channelruntime/telegram/memory_flow.go`
 
 Current memory draft request also sets:
 
 - `max_tokens = 10240`
-  - [memory_flow.go](/home/lyric/Codework/arch/mistermorph/internal/channelruntime/telegram/memory_flow.go#L294)
+  - `internal/channelruntime/telegram/memory_flow.go`
 
 First-principles judgment:
 
