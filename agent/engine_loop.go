@@ -158,6 +158,14 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 
 		switch resp.Type {
 		case TypePlan:
+			if st.agentCtx.Plan != nil {
+				log.Warn("plan_repeated", "step", step)
+				st.messages = append(st.messages,
+					llm.Message{Role: "assistant", Content: result.Text},
+					llm.Message{Role: "user", Content: "You already created a plan. Next response must be a tool call or final. Do not return another plan."},
+				)
+				continue
+			}
 			p := resp.PlanPayload()
 			NormalizePlanSteps(p)
 			st.agentCtx.Plan = p
@@ -317,37 +325,37 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
 				}
 
-			switch {
-			case sig != "" && st.seenToolCallSignatures[sig]:
-				items[i].observation = duplicateToolCallObservation(tc.Name)
-				items[i].err = fmt.Errorf("duplicate tool call blocked")
-				items[i].skip = true
-			case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
-				items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
-				items[i].err = fmt.Errorf("tool repeat limit reached")
-				items[i].skip = true
-			default:
-				remaining := toolCalls[i+1:]
-				obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
-				if pPaused {
-					pausedFinal = pFinal
-					paused = true
-				}
-				if denied {
-					items[i].observation = obs
-					items[i].err = fmt.Errorf("blocked by guard")
+				switch {
+				case sig != "" && st.seenToolCallSignatures[sig]:
+					items[i].observation = duplicateToolCallObservation(tc.Name)
+					items[i].err = fmt.Errorf("duplicate tool call blocked")
 					items[i].skip = true
-				} else if !paused {
-					// Reserve signature/count so later items in this batch
-					// are correctly deduped and repeat-limited.
-					if sig != "" {
-						st.seenToolCallSignatures[sig] = true
+				case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
+					items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
+					items[i].err = fmt.Errorf("tool repeat limit reached")
+					items[i].skip = true
+				default:
+					remaining := toolCalls[i+1:]
+					obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
+					if pPaused {
+						pausedFinal = pFinal
+						paused = true
 					}
-					if toolNameKey != "" {
-						st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
+					if denied {
+						items[i].observation = obs
+						items[i].err = fmt.Errorf("blocked by guard")
+						items[i].skip = true
+					} else if !paused {
+						// Reserve signature/count so later items in this batch
+						// are correctly deduped and repeat-limited.
+						if sig != "" {
+							st.seenToolCallSignatures[sig] = true
+						}
+						if toolNameKey != "" {
+							st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
+						}
 					}
 				}
-			}
 				if paused {
 					break
 				}
@@ -411,15 +419,15 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					item.observation, item.err = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
 				}
 
-			if item.executed && item.err != nil {
-				// Roll back pre-reserved counts from Phase 1 for failed executions.
-				if item.toolNameKey != "" && st.toolRunCounts[item.toolNameKey] > 0 {
-					st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] - 1
+				if item.executed && item.err != nil {
+					// Roll back pre-reserved counts from Phase 1 for failed executions.
+					if item.toolNameKey != "" && st.toolRunCounts[item.toolNameKey] > 0 {
+						st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] - 1
+					}
+					if item.sig != "" {
+						delete(st.seenToolCallSignatures, item.sig)
+					}
 				}
-				if item.sig != "" {
-					delete(st.seenToolCallSignatures, item.sig)
-				}
-			}
 
 				st.agentCtx.RecordStep(Step{
 					StepNumber:  step,

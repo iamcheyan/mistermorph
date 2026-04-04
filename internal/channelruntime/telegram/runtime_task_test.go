@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"context"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -98,18 +97,14 @@ func TestContactsSendRuntimeContextForTelegramPrivateChat(t *testing.T) {
 	}
 }
 
-func TestGenerateTelegramPlanProgressMessageProgrammaticFormat(t *testing.T) {
+func TestTelegramPlanProgressLineProgrammaticFormat(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{
 			{Step: "scan repo", Status: agent.PlanStatusCompleted},
 			{Step: "patch bug", Status: agent.PlanStatusInProgress},
 		},
 	}
-	msg, err := generateTelegramPlanProgressMessage(
-		context.Background(),
-		nil,
-		"",
-		"fix this flow",
+	msg := telegramPlanProgressText(
 		plan,
 		agent.PlanStepUpdate{
 			CompletedIndex: 0,
@@ -117,28 +112,20 @@ func TestGenerateTelegramPlanProgressMessageProgrammaticFormat(t *testing.T) {
 			StartedIndex:   1,
 			StartedStep:    "patch bug",
 		},
-		0,
 	)
-	if err != nil {
-		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
-	}
-	if msg != "scan repo" {
-		t.Fatalf("message = %q, want %q", msg, "scan repo")
+	if msg != "patch bug" {
+		t.Fatalf("message = %q, want %q", msg, "patch bug")
 	}
 }
 
-func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing.T) {
+func TestTelegramPlanProgressLineChineseFallbackByPlanStep(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{
 			{Step: "检查日志", Status: agent.PlanStatusCompleted},
 			{Step: "修复问题", Status: agent.PlanStatusPending},
 		},
 	}
-	msg, err := generateTelegramPlanProgressMessage(
-		context.Background(),
-		nil,
-		"",
-		"请处理这个问题",
+	msg := telegramPlanProgressText(
 		plan,
 		agent.PlanStepUpdate{
 			CompletedIndex: 0,
@@ -146,28 +133,20 @@ func TestGenerateTelegramPlanProgressMessageChineseFallbackByPlanStep(t *testing
 			StartedIndex:   1,
 			StartedStep:    "",
 		},
-		0,
 	)
-	if err != nil {
-		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
-	}
-	if msg != "检查日志" {
-		t.Fatalf("message = %q, want %q", msg, "检查日志")
+	if msg != "修复问题" {
+		t.Fatalf("message = %q, want %q", msg, "修复问题")
 	}
 }
 
-func TestGenerateTelegramPlanProgressMessageForPlanCreatedUsesStartedStep(t *testing.T) {
+func TestTelegramPlanProgressLineForPlanCreatedUsesStartedStep(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{
 			{Step: "collect data", Status: agent.PlanStatusInProgress},
 			{Step: "summarize", Status: agent.PlanStatusPending},
 		},
 	}
-	msg, err := generateTelegramPlanProgressMessage(
-		context.Background(),
-		nil,
-		"",
-		"fix this flow",
+	msg := telegramPlanProgressText(
 		plan,
 		agent.PlanStepUpdate{
 			CompletedIndex: -1,
@@ -175,13 +154,30 @@ func TestGenerateTelegramPlanProgressMessageForPlanCreatedUsesStartedStep(t *tes
 			StartedStep:    "collect data",
 			Reason:         "plan_created",
 		},
-		0,
 	)
-	if err != nil {
-		t.Fatalf("generateTelegramPlanProgressMessage() error = %v", err)
-	}
 	if msg != "collect data" {
 		t.Fatalf("message = %q, want %q", msg, "collect data")
+	}
+}
+
+func TestTelegramPlanProgressLineForFinalStepDoesNotAppendDuplicateLine(t *testing.T) {
+	plan := &agent.Plan{
+		Steps: []agent.PlanStep{
+			{Step: "ship fix", Status: agent.PlanStatusCompleted},
+		},
+	}
+	msg := telegramPlanProgressText(
+		plan,
+		agent.PlanStepUpdate{
+			CompletedIndex: 0,
+			CompletedStep:  "ship fix",
+			StartedIndex:   -1,
+			StartedStep:    "",
+			Reason:         "tool_success",
+		},
+	)
+	if msg != "" {
+		t.Fatalf("message = %q, want empty string", msg)
 	}
 }
 

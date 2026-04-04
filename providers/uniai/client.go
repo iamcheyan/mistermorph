@@ -239,7 +239,7 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
-	if forceJSON {
+	if forceJSON && len(req.Tools) == 0 {
 		opts = append(opts, uniaichat.WithOpenAIOptions(structs.JSONMap{
 			"response_format": "json_object",
 		}))

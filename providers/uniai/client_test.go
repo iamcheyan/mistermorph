@@ -197,6 +197,49 @@ func TestBuildChatOptionsMapsDebugFn(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsAppliesResponseFormatWithoutTools(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+	}
+	opts := buildChatOptions(req, "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OpenAI == nil {
+		t.Fatal("expected openai options to be set")
+	}
+	if got, ok := built.Options.OpenAI["response_format"]; !ok || got != "json_object" {
+		t.Fatalf("response_format = %#v, want %q", got, "json_object")
+	}
+}
+
+func TestBuildChatOptionsSkipsResponseFormatWhenToolsPresent(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		Tools: []llm.Tool{{
+			Name:           "web_search",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+		}},
+	}
+	opts := buildChatOptions(req, "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if len(built.Tools) != 1 {
+		t.Fatalf("tools length = %d, want 1", len(built.Tools))
+	}
+	if built.Options.OpenAI != nil {
+		if _, ok := built.Options.OpenAI["response_format"]; ok {
+			t.Fatalf("did not expect response_format when tools are present: %#v", built.Options.OpenAI)
+		}
+	}
+}
+
 func TestBuildChatOptionsDoesNotInjectTemperatureWhenUnset(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},

@@ -121,11 +121,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		if runCtx == nil || runCtx.Plan == nil {
 			return
 		}
-		msg, err := generateTelegramPlanProgressMessage(ctx, mainClient, mainModel, task, runCtx.Plan, update, requestTimeout)
-		if err != nil {
-			logger.Warn("telegram_plan_progress_error", "error", err.Error())
-			return
-		}
+		msg := telegramPlanProgressText(runCtx.Plan, update)
 		if strings.TrimSpace(msg) == "" {
 			return
 		}
@@ -265,29 +261,15 @@ func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Regi
 	return reg
 }
 
-func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client, model string, task string, plan *agent.Plan, update agent.PlanStepUpdate, requestTimeout time.Duration) (string, error) {
-	_ = ctx
-	_ = client
-	_ = model
-	_ = task
-	_ = requestTimeout
-
+func telegramPlanProgressText(plan *agent.Plan, update agent.PlanStepUpdate) string {
 	if plan == nil {
-		return "", nil
+		return ""
 	}
-	if update.CompletedIndex < 0 && update.StartedIndex < 0 {
-		return "", nil
-	}
-	stepText := firstNonEmpty(
-		strings.TrimSpace(update.CompletedStep),
-		stepByIndex(plan, update.CompletedIndex),
-		strings.TrimSpace(update.StartedStep),
-		stepByIndex(plan, update.StartedIndex),
-	)
+	stepText := strings.TrimSpace(update.StartedStep)
 	if stepText == "" {
-		return "", nil
+		stepText = stepByIndex(plan, update.StartedIndex)
 	}
-	return stepText, nil
+	return stepText
 }
 
 func stepByIndex(plan *agent.Plan, index int) string {
@@ -295,16 +277,6 @@ func stepByIndex(plan *agent.Plan, index int) string {
 		return ""
 	}
 	return strings.TrimSpace(plan.Steps[index].Step)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {

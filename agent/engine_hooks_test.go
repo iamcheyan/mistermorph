@@ -674,6 +674,38 @@ func TestPlanStepUpdate_CalledWhenPlanResponseArrives(t *testing.T) {
 	}
 }
 
+func TestRepeatedPlanPromptsForToolOrFinalAndKeepsOriginalPlan(t *testing.T) {
+	client := newMockClient(
+		llm.Result{Text: `{"type":"plan","steps":[{"step":"collect data","status":"in_progress"},{"step":"summarize","status":"pending"}]}`},
+		llm.Result{Text: `{"type":"plan","steps":[{"step":"wrong replacement","status":"in_progress"}]}`},
+		finalResponse("done"),
+	)
+
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
+
+	final, agentCtx, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if final == nil || final.Plan == nil {
+		t.Fatal("expected final plan to be preserved")
+	}
+	if len(final.Plan.Steps) != 2 || final.Plan.Steps[0].Step != "collect data" {
+		t.Fatalf("final plan = %#v, want original plan preserved", final.Plan)
+	}
+	if agentCtx.Plan == nil || len(agentCtx.Plan.Steps) != 2 || agentCtx.Plan.Steps[0].Step != "collect data" {
+		t.Fatalf("agent context plan = %#v, want original plan preserved", agentCtx.Plan)
+	}
+
+	calls := client.allCalls()
+	if len(calls) != 3 {
+		t.Fatalf("calls = %d, want 3", len(calls))
+	}
+	if !requestContains(calls, 2, "You already created a plan. Next response must be a tool call or final.") {
+		t.Fatalf("expected repeated-plan correction in third request, got calls=%#v", calls[2].Messages)
+	}
+}
+
 func TestPlanStepUpdate_CalledWhenPlanCreateSucceeds(t *testing.T) {
 	reg := baseRegistry()
 	reg.Register(&mockTool{
