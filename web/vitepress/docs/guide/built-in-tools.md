@@ -72,6 +72,8 @@ Starts a subtask with its own context and an explicit tool whitelist. The parent
 - Current depth limit: the built-in subtask mechanism currently allows only one child layer. A child task cannot spawn another child task.
 - Current observer hint: `spawn` accepts an optional `observe_profile` parameter. `default` keeps mid-run previews conservative, `long_shell` is suited to long shell/log output, and `web_extract` suppresses raw noisy output until better stage signals exist.
 
+For parameter details, result envelope fields, and the difference between `spawn` and `bash.run_in_subtask=true`, see [Subagents and Subtasks](/guide/subagents).
+
 ## Runtime Tools
 
 These tools are injected dynamically while the agent is running.

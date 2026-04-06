@@ -88,6 +88,14 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
+        slug: 'subagents',
+        text: {
+          en: 'Subagents',
+          zh: 'Subagents',
+          ja: 'Subagents'
+        }
+      },
+      {
         slug: 'mcp',
         text: {
           en: 'MCP',
