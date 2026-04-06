@@ -40,7 +40,7 @@ Writes local files in overwrite or append mode, for generated output, state upda
 Executes local `bash` commands to call existing CLIs, run one-off conversions, execute scripts, or inspect the local environment.
 
 - Key limits: can be disabled via `tools.bash.enabled`; restricted by `deny_paths` and internal deny-token rules; child processes inherit only an allowlisted environment.
-- Current subtask behavior: accepts `run_in_subtask=true` for an explicit direct subtask boundary; when the current runtime exposes a stream sink, stdout/stderr chunks can be previewed before the command exits.
+- Current isolated-execution behavior: accepts `run_in_subtask=true` and runs the command inside one direct boundary; when the current runtime exposes a stream sink, stdout/stderr chunks can appear in the preview stream before the command exits.
 
 ### `url_fetch`
 
@@ -66,13 +66,12 @@ These tools are registered when an agent engine is assembled for a run. They dep
 
 ### `spawn`
 
-Starts a subtask with its own context and an explicit tool whitelist. The parent agent blocks until the child finishes and receives a structured result envelope.
+Starts a subagent with its own context and an explicit tool whitelist. The parent agent waits synchronously until the inner run finishes, then receives a structured JSON envelope.
 
-- Key limits: can be disabled via `tools.spawn.enabled`; the child can use only the tool names passed in `tools`; raw child transcript is not returned to the parent loop by default.
-- Current depth limit: the built-in subtask mechanism currently allows only one child layer. A child task cannot spawn another child task.
+- Key limits: can be disabled via `tools.spawn.enabled`; the inner agent can use only the tool names passed in `tools`; raw transcript is not returned to the parent loop by default.
 - Current observer hint: `spawn` accepts an optional `observe_profile` parameter. `default` keeps mid-run previews conservative, `long_shell` is suited to long shell/log output, and `web_extract` suppresses raw noisy output until better stage signals exist.
 
-For parameter details, result envelope fields, and the difference between `spawn` and `bash.run_in_subtask=true`, see [Subagents and Subtasks](/guide/subagents).
+For parameter details, result envelope fields, test prompts, and the difference from `bash.run_in_subtask=true`, see [Subagents](/guide/subagents).
 
 ## Runtime Tools
 

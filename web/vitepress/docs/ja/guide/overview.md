@@ -19,5 +19,5 @@ Mister Morph には主に 3 つの使い方があります。
 - まず素早く動かしたい: [クイックスタート（CLI）](/ja/guide/quickstart-cli)
 - Go プロジェクトに組み込みたい: [24行のコードで自分の AI Agent を作る](/ja/guide/build-your-own-agent)
 - 長時間動かす入口を理解したい: [Runtime モード](/ja/guide/runtime-modes)
-- 子タスクへの委譲を理解したい: [Subagent](/ja/guide/subagents)
+- Subagent への委譲を理解したい: [Subagents](/ja/guide/subagents)
 - 本番前のガバナンスを確認したい: [セキュリティと Guard](/ja/guide/security-and-guard)

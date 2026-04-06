@@ -16,7 +16,7 @@ description: より詳細な設計・実装文書への入口。
   - [Memory](/ja/guide/memory)
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
-  - [Subagent](/ja/guide/subagents)
+  - [Subagents](/ja/guide/subagents)
   - [MCP](/ja/guide/mcp)
   - [LLM ルーティングポリシー](/ja/guide/llm-routing)
 - 開発者

@@ -19,5 +19,5 @@ Mister Morph 主要有 3 种使用方式：
 - 先快速跑通：看 [快速开始](/zh/guide/quickstart-cli)
 - 嵌入到 Go 项目：看 [把 Agent 嵌到自己的程序里](/zh/guide/build-your-own-agent)
 - 了解长期运行入口：看 [Runtime 模式](/zh/guide/runtime-modes)
-- 了解子任务委托：看 [Subagent 与子任务](/zh/guide/subagents)
+- 了解 Subagent 委托：看 [Subagents](/zh/guide/subagents)
 - 上线前治理：看 [安全与 Guard](/zh/guide/security-and-guard)

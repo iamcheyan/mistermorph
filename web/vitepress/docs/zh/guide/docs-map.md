@@ -16,7 +16,7 @@ description: 仓库中更完整设计文档的入口索引。
   - [Memory](/zh/guide/memory)
   - [Skills](/zh/guide/skills)
   - [内置工具](/zh/guide/built-in-tools)
-  - [Subagent 与子任务](/zh/guide/subagents)
+  - [Subagents](/zh/guide/subagents)
   - [MCP](/zh/guide/mcp)
   - [LLM 路由策略](/zh/guide/llm-routing)
 - 开发者
