@@ -160,7 +160,7 @@
 
 .morph-home-hero-support {
   display: grid;
-  align-content: start;
+  align-content: end;
   gap: 1rem;
 }
 
