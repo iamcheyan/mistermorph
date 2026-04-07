@@ -2395,6 +2395,7 @@ const SettingsView = {
                 </div>
               </div>
             </div>
+          </div>
           </QCard>
         </template>
       </div>
