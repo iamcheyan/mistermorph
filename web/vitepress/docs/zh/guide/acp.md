@@ -61,8 +61,8 @@ tools:
 acp:
   agents:
     - name: "codex"
-      command: "codex-acp"
-      args: []
+      command: "npx"
+      args: ["-y", "@archkk/acp-codex"]
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -130,6 +130,8 @@ Codex 现在应该按外部 ACP adapter 来接。
 
 常见选择：
 
+- `npx -y @archkk/acp-codex`
+- 先执行 `npm i -g @archkk/acp-codex`，再用 `mistermorph-acp-codex`
 - `codex-acp`
 - `npx -y @zed-industries/codex-acp`
 
@@ -146,7 +148,7 @@ MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 ```
 
-这个测试默认找 `codex-acp`。如果你用别的 adapter 命令，再设置 `MISTERMORPH_ACP_CODEX_COMMAND` 和 `MISTERMORPH_ACP_CODEX_ARGS`。
+这个测试默认找 `codex-acp`。如果你要验证已发布的 npm 包，可以设置 `MISTERMORPH_ACP_CODEX_COMMAND=npx` 和 `MISTERMORPH_ACP_CODEX_ARGS="-y @archkk/acp-codex"`。
 
 ## Claude
 
@@ -158,8 +160,8 @@ Mistermorph 主仓里不再自带 Claude wrapper。
 acp:
   agents:
     - name: "claude"
-      command: "<claude-acp-adapter-command>"
-      args: []
+      command: "npx"
+      args: ["-y", "@archkk/acp-claude"]
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -169,13 +171,17 @@ acp:
         allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 ```
 
-如果你用迁出的 `mistermorph-acp-adapters`，把 `command` 和 `args` 指到那个独立 checkout 或安装结果即可。
+公开可用的选择：
+
+- `npx -y @archkk/acp-claude`
+- 先执行 `npm i -g @archkk/acp-claude`，再用 `mistermorph-acp-claude`
 
 可选 live 集成测试：
 
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
-MISTERMORPH_ACP_CLAUDE_COMMAND="<claude-acp-adapter-command>" \
+MISTERMORPH_ACP_CLAUDE_COMMAND=npx \
+MISTERMORPH_ACP_CLAUDE_ARGS="-y @archkk/acp-claude" \
 go test ./internal/acpclient -run TestRunPrompt_ClaudeACPIntegration -v
 ```
 

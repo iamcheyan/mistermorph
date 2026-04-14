@@ -272,12 +272,15 @@ mcp:
 acp:
   agents: []
   # - name: "codex"
-  #   # Use an external ACP adapter:
-  #   command: "codex-acp"
-  #   args: []
-  #   # Or install nothing and run through npx:
-  #   # command: "npx"
-  #   # args: ["-y", "@zed-industries/codex-acp"]
+  #   # Published adapter on npm:
+  #   command: "npx"
+  #   args: ["-y", "@archkk/acp-codex"]
+  #   # Or install globally and call the bin directly:
+  #   # command: "mistermorph-acp-codex"
+  #   # args: []
+  #   # Or use another compatible adapter:
+  #   # command: "codex-acp"
+  #   # args: []
   #   env: {}
   #   cwd: "."
   #   read_roots: ["."]
@@ -288,11 +291,12 @@ acp:
   #   #   mode: "auto"
   #   #   reasoning_effort: "low"
   # - name: "claude"
-  #   # Use any external Claude ACP adapter.
-  #   # If you keep the extracted MisterMorph adapters in another checkout,
-  #   # point command/args at that separate location.
-  #   command: "<claude-acp-adapter-command>"
-  #   args: []
+  #   # Published adapter on npm:
+  #   command: "npx"
+  #   args: ["-y", "@archkk/acp-claude"]
+  #   # Or install globally and call the bin directly:
+  #   # command: "mistermorph-acp-claude"
+  #   # args: []
   #   env: {}
   #   cwd: "."
   #   read_roots: ["."]

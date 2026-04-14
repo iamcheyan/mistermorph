@@ -63,8 +63,8 @@ tools:
 acp:
   agents:
     - name: "codex"
-      command: "codex-acp"
-      args: []
+      command: "npx"
+      args: ["-y", "@archkk/acp-codex"]
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -145,6 +145,8 @@ Codex should be configured as an external ACP adapter.
 
 Common choices:
 
+- `npx -y @archkk/acp-codex`
+- `mistermorph-acp-codex` after `npm i -g @archkk/acp-codex`
 - `codex-acp`
 - `npx -y @zed-industries/codex-acp`
 
@@ -161,7 +163,7 @@ MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 ```
 
-The test defaults to `codex-acp`. Override `MISTERMORPH_ACP_CODEX_COMMAND` and `MISTERMORPH_ACP_CODEX_ARGS` if you use another adapter command.
+The test defaults to `codex-acp`. If you want to verify the published package instead, set `MISTERMORPH_ACP_CODEX_COMMAND=npx` and `MISTERMORPH_ACP_CODEX_ARGS="-y @archkk/acp-codex"`.
 
 ## Claude
 
@@ -173,8 +175,8 @@ Use any external Claude ACP adapter instead. Example:
 acp:
   agents:
     - name: "claude"
-      command: "<claude-acp-adapter-command>"
-      args: []
+      command: "npx"
+      args: ["-y", "@archkk/acp-claude"]
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -184,13 +186,17 @@ acp:
         allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 ```
 
-If you use the extracted `mistermorph-acp-adapters` repository, point `command` and `args` at that separate checkout or package install.
+Published choices:
+
+- `npx -y @archkk/acp-claude`
+- `mistermorph-acp-claude` after `npm i -g @archkk/acp-claude`
 
 Opt-in live integration test:
 
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
-MISTERMORPH_ACP_CLAUDE_COMMAND="<claude-acp-adapter-command>" \
+MISTERMORPH_ACP_CLAUDE_COMMAND=npx \
+MISTERMORPH_ACP_CLAUDE_ARGS="-y @archkk/acp-claude" \
 go test ./internal/acpclient -run TestRunPrompt_ClaudeACPIntegration -v
 ```
 
