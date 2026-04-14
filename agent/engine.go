@@ -127,7 +127,7 @@ func WithACPSpawnToolEnabled(enabled bool) Option {
 
 func WithACPAgents(configs []acpclient.AgentConfig) Option {
 	return func(e *Engine) {
-		e.acpAgents = cloneACPAgents(configs)
+		e.acpAgents = acpclient.CloneAgents(configs)
 	}
 }
 
@@ -205,7 +205,7 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		},
 		acpSpawnToolDeps{
 			LookupAgent: func(name string) (acpclient.AgentConfig, bool) {
-				return lookupACPAgent(e.acpAgents, name)
+				return acpclient.FindAgent(e.acpAgents, name)
 			},
 			Runner:    e.subtaskRunner,
 			RunPrompt: acpclient.RunPrompt,
@@ -300,33 +300,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		onStream:        opts.OnStream,
 		nextStep:        0,
 	})
-}
-
-func cloneACPAgents(in []acpclient.AgentConfig) []acpclient.AgentConfig {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]acpclient.AgentConfig, 0, len(in))
-	for _, cfg := range in {
-		item := cfg
-		item.Args = append([]string(nil), cfg.Args...)
-		if len(cfg.Env) > 0 {
-			item.Env = make(map[string]string, len(cfg.Env))
-			for k, v := range cfg.Env {
-				item.Env[k] = v
-			}
-		}
-		item.ReadRoots = append([]string(nil), cfg.ReadRoots...)
-		item.WriteRoots = append([]string(nil), cfg.WriteRoots...)
-		if len(cfg.SessionOptions) > 0 {
-			item.SessionOptions = make(map[string]any, len(cfg.SessionOptions))
-			for k, v := range cfg.SessionOptions {
-				item.SessionOptions[k] = v
-			}
-		}
-		out = append(out, item)
-	}
-	return out
 }
 
 func missingFiles(paths []string) []string {

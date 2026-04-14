@@ -35,8 +35,6 @@ func TestACPSpawnTool_Execute(t *testing.T) {
 			}
 			return acpclient.AgentConfig{
 				Name:       "codex",
-				Enable:     true,
-				Type:       "stdio",
 				Command:    "helper",
 				CWD:        dir,
 				ReadRoots:  []string{"."},
@@ -104,8 +102,6 @@ func TestACPSpawnTool_PreservesWhitespaceOutput(t *testing.T) {
 			}
 			return acpclient.AgentConfig{
 				Name:       "codex",
-				Enable:     true,
-				Type:       "stdio",
 				Command:    "helper",
 				CWD:        dir,
 				ReadRoots:  []string{"."},
@@ -157,7 +153,7 @@ func TestACPSpawnTool_CanBeEnabled(t *testing.T) {
 		baseCfg(),
 		DefaultPromptSpec(),
 		WithACPSpawnToolEnabled(true),
-		WithACPAgents([]acpclient.AgentConfig{{Name: "codex", Enable: true, Type: "stdio", Command: "helper"}}),
+		WithACPAgents([]acpclient.AgentConfig{{Name: "codex", Command: "helper"}}),
 	)
 	if _, ok := e.registry.Get(acpSpawnToolName); !ok {
 		t.Fatal("acp_spawn should be registered when enabled")

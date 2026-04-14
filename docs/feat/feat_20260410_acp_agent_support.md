@@ -447,7 +447,7 @@ ACP 最终要落回现有 `SubtaskResult`。
 
 ### M4. 真实联调
 
-- 针对 Codex / Claude wrapper 的 opt-in 集成测试
+- 针对 Codex / Claude ACP adapter 的 opt-in 集成测试
 - 记录兼容性差异
 
 ## 9) 主要风险

@@ -50,6 +50,11 @@ status: in_progress
 - [x] 修正 timeout 竞争导致的假成功
 - [x] 新增 opt-in 的真实 Codex adapter 集成测试
 - [x] 跑相关测试并记录结果
+- [x] 收敛主仓 ACP 范围，只保留 `acp_spawn`、`internal/acpclient` 和回调边界
+- [x] 删除仓库内 `wrappers/acp/cursor/` 透明 proxy，文档改为直接配置 `agent acp`
+- [x] 评估并执行 `wrappers/acp/codex/` 迁出主仓，改为单独 repo 或可选项目维护
+- [x] 评估并执行 `wrappers/acp/claude/` 迁出主仓，改为单独 repo 或可选项目维护
+- [x] 清理 ACP 文档和配置样例，去掉对仓库内 native wrapper / cursor proxy 的默认依赖
 
 ## 进度记录
 
@@ -130,6 +135,25 @@ status: in_progress
 - 为了定位真实 wrapper 问题，曾临时加过 `acp_*` 运行日志：
   - 联调完成后已降为 `debug`
   - 默认 `info` 日志下不再污染正常输出
+
+### 2026-04-14
+
+- 已形成下一轮简化方向，目标是把 ACP 收回“主仓只保留核心能力”：
+  - 保留 `acp_spawn`
+  - 保留 `internal/acpclient`
+  - 保留本地文件、终端、权限回调边界
+- 当前判断：
+  - `wrappers/acp/codex/` 和 `wrappers/acp/claude/` 属于 backend 适配器，不是 ACP 核心能力
+  - `wrappers/acp/cursor/` 只是透明转发，不增加协议能力，适合直接删除
+- 已记录的后续动作：
+  - Cursor 改为文档直接指导配置 `command: "agent"` 和 `args: ["acp"]`
+  - Codex / Claude native wrapper 改为迁出主仓，单独维护
+  - 主仓文档改成“接受任意已经会讲 ACP 的外部 command”，不再默认自带这些 wrapper
+- 已完成主仓收口：
+  - `wrappers/acp/codex/`、`wrappers/acp/claude/`、`wrappers/acp/shared/` 已迁到独立目录 `mistermorph-acp-adapters/`
+  - `wrappers/acp/cursor/` 已从主仓删除
+  - `docs/acp.md`、VitePress 指南和 `assets/config/config.example.yaml` 已改成外部 adapter / 直接 `agent acp` 口径
+  - 主仓集成测试已去掉对仓库内 wrapper 路径的硬依赖
 
 ## 待确认的实现细节
 

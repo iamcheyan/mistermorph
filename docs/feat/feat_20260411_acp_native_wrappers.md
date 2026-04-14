@@ -6,6 +6,8 @@ status: draft
 
 # 自研 ACP Wrapper 设计
 
+> 2026-04-14 补记：本文记录的是当时把 wrapper 放在主仓内的设计。后续 `codex` / `claude` adapter 已迁到独立目录 `mistermorph-acp-adapters/`，下面的仓库内路径仅作为历史记录。
+
 ## 1) 目标
 
 当前 ACP client 已经能跑通。

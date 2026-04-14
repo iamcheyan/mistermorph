@@ -39,8 +39,6 @@ func TestRunPrompt_RoundTrip(t *testing.T) {
 
 	cfg := AgentConfig{
 		Name:           "helper",
-		Enable:         true,
-		Type:           "stdio",
 		Command:        "helper",
 		CWD:            dir,
 		ReadRoots:      []string{dir},
@@ -202,8 +200,6 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -261,8 +257,6 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -314,8 +308,6 @@ func TestRunPrompt_TerminalRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -455,8 +447,6 @@ func TestRunPrompt_AuthenticatesWithConfiguredEnvVarMethod(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -530,8 +520,6 @@ func TestRunPrompt_AppliesSessionOptionsViaConfigRequests(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -613,8 +601,6 @@ func TestRunPrompt_PreservesWhitespaceInAgentChunks(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},
@@ -744,8 +730,6 @@ func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "helper",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        dir,
 		ReadRoots:  []string{dir},

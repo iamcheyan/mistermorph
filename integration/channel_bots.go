@@ -294,7 +294,7 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 		},
 		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
 		ACPAgents: func() []acpclient.AgentConfig {
-			return cloneACPAgents(snap.ACPAgents)
+			return acpclient.CloneAgents(snap.ACPAgents)
 		},
 		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
 			PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),

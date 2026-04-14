@@ -6,6 +6,8 @@ status: in_progress
 
 # 自研 ACP Wrapper 实现进度
 
+> 2026-04-14 补记：这里记录的是 wrapper 还在主仓时的实现过程。后续 `codex` / `claude` adapter 已迁到独立目录 `mistermorph-acp-adapters/`，下面的主仓路径仅作为历史记录。
+
 ## 当前范围
 
 本轮先做最小可用版本：

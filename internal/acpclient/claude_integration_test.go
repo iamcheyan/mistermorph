@@ -13,25 +13,25 @@ import (
 
 const (
 	claudeACPIntegrationEnv    = "MISTERMORPH_ACP_CLAUDE_INTEGRATION"
+	claudeACPCommandEnv        = "MISTERMORPH_ACP_CLAUDE_COMMAND"
+	claudeACPArgsEnv           = "MISTERMORPH_ACP_CLAUDE_ARGS"
 	claudeACPSessionOptionsEnv = "MISTERMORPH_ACP_CLAUDE_SESSION_OPTIONS"
 )
 
-func TestRunPrompt_ClaudeNativeWrapperIntegration(t *testing.T) {
+func TestRunPrompt_ClaudeACPIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping live Claude ACP integration test in short mode")
 	}
 	if strings.TrimSpace(os.Getenv(claudeACPIntegrationEnv)) != "1" {
 		t.Skipf("set %s=1 to run the live Claude ACP integration test", claudeACPIntegrationEnv)
 	}
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node is required for the live Claude ACP integration test")
+
+	command := strings.TrimSpace(os.Getenv(claudeACPCommandEnv))
+	if command == "" {
+		t.Skipf("set %s to run the live Claude ACP integration test", claudeACPCommandEnv)
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude is required for the live Claude ACP integration test")
-	}
-	authStatus := exec.Command("claude", "auth", "status")
-	if err := authStatus.Run(); err != nil {
-		t.Skipf("claude auth status failed: %v", err)
+	if _, err := exec.LookPath(command); err != nil {
+		t.Skipf("%s not found on PATH: %v", command, err)
 	}
 
 	sessionOptions, err := parseClaudeACPSessionOptions(os.Getenv(claudeACPSessionOptionsEnv))
@@ -45,13 +45,6 @@ func TestRunPrompt_ClaudeNativeWrapperIntegration(t *testing.T) {
 		}
 	}
 
-	repoRoot := repoRootFromTestFile(t)
-	wrapperPath := filepath.Join(repoRoot, "wrappers", "acp", "claude", "src", "index.mjs")
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is required for the live Claude ACP integration test")
-	}
-
 	dir := t.TempDir()
 	probePath := filepath.Join(dir, "acp_probe.txt")
 	if err := os.WriteFile(probePath, []byte("ACP_CLAUDE_SMOKE_TOKEN_20260411\n"), 0o644); err != nil {
@@ -60,16 +53,11 @@ func TestRunPrompt_ClaudeNativeWrapperIntegration(t *testing.T) {
 
 	prepared, err := PrepareAgentConfig(AgentConfig{
 		Name:       "claude",
-		Enable:     true,
-		Type:       "stdio",
-		Command:    node,
-		Args:       []string{wrapperPath},
+		Command:    command,
+		Args:       strings.Fields(strings.TrimSpace(os.Getenv(claudeACPArgsEnv))),
 		CWD:        dir,
 		ReadRoots:  []string{dir},
 		WriteRoots: []string{dir},
-		Env: map[string]string{
-			"MISTERMORPH_CLAUDE_COMMAND": "claude",
-		},
 		SessionOptions: sessionOptions,
 	}, "")
 	if err != nil {
@@ -98,7 +86,7 @@ func TestRunPrompt_ClaudeNativeWrapperIntegration(t *testing.T) {
 		t.Fatalf("Output = %q, want %q", result.Output, "ACP_CLAUDE_SMOKE_TOKEN_20260411")
 	}
 	if len(events) == 0 {
-		t.Fatal("expected at least one ACP event from the Claude wrapper")
+		t.Fatal("expected at least one ACP event from the Claude ACP command")
 	}
 }
 

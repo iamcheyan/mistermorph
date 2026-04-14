@@ -268,15 +268,11 @@ mcp:
 
 # ACP external agents.
 # ACP tools are engine-scoped. Enable `tools.acp_spawn.enabled` to expose the explicit entry.
+# Each ACP profile runs as a local child process over stdio.
 acp:
   agents: []
   # - name: "codex"
-  #   enable: true
-  #   type: "stdio"
-  #   # Native wrapper kept in this repository:
-  #   command: "node"
-  #   args: ["./wrappers/acp/codex/src/index.mjs"]
-  #   # Or use a third-party ACP adapter:
+  #   # Use an external ACP adapter:
   #   command: "codex-acp"
   #   args: []
   #   # Or install nothing and run through npx:
@@ -291,15 +287,12 @@ acp:
   #   # session_options:
   #   #   mode: "auto"
   #   #   reasoning_effort: "low"
-  #   # Example for the native Codex wrapper:
-  #   # session_options:
-  #   #   approval_policy: "never"
-  #   #   reasoning_effort: "low"
   # - name: "claude"
-  #   enable: true
-  #   type: "stdio"
-  #   command: "node"
-  #   args: ["./wrappers/acp/claude/src/index.mjs"]
+  #   # Use any external Claude ACP adapter.
+  #   # If you keep the extracted MisterMorph adapters in another checkout,
+  #   # point command/args at that separate location.
+  #   command: "<claude-acp-adapter-command>"
+  #   args: []
   #   env: {}
   #   cwd: "."
   #   read_roots: ["."]
@@ -311,14 +304,12 @@ acp:
   #   # Set bare: true only when you authenticate with API keys or explicit settings.
   #   # Claude Code bare mode skips OAuth and keychain reads.
   # - name: "cursor"
-  #   enable: true
-  #   type: "stdio"
-  #   # Transparent proxy to Cursor CLI `agent acp` (see wrappers/acp/cursor/README.md).
-  #   command: "node"
-  #   args: ["./wrappers/acp/cursor/src/index.mjs"]
-  #   env:
-  #     # Optional: pass flags before the final `acp` subcommand, e.g. API key:
-  #     MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+  #   # Cursor CLI already speaks ACP directly.
+  #   command: "agent"
+  #   args: ["acp"]
+  #   env: {}
+  #   # Optional: pass flags before the final `acp` subcommand, e.g.:
+  #   # args: ["--api-key", "${CURSOR_API_KEY}", "acp"]
   #   cwd: "."
   #   read_roots: ["."]
   #   write_roots: ["."]

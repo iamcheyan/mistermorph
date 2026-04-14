@@ -61,8 +61,6 @@ tools:
 acp:
   agents:
     - name: "codex"
-      enable: true
-      type: "stdio"
       command: "codex-acp"
       args: []
       env: {}
@@ -77,6 +75,7 @@ acp:
 补充说明：
 
 - `tools.acp_spawn.enabled` 只控制 `acp_spawn` 这个显式入口。
+- ACP profile 固定作为本地 `stdio` 子进程启动。
 - `session_options` 会先透传到 `session/new._meta`。
 - 如果 ACP agent 在 `session/new` 里声明了 config option id，同名字段还会再通过 `session/set_config_option` 发一遍。
 
@@ -123,70 +122,44 @@ ACP 的 permission 请求不是唯一边界。
 - 允许的终端工作目录
 - 本地写入和进程执行规则
 
-还有一点要看清：wrapper 本身仍是本地子进程。ACP 回调层的约束，不会自动把 wrapper 自己的直接行为也沙箱化。
+还有一点要看清：ACP command 本身仍是本地子进程。ACP 回调层的约束，不会自动把这个进程自己的直接行为也沙箱化。
 
-## Codex 的两条接法
+## Codex
 
-现在 Codex 有两条接法。
+Codex 现在应该按外部 ACP adapter 来接。
 
-### 外部适配层
+常见选择：
 
-你仍然可以继续用 `codex-acp` 这类外部 ACP 适配层。
+- `codex-acp`
+- `npx -y @zed-industries/codex-acp`
 
 联调前先检查：
 
 1. `codex` 自己先能正常工作
 2. `mistermorph tools` 里能看到 `acp_spawn`
-3. ACP profile 的 `command` 指向 `codex-acp`
+3. ACP profile 的 `command` 指向你的 Codex ACP adapter
 
-### 仓库内自带 wrapper
-
-仓库里现在也有一个 MisterMorph 自己维护的 Codex wrapper：
-
-```yaml
-acp:
-  agents:
-    - name: "codex"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/codex/src/index.mjs"]
-      env: {}
-      cwd: "."
-      read_roots: ["."]
-      write_roots: ["."]
-      session_options:
-        approval_policy: "never"
-```
-
-这个 native wrapper 当前的范围：
-
-- 后端直接接 `codex app-server`
-- 不依赖第三方 ACP adapter
-- 还没有交互式 approval 流程
-- 默认 `approval_policy` 是 `never`
-
-现有的 opt-in live 集成测试也能直接打这个 wrapper：
+可选 live 集成测试：
 
 ```bash
 MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
-MISTERMORPH_ACP_CODEX_COMMAND=node \
-MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 ```
 
-## Claude 的 native wrapper
+这个测试默认找 `codex-acp`。如果你用别的 adapter 命令，再设置 `MISTERMORPH_ACP_CODEX_COMMAND` 和 `MISTERMORPH_ACP_CODEX_ARGS`。
 
-仓库里现在也有一个 Claude 的 native wrapper：
+## Claude
+
+Mistermorph 主仓里不再自带 Claude wrapper。
+
+请改用任何外部 Claude ACP adapter。示例：
 
 ```yaml
 acp:
   agents:
     - name: "claude"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/claude/src/index.mjs"]
+      command: "<claude-acp-adapter-command>"
+      args: []
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -196,28 +169,19 @@ acp:
         allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 ```
 
-这个 wrapper 当前的范围：
+如果你用迁出的 `mistermorph-acp-adapters`，把 `command` 和 `args` 指到那个独立 checkout 或安装结果即可。
 
-- 后端直接接 `claude -p --output-format stream-json`
-- 不依赖第三方 ACP adapter
-- 还没有交互式 approval 流程
-- Claude 内部工具不会再拆回 ACP 的文件或终端回调
-
-注意两点：
-
-- `bare: true` 只是可选项，不该默认打开
-- 如果你依赖 Claude.ai 登录态，通常要保持 `bare: false`，因为 bare mode 会跳过 OAuth 和 keychain 读取
-
-仓库里也加了 opt-in 的 live 集成测试：
+可选 live 集成测试：
 
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+MISTERMORPH_ACP_CLAUDE_COMMAND="<claude-acp-adapter-command>" \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeACPIntegration -v
 ```
 
 ## Cursor CLI（`agent acp`）
 
-Cursor 命令行自带的 `agent acp` 本身就是 ACP server（stdio），与 Codex/Claude 的「桥接 wrapper」不同：仓库里提供的是 **透明 stdio 代理**，把 MisterMorph 的 JSON-RPC 原样转发给 Cursor CLI。
+Cursor CLI 自己就直接讲 ACP（stdio），所以主仓里不再保留透明 proxy。
 
 先在本机安装 Cursor CLI，保证 `agent` 在 `PATH` 中，并完成认证（`agent login`，或通过环境变量/参数传入 API key，见 [Cursor ACP 文档](https://cursor.com/cn/docs/cli/acp)）。
 
@@ -227,28 +191,21 @@ Cursor 命令行自带的 `agent acp` 本身就是 ACP server（stdio），与 C
 acp:
   agents:
     - name: "cursor"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/cursor/src/index.mjs"]
-      env:
-        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      command: "agent"
+      args: ["acp"]
+      env: {}
       cwd: "."
       read_roots: ["."]
       write_roots: ["."]
 ```
 
-说明：
-
-- `MISTERMORPH_CURSOR_COMMAND` 可覆盖 `agent` 可执行文件路径
-- `MISTERMORPH_CURSOR_ARGS` 为 `acp` 之前的额外参数（空格分隔）
-- 仪表盘级团队 MCP 在 ACP 模式下不可用（以 Cursor 文档为准）
+如果需要 API key 之类的参数，把它们放在最后一个 `acp` 之前，例如 `args: ["--api-key", "${CURSOR_API_KEY}", "acp"]`。
 
 可选联调（需本机已安装并登录 Cursor CLI）：
 
 ```bash
 MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
+go test ./internal/acpclient -run TestRunPrompt_CursorACPIntegration -v
 ```
 
 另见：

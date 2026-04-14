@@ -7,14 +7,53 @@ import (
 	"testing"
 )
 
+func TestCloneAgents_DeepCopiesSlicesAndMaps(t *testing.T) {
+	t.Parallel()
+
+	source := []AgentConfig{{
+		Name:           "codex",
+		Command:        "helper",
+		Args:           []string{"a"},
+		Env:            map[string]string{"K": "V"},
+		ReadRoots:      []string{"r"},
+		WriteRoots:     []string{"w"},
+		SessionOptions: map[string]any{"mode": "auto"},
+	}}
+
+	cloned := CloneAgents(source)
+	if len(cloned) != 1 {
+		t.Fatalf("len(cloned) = %d, want 1", len(cloned))
+	}
+
+	cloned[0].Args[0] = "b"
+	cloned[0].Env["K"] = "CHANGED"
+	cloned[0].ReadRoots[0] = "changed-r"
+	cloned[0].WriteRoots[0] = "changed-w"
+	cloned[0].SessionOptions["mode"] = "manual"
+
+	if got := source[0].Args[0]; got != "a" {
+		t.Fatalf("source[0].Args[0] = %q, want %q", got, "a")
+	}
+	if got := source[0].Env["K"]; got != "V" {
+		t.Fatalf("source[0].Env[K] = %q, want %q", got, "V")
+	}
+	if got := source[0].ReadRoots[0]; got != "r" {
+		t.Fatalf("source[0].ReadRoots[0] = %q, want %q", got, "r")
+	}
+	if got := source[0].WriteRoots[0]; got != "w" {
+		t.Fatalf("source[0].WriteRoots[0] = %q, want %q", got, "w")
+	}
+	if got := source[0].SessionOptions["mode"]; got != "auto" {
+		t.Fatalf("source[0].SessionOptions[mode] = %v, want %q", got, "auto")
+	}
+}
+
 func TestPrepareAgentConfig_ResolvesRelativePathsFromCWD(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
 	cfg := AgentConfig{
 		Name:       "codex",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        base,
 		ReadRoots:  []string{"src"},
@@ -47,8 +86,6 @@ func TestPrepareAgentConfig_OverrideCWDDoesNotReanchorRelativeRoots(t *testing.T
 
 	cfg := AgentConfig{
 		Name:       "codex",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        base,
 		ReadRoots:  []string{"src"},
@@ -88,8 +125,6 @@ func TestPrepareAgentConfig_RejectsOverrideOutsideAllowedRoots(t *testing.T) {
 
 	cfg := AgentConfig{
 		Name:       "codex",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        base,
 		ReadRoots:  []string{"."},
@@ -120,8 +155,6 @@ func TestPrepareAgentConfig_FreezesMissingRootBoundary(t *testing.T) {
 
 	cfg := AgentConfig{
 		Name:       "codex",
-		Enable:     true,
-		Type:       "stdio",
 		Command:    "helper",
 		CWD:        base,
 		ReadRoots:  []string{"sandbox"},

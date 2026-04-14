@@ -50,8 +50,6 @@ func TestRunPrompt_CodexACPIntegration(t *testing.T) {
 
 	prepared, err := PrepareAgentConfig(AgentConfig{
 		Name:           "codex",
-		Enable:         true,
-		Type:           "stdio",
 		Command:        command,
 		Args:           strings.Fields(strings.TrimSpace(os.Getenv(codexACPArgsEnv))),
 		CWD:            dir,

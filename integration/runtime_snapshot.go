@@ -90,33 +90,6 @@ func cloneSkillsConfig(in skillsutil.SkillsConfig) skillsutil.SkillsConfig {
 	return out
 }
 
-func cloneACPAgents(in []acpclient.AgentConfig) []acpclient.AgentConfig {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]acpclient.AgentConfig, 0, len(in))
-	for _, cfg := range in {
-		item := cfg
-		item.Args = append([]string(nil), cfg.Args...)
-		item.ReadRoots = append([]string(nil), cfg.ReadRoots...)
-		item.WriteRoots = append([]string(nil), cfg.WriteRoots...)
-		if len(cfg.Env) > 0 {
-			item.Env = make(map[string]string, len(cfg.Env))
-			for k, v := range cfg.Env {
-				item.Env[k] = v
-			}
-		}
-		if len(cfg.SessionOptions) > 0 {
-			item.SessionOptions = make(map[string]any, len(cfg.SessionOptions))
-			for k, v := range cfg.SessionOptions {
-				item.SessionOptions[k] = v
-			}
-		}
-		out = append(out, item)
-	}
-	return out
-}
-
 func copyAuthProfilesMap(in map[string]secrets.AuthProfile) map[string]secrets.AuthProfile {
 	if len(in) == 0 {
 		return map[string]secrets.AuthProfile{}

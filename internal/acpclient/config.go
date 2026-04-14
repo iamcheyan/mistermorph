@@ -12,8 +12,6 @@ import (
 
 type AgentConfig struct {
 	Name           string
-	Enable         bool
-	Type           string
 	Command        string
 	Args           []string
 	Env            map[string]string
@@ -25,7 +23,6 @@ type AgentConfig struct {
 
 type PreparedAgentConfig struct {
 	Name               string
-	Type               string
 	Command            string
 	Args               []string
 	Env                map[string]string
@@ -40,17 +37,8 @@ func (c AgentConfig) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("acp agent name is required")
 	}
-	typ := strings.ToLower(strings.TrimSpace(c.Type))
-	if typ == "" {
-		typ = "stdio"
-	}
-	switch typ {
-	case "stdio":
-		if strings.TrimSpace(c.Command) == "" {
-			return fmt.Errorf("acp agent %q: command is required for stdio transport", c.Name)
-		}
-	default:
-		return fmt.Errorf("acp agent %q: unsupported type %q (supported: stdio)", c.Name, typ)
+	if strings.TrimSpace(c.Command) == "" {
+		return fmt.Errorf("acp agent %q: command is required", c.Name)
 	}
 	return nil
 }
@@ -80,12 +68,26 @@ func FindAgent(configs []AgentConfig, name string) (AgentConfig, bool) {
 	return AgentConfig{}, false
 }
 
+func CloneAgents(in []AgentConfig) []AgentConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AgentConfig, 0, len(in))
+	for _, cfg := range in {
+		item := cfg
+		item.Args = append([]string(nil), cfg.Args...)
+		item.Env = cloneStringMap(cfg.Env)
+		item.ReadRoots = append([]string(nil), cfg.ReadRoots...)
+		item.WriteRoots = append([]string(nil), cfg.WriteRoots...)
+		item.SessionOptions = cloneAnyMap(cfg.SessionOptions)
+		out = append(out, item)
+	}
+	return out
+}
+
 func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfig, error) {
 	if err := cfg.Validate(); err != nil {
 		return PreparedAgentConfig{}, err
-	}
-	if !cfg.Enable {
-		return PreparedAgentConfig{}, fmt.Errorf("acp agent %q is disabled", strings.TrimSpace(cfg.Name))
 	}
 
 	profileCWD, err := resolveAbsoluteDir(strings.TrimSpace(cfg.CWD), "")
@@ -124,7 +126,6 @@ func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfi
 
 	return PreparedAgentConfig{
 		Name:               strings.TrimSpace(cfg.Name),
-		Type:               strings.ToLower(strings.TrimSpace(cfg.Type)),
 		Command:            strings.TrimSpace(cfg.Command),
 		Args:               append([]string(nil), cfg.Args...),
 		Env:                cloneStringMap(cfg.Env),
@@ -152,8 +153,6 @@ func parseAgents(raw any) []AgentConfig {
 		}
 		configs = append(configs, AgentConfig{
 			Name:           strings.TrimSpace(cast.ToString(m["name"])),
-			Enable:         m["enable"] == nil || cast.ToBool(m["enable"]),
-			Type:           strings.TrimSpace(cast.ToString(m["type"])),
 			Command:        strings.TrimSpace(cast.ToString(m["command"])),
 			Args:           cleanStrings(cast.ToStringSlice(m["args"])),
 			Env:            cast.ToStringMapString(m["env"]),

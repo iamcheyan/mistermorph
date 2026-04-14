@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -42,18 +41,4 @@ func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps s
 	if cfg.ACPSpawnEnabled {
 		reg.Register(newACPSpawnTool(acpDeps))
 	}
-}
-
-func lookupACPAgent(configs []acpclient.AgentConfig, name string) (acpclient.AgentConfig, bool) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
-		return acpclient.AgentConfig{}, false
-	}
-	for _, cfg := range configs {
-		if strings.ToLower(strings.TrimSpace(cfg.Name)) != name {
-			continue
-		}
-		return cfg, true
-	}
-	return acpclient.AgentConfig{}, false
 }

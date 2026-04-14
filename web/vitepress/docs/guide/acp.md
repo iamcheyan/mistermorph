@@ -61,8 +61,6 @@ tools:
 acp:
   agents:
     - name: "codex"
-      enable: true
-      type: "stdio"
       command: "codex-acp"
       args: []
       env: {}
@@ -77,6 +75,7 @@ acp:
 Notes:
 
 - `tools.acp_spawn.enabled` controls only the `acp_spawn` entry.
+- ACP profiles always run as local `stdio` child processes.
 - `session_options` is first passed through `session/new._meta`.
 - If the ACP agent advertises config option ids, matching keys are also sent through `session/set_config_option`.
 
@@ -123,70 +122,44 @@ The real enforcement happens in the implemented client methods:
 - allowed terminal working directories
 - local write and process rules
 
-Also, the wrapper itself is still a local child process. ACP callback limits do not automatically sandbox arbitrary direct behavior inside that wrapper.
+Also, the ACP command itself is still a local child process. ACP callback limits do not automatically sandbox arbitrary direct behavior inside that process.
 
-## Codex Paths
+## Codex
 
-There are now two Codex paths.
+Codex should be configured as an external ACP adapter.
 
-### External Adapter
+Common choices:
 
-You can still use an ACP adapter such as `codex-acp`.
+- `codex-acp`
+- `npx -y @zed-industries/codex-acp`
 
 Checks:
 
 1. `codex` itself should already work.
 2. `mistermorph tools` should list `acp_spawn`.
-3. the ACP profile should point to `codex-acp`.
+3. the ACP profile should point to your Codex ACP adapter command.
 
-### Native Wrapper in This Repository
-
-The repository also includes a Codex wrapper owned by Mister Morph:
-
-```yaml
-acp:
-  agents:
-    - name: "codex"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/codex/src/index.mjs"]
-      env: {}
-      cwd: "."
-      read_roots: ["."]
-      write_roots: ["."]
-      session_options:
-        approval_policy: "never"
-```
-
-Current scope of the native wrapper:
-
-- backend is `codex app-server`
-- no third-party ACP adapter is required
-- no interactive approval flow yet
-- default `approval_policy` is `never`
-
-The existing opt-in live integration test can target this wrapper too:
+Optional live check:
 
 ```bash
 MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
-MISTERMORPH_ACP_CODEX_COMMAND=node \
-MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 ```
 
-## Claude Native Wrapper
+The test defaults to `codex-acp`. Override `MISTERMORPH_ACP_CODEX_COMMAND` and `MISTERMORPH_ACP_CODEX_ARGS` if you use another adapter command.
 
-The repository also includes a native Claude wrapper:
+## Claude
+
+Mistermorph no longer ships a Claude wrapper inside this repository.
+
+Use any external Claude ACP adapter instead. Example:
 
 ```yaml
 acp:
   agents:
     - name: "claude"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/claude/src/index.mjs"]
+      command: "<claude-acp-adapter-command>"
+      args: []
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -196,28 +169,19 @@ acp:
         allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 ```
 
-Current scope:
+If you use the extracted `mistermorph-acp-adapters` repository, point `command` and `args` at that separate checkout or package install.
 
-- backend is `claude -p --output-format stream-json`
-- no third-party ACP adapter is required
-- no interactive approval flow yet
-- Claude internal tools are not bridged back into ACP file or terminal callbacks
-
-Notes:
-
-- `bare: true` is optional, not the default
-- if you rely on Claude.ai login, keep `bare: false` because bare mode skips OAuth and keychain reads
-
-The repository also includes an opt-in live integration test:
+Optional live check:
 
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+MISTERMORPH_ACP_CLAUDE_COMMAND="<claude-acp-adapter-command>" \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeACPIntegration -v
 ```
 
 ## Cursor CLI (`agent acp`)
 
-The Cursor CLI runs an ACP server via `agent acp` over stdio. Unlike the Codex/Claude bridges, this repository ships a **transparent stdio proxy** that forwards JSON-RPC lines to the Cursor CLI.
+Cursor CLI already exposes ACP directly over stdio, so Mistermorph no longer keeps a proxy in this repository.
 
 Install the Cursor CLI, ensure `agent` is on `PATH`, and authenticate (`agent login`, or pass keys/flags as documented in [Cursor ACP](https://cursor.com/docs/cli/acp)).
 
@@ -227,28 +191,21 @@ Example profile:
 acp:
   agents:
     - name: "cursor"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/cursor/src/index.mjs"]
-      env:
-        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      command: "agent"
+      args: ["acp"]
+      env: {}
       cwd: "."
       read_roots: ["."]
       write_roots: ["."]
 ```
 
-Notes:
-
-- `MISTERMORPH_CURSOR_COMMAND` overrides the `agent` binary path
-- `MISTERMORPH_CURSOR_ARGS` are extra argv tokens inserted before the final `acp` subcommand
-- Team MCP servers from the Cursor dashboard are not supported in ACP mode (per Cursor docs)
+If you need flags such as an API key, place them before the final `acp`, for example `args: ["--api-key", "${CURSOR_API_KEY}", "acp"]`.
 
 Optional live check (requires Cursor CLI installed and authenticated):
 
 ```bash
 MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
+go test ./internal/acpclient -run TestRunPrompt_CursorACPIntegration -v
 ```
 
 See also:

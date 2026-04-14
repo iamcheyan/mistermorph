@@ -63,8 +63,6 @@ tools:
 acp:
   agents:
     - name: "codex"
-      enable: true
-      type: "stdio"
       command: "codex-acp"
       args: []
       env: {}
@@ -80,6 +78,7 @@ Field notes:
 
 - `tools.acp_spawn.enabled` controls only the explicit `acp_spawn` tool entry.
 - `acp.agents[].name` is the profile name the parent agent uses.
+- ACP profiles are always launched as local `stdio` child processes.
 - `cwd`, `read_roots`, and `write_roots` constrain ACP file and terminal callbacks.
 - `session_options` is passed into `session/new._meta`.
 - If the ACP agent advertises config option ids in `session/new`, matching keys from `session_options` are also sent through `session/set_config_option`.
@@ -109,7 +108,7 @@ The result comes back in the same `SubtaskResult` envelope used by other isolate
 One `acp_spawn` call does this:
 
 1. load the ACP profile
-2. start the wrapper process
+2. start the ACP command process
 3. `initialize`
 4. `authenticate` if needed
 5. `session/new`
@@ -131,77 +130,51 @@ First, ACP permission requests are not the real security boundary. The real boun
 - allowed terminal working directories
 - local write and process rules
 
-Second, the wrapper process itself is still a local child process.
+Second, the ACP command itself is still a local child process.
 
 That means:
 
 - ACP callback limits apply to ACP method calls
-- they do not automatically sandbox arbitrary direct behavior inside the wrapper itself
+- they do not automatically sandbox arbitrary direct behavior inside that process itself
 
 So ACP support should be treated as controlled delegation, not a hard sandbox.
 
-## Codex Paths
+## Codex
 
-There are now two Codex paths.
+Codex should be configured as an external ACP adapter.
 
-### External Adapter
+Common choices:
 
-You can still point ACP at an external adapter such as `codex-acp`.
+- `codex-acp`
+- `npx -y @zed-industries/codex-acp`
 
 Practical checks:
 
 1. `codex` itself must already work on the machine.
 2. `mistermorph tools` should show `acp_spawn`.
-3. the ACP profile should point to `codex-acp`.
+3. the ACP profile should point to your Codex ACP adapter command.
 
-### Native Wrapper in This Repository
-
-The repository now also includes a Codex wrapper owned by Mistermorph:
-
-```yaml
-acp:
-  agents:
-    - name: "codex"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/codex/src/index.mjs"]
-      env: {}
-      cwd: "."
-      read_roots: ["."]
-      write_roots: ["."]
-      session_options:
-        approval_policy: "never"
-```
-
-Current scope of the native wrapper:
-
-- backend is `codex app-server`
-- no third-party ACP adapter is required
-- no interactive approval flow yet
-- default `approval_policy` is `never`
-
-The existing opt-in live integration test can target this wrapper too:
+Opt-in live integration test:
 
 ```bash
 MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
-MISTERMORPH_ACP_CODEX_COMMAND=node \
-MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 ```
 
-## Claude Paths
+The test defaults to `codex-acp`. Override `MISTERMORPH_ACP_CODEX_COMMAND` and `MISTERMORPH_ACP_CODEX_ARGS` if you use another adapter command.
 
-Claude now also has a native wrapper in this repository.
+## Claude
+
+Mistermorph no longer ships a Claude wrapper inside this repository.
+
+Use any external Claude ACP adapter instead. Example:
 
 ```yaml
 acp:
   agents:
     - name: "claude"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/claude/src/index.mjs"]
+      command: "<claude-acp-adapter-command>"
+      args: []
       env: {}
       cwd: "."
       read_roots: ["."]
@@ -211,28 +184,19 @@ acp:
         allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 ```
 
-Current scope of the native Claude wrapper:
+If you use the extracted `mistermorph-acp-adapters` repository, point `command` and `args` at that separate checkout or package install.
 
-- backend is `claude -p --output-format stream-json`
-- no third-party ACP adapter is required
-- no interactive approval flow yet
-- Claude internal tools are not bridged back into ACP file or terminal callbacks
-
-Two practical notes:
-
-- `bare: true` is optional, not the default
-- if you rely on Claude.ai login, keep `bare: false` because bare mode skips OAuth and keychain reads
-
-There is also an opt-in live integration test:
+Opt-in live integration test:
 
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+MISTERMORPH_ACP_CLAUDE_COMMAND="<claude-acp-adapter-command>" \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeACPIntegration -v
 ```
 
 ## Cursor CLI (`agent acp`)
 
-The Cursor CLI exposes ACP via `agent acp` over stdio. This repository includes a **transparent stdio proxy** at `wrappers/acp/cursor/` that forwards JSON-RPC to the Cursor CLI (unlike the Codex/Claude bridges, which adapt another protocol).
+Cursor CLI already exposes ACP directly over stdio, so Mistermorph no longer keeps a proxy in this repository.
 
 Prerequisites: Cursor CLI installed, `agent` on `PATH`, and authentication (`agent login` or API key / token as in the [Cursor ACP docs](https://cursor.com/docs/cli/acp)).
 
@@ -242,22 +206,21 @@ Example:
 acp:
   agents:
     - name: "cursor"
-      enable: true
-      type: "stdio"
-      command: "node"
-      args: ["./wrappers/acp/cursor/src/index.mjs"]
-      env:
-        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      command: "agent"
+      args: ["acp"]
+      env: {}
       cwd: "."
       read_roots: ["."]
       write_roots: ["."]
 ```
 
+If you need flags such as an API key, place them before the final `acp`, for example `args: ["--api-key", "${CURSOR_API_KEY}", "acp"]`.
+
 Opt-in live test (requires Cursor CLI and auth):
 
 ```bash
 MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
-go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
+go test ./internal/acpclient -run TestRunPrompt_CursorACPIntegration -v
 ```
 
 ## See Also
