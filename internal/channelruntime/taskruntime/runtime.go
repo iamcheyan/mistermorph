@@ -216,7 +216,8 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if req.PromptAugment != nil {
 		req.PromptAugment(&promptSpec, reg)
 	}
-	if err := rt.applyMemoryInjection(logger, &promptSpec, req.Memory); err != nil {
+	memoryContext, err := rt.prepareMemoryContext(logger, req.Memory)
+	if err != nil {
 		return RunResult{}, err
 	}
 	depsutil.PromptAugmentFromCommon(rt.commonDeps, &promptSpec, reg)
@@ -254,6 +255,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Scene:          scene,
 		History:        append([]llm.Message(nil), req.History...),
 		Meta:           cloneMeta(req.Meta),
+		MemoryContext:  memoryContext,
 		CurrentMessage: req.CurrentMessage,
 		OnStream:       req.OnStream,
 	})
@@ -404,22 +406,21 @@ func closeRuntimeClient(logger *slog.Logger, client llm.Client) {
 	}
 }
 
-func (rt *Runtime) applyMemoryInjection(logger *slog.Logger, promptSpec *agent.PromptSpec, hooks MemoryHooks) error {
-	if promptSpec == nil || hooks.PrepareInjection == nil || !hooks.InjectionEnabled || strings.TrimSpace(hooks.SubjectID) == "" {
-		return nil
+func (rt *Runtime) prepareMemoryContext(logger *slog.Logger, hooks MemoryHooks) (string, error) {
+	if hooks.PrepareInjection == nil || !hooks.InjectionEnabled || strings.TrimSpace(hooks.SubjectID) == "" {
+		return "", nil
 	}
 	snap, err := hooks.PrepareInjection(hooks.InjectionMaxItems)
 	if err != nil {
 		logger.Warn("memory_injection_error", memoryLogArgs(hooks, "error", err.Error())...)
-		return nil
+		return "", nil
 	}
 	if strings.TrimSpace(snap) == "" {
 		logger.Debug("memory_injection_skipped", memoryLogArgs(hooks, "reason", "empty_snapshot")...)
-		return nil
+		return "", nil
 	}
-	promptprofile.AppendMemorySummariesBlock(promptSpec, snap)
 	logger.Info("memory_injection_applied", memoryLogArgs(hooks, "snapshot_len", len(snap))...)
-	return nil
+	return snap, nil
 }
 
 func (rt *Runtime) recordMemory(logger *slog.Logger, final *agent.Final, hooks MemoryHooks) error {
