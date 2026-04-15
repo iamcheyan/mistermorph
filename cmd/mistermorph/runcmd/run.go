@@ -197,6 +197,7 @@ func New(deps Dependencies) *cobra.Command {
 			promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 			promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+			promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
 
 			var hook agent.Hook
 			if configutil.FlagOrViperBool(cmd, "interactive", "interactive") {

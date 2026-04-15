@@ -256,6 +256,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		}
 	}
 	depsutil.PromptAugmentFromCommon(depsutil.CommonFromHeartbeat(d), &promptSpec, reg)
+	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 
 	engine := agent.New(
 		opts.Client,
