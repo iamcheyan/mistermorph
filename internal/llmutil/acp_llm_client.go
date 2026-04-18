@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -49,9 +50,10 @@ func newACPLLMClient(cfg acpclient.PreparedAgentConfig) *acpLLMClient {
 type acpProgressObserver struct {
 	mu         sync.Mutex
 	lastToolID string
+	logger     *slog.Logger
 }
 
-func (o *acpProgressObserver) HandleACPEvent(_ context.Context, event acpclient.Event) {
+func (o *acpProgressObserver) HandleACPEvent(ctx context.Context, event acpclient.Event) {
 	switch event.Kind {
 	case acpclient.EventKindToolCallStart:
 		o.mu.Lock()
@@ -62,6 +64,9 @@ func (o *acpProgressObserver) HandleACPEvent(_ context.Context, event acpclient.
 			title = event.ToolKind
 		}
 		fmt.Fprintf(os.Stderr, "\r\033[K\033[90m  [gemini] 🔧 %s\033[0m\n", title)
+		if o.logger != nil {
+			o.logger.Info("acp_tool_start", "provider", "gemini_oauth", "tool", title, "tool_call_id", event.ToolCallID)
+		}
 	case acpclient.EventKindToolCallUpdate:
 		if text := strings.TrimSpace(event.Text); text != "" {
 			lines := strings.Split(text, "\n")
@@ -71,6 +76,9 @@ func (o *acpProgressObserver) HandleACPEvent(_ context.Context, event acpclient.
 					fmt.Fprintf(os.Stderr, "\r\033[K\033[90m    → %s\033[0m\n", truncate(line, 120))
 				}
 			}
+		}
+		if o.logger != nil {
+			o.logger.Debug("acp_tool_update", "provider", "gemini_oauth", "tool_call_id", event.ToolCallID, "text", event.Text)
 		}
 	case acpclient.EventKindToolCallDone:
 		status := event.Status
@@ -82,11 +90,18 @@ func (o *acpProgressObserver) HandleACPEvent(_ context.Context, event acpclient.
 			icon = "✗"
 		}
 		fmt.Fprintf(os.Stderr, "\r\033[K\033[90m  [gemini] %s %s\033[0m\n", icon, status)
+		if o.logger != nil {
+			lvl := slog.LevelInfo
+			if status == "failed" {
+				lvl = slog.LevelWarn
+			}
+			o.logger.Log(ctx, lvl, "acp_tool_done", "provider", "gemini_oauth", "tool_call_id", event.ToolCallID, "status", status)
+		}
 	}
 }
 
 func defaultACPObserver() acpclient.Observer {
-	return &acpProgressObserver{}
+	return &acpProgressObserver{logger: slog.Default()}
 }
 
 func truncate(s string, max int) string {
