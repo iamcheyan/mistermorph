@@ -2,6 +2,7 @@ package agent
 
 import (
 	_ "embed"
+	"sort"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/prompttmpl"
@@ -89,4 +90,27 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 		_, data.HasPlanCreate = registry.Get("plan_create")
 	}
 	return prompttmpl.Render(systemPromptTemplate, data)
+}
+
+func availableShellToolName(registry *tools.Registry) string {
+	names := availableShellToolNames(registry)
+	if len(names) != 1 {
+		return ""
+	}
+	return names[0]
+}
+
+func availableShellToolNames(registry *tools.Registry) []string {
+	if registry == nil {
+		return nil
+	}
+	names := make([]string, 0, 2)
+	if _, ok := registry.Get("bash"); ok {
+		names = append(names, "bash")
+	}
+	if _, ok := registry.Get("powershell"); ok {
+		names = append(names, "powershell")
+	}
+	sort.Strings(names)
+	return names
 }

@@ -212,19 +212,33 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				if len(st.requestedWrites) > 0 {
 					missing := missingFiles(st.requestedWrites)
 					if len(missing) > 0 {
+						shellToolNames := availableShellToolNames(e.registry)
 						if _, ok := e.registry.Get("write_file"); ok {
+							nextStep := "Next, call the write_file tool (preferred)"
+							if len(shellToolNames) > 0 {
+								nextStep += fmt.Sprintf(" or one of the available shell tools (%s)", strings.Join(shellToolNames, ", "))
+							}
+							nextStep += " to create/update them."
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the write_file tool (preferred) or bash to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. %s The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), nextStep)},
 							)
 							continue
 						}
-						if _, ok := e.registry.Get("bash"); ok {
+						if len(shellToolNames) == 1 {
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the bash tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the %s tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), shellToolNames[0])},
+							)
+							continue
+						}
+						if len(shellToolNames) > 1 {
+							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
+							st.messages = append(st.messages,
+								llm.Message{Role: "assistant", Content: result.Text},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call one of the available shell tools (%s) to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), strings.Join(shellToolNames, ", "))},
 							)
 							continue
 						}

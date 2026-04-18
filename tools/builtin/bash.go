@@ -9,14 +9,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -30,13 +27,7 @@ type BashTool struct {
 	InjectedEnvVars []string
 }
 
-type bashExecutionPayload struct {
-	ExitCode        int    `json:"exit_code"`
-	StdoutTruncated bool   `json:"stdout_truncated"`
-	StderrTruncated bool   `json:"stderr_truncated"`
-	Stdout          string `json:"stdout"`
-	Stderr          string `json:"stderr"`
-}
+type bashExecutionPayload = shellExecutionPayload
 
 func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, baseDirs ...string) *BashTool {
 	if defaultTimeout <= 0 {
@@ -92,48 +83,60 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 		return "", fmt.Errorf("bash tool is disabled (enable via config: tools.bash.enabled=true)")
 	}
 
-	cmdStr, _ := params["cmd"].(string)
-	cmdStr = strings.TrimSpace(cmdStr)
-	if cmdStr == "" {
-		return "", fmt.Errorf("missing required param: cmd")
-	}
-	var err error
-	cmdStr, err = t.expandPathAliasesInCommand(cmdStr)
+	inv, err := prepareShellInvocation(params, t.commonConfig(), t.runnerSpec())
 	if err != nil {
 		return "", err
-	}
-
-	if offending, ok := bashCommandDenied(cmdStr, t.DenyPaths); ok {
-		return "", fmt.Errorf("bash command references denied path %q (configure via tools.bash.deny_paths)", offending)
-	}
-	if offending, ok := bashCommandDeniedTokens(cmdStr, t.DenyTokens); ok {
-		return "", fmt.Errorf("bash command references denied token %q", offending)
-	}
-
-	cwd, _ := params["cwd"].(string)
-	cwd = strings.TrimSpace(cwd)
-	cwd, err = t.resolveCWD(cwd)
-	if err != nil {
-		return "", err
-	}
-
-	timeout := t.DefaultTimeout
-	if v, ok := params["timeout_seconds"]; ok {
-		if secs, ok := asFloat64(v); ok && secs > 0 {
-			timeout = time.Duration(secs * float64(time.Second))
-		}
 	}
 	runInSubtask, _ := asBool(params["run_in_subtask"])
 	if runInSubtask && agent.SubtaskDepthFromContext(ctx) == 0 {
-		return t.executeInSubtask(ctx, cmdStr, cwd, timeout)
+		return t.executeInSubtask(ctx, inv.Command, inv.CWD, inv.Timeout)
 	}
 
-	payload, err := t.runCommand(ctx, cmdStr, cwd, timeout)
+	payload, err := t.runCommand(ctx, inv.Command, inv.CWD, inv.Timeout)
 	observation := formatBashObservation(payload)
 	if err != nil {
 		return observation, err
 	}
 	return observation, nil
+}
+
+func (t *BashTool) commonConfig() shellToolCommon {
+	return shellToolCommon{
+		ToolName:        t.Name(),
+		DefaultTimeout:  t.DefaultTimeout,
+		MaxOutputBytes:  t.MaxOutputBytes,
+		BaseDirs:        append([]string(nil), t.BaseDirs...),
+		DenyPaths:       append([]string(nil), t.DenyPaths...),
+		DenyTokens:      append([]string(nil), t.DenyTokens...),
+		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),
+	}
+}
+
+func (t *BashTool) runnerSpec() shellRunnerSpec {
+	return shellRunnerSpec{
+		Program:                      "bash",
+		ArgsPrefix:                   []string{"-lc"},
+		BuildEnv:                     bashToolEnv,
+		TokenBoundary:                isBashBoundaryByte,
+		MatchDeniedPath:              bashCommandDenied,
+		StreamOutput:                 true,
+		EmitChunk:                    t.emitChunk,
+		TimeoutExitCode:              124,
+		ReturnObservationOnExitError: true,
+		ReturnObservationOnTimeout:   true,
+		ReturnObservationOnExecError: true,
+	}
+}
+
+func (t *BashTool) emitChunk(ctx context.Context, stream, text string) {
+	agent.EmitEvent(ctx, nil, agent.Event{
+		Kind:     agent.EventKindToolOutput,
+		ToolName: t.Name(),
+		Profile:  string(agent.ObserveProfileLongShell),
+		Stream:   stream,
+		Text:     text,
+		Status:   "running",
+	})
 }
 
 func (t *BashTool) executeInSubtask(ctx context.Context, cmdStr string, cwd string, timeout time.Duration) (string, error) {
@@ -160,133 +163,22 @@ func (t *BashTool) executeInSubtask(ctx context.Context, cmdStr string, cwd stri
 }
 
 func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, timeout time.Duration) (bashExecutionPayload, error) {
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(runCtx, "bash", "-lc", cmdStr)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-	cmd.Env = bashToolEnv(t.InjectedEnvVars)
-
-	var stdout limitedBuffer
-	var stderr limitedBuffer
-	stdout.Limit = t.MaxOutputBytes
-	stderr.Limit = t.MaxOutputBytes
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return bashExecutionPayload{}, err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return bashExecutionPayload{}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return bashExecutionPayload{}, err
-	}
-
-	var streamWG sync.WaitGroup
-	var stdoutReadErr error
-	var stderrReadErr error
-	streamWG.Add(2)
-	go func() {
-		defer streamWG.Done()
-		stdoutReadErr = t.captureCommandStream(runCtx, "stdout", stdoutPipe, &stdout)
-	}()
-	go func() {
-		defer streamWG.Done()
-		stderrReadErr = t.captureCommandStream(runCtx, "stderr", stderrPipe, &stderr)
-	}()
-
-	err = cmd.Wait()
-	streamWG.Wait()
-	if err == nil {
-		if stdoutReadErr != nil {
-			err = stdoutReadErr
-		} else if stderrReadErr != nil {
-			err = stderrReadErr
-		}
-	}
-	exitCode := 0
-	if err != nil {
-		switch {
-		case isExitError(err):
-			exitCode = exitCodeFromError(err)
-		case runCtx.Err() != nil:
-			exitCode = 124
-			err = fmt.Errorf("bash timed out after %s", timeout)
-		default:
-			exitCode = -1
-		}
-	}
-
-	payload := bashExecutionPayload{
-		ExitCode:        exitCode,
-		StdoutTruncated: stdout.Truncated,
-		StderrTruncated: stderr.Truncated,
-		Stdout:          string(bytes.ToValidUTF8(stdout.Bytes(), []byte("\n[non-utf8 output]\n"))),
-		Stderr:          string(bytes.ToValidUTF8(stderr.Bytes(), []byte("\n[non-utf8 output]\n"))),
-	}
-
-	if err == nil {
-		return payload, nil
-	}
-	if exitCode > 0 && !strings.Contains(err.Error(), "timed out after") {
-		err = fmt.Errorf("bash exited with code %d", exitCode)
-	}
+	payload, _, err := runShellCommand(ctx, t.commonConfig(), t.runnerSpec(), shellInvocation{
+		Command: cmdStr,
+		CWD:     cwd,
+		Timeout: timeout,
+	})
 	return payload, err
 }
 
 func (t *BashTool) captureCommandStream(ctx context.Context, stream string, r io.Reader, dst *limitedBuffer) error {
-	if r == nil || dst == nil {
-		return nil
-	}
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunk := append([]byte(nil), buf[:n]...)
-			_, _ = dst.Write(chunk)
-			text := string(bytes.ToValidUTF8(chunk, []byte("\n[non-utf8 output]\n")))
-			if strings.TrimSpace(text) != "" {
-				agent.EmitEvent(ctx, nil, agent.Event{
-					Kind:     agent.EventKindToolOutput,
-					ToolName: t.Name(),
-					Profile:  string(agent.ObserveProfileLongShell),
-					Stream:   stream,
-					Text:     text,
-					Status:   "running",
-				})
-			}
-		}
-		if err == nil {
-			continue
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if isBenignCommandStreamReadError(err) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			return err
-		}
-	}
+	return readShellPipe(ctx, stream, r, dst, func(stream, text string) {
+		t.emitChunk(ctx, stream, text)
+	})
 }
 
 func formatBashObservation(payload bashExecutionPayload) string {
-	var out strings.Builder
-	fmt.Fprintf(&out, "exit_code: %d\n", payload.ExitCode)
-	fmt.Fprintf(&out, "stdout_truncated: %t\n", payload.StdoutTruncated)
-	fmt.Fprintf(&out, "stderr_truncated: %t\n", payload.StderrTruncated)
-	out.WriteString("stdout:\n")
-	out.WriteString(payload.Stdout)
-	out.WriteString("\n\nstderr:\n")
-	out.WriteString(payload.Stderr)
-	return out.String()
+	return formatShellObservation(payload)
 }
 
 func isBenignCommandStreamReadError(err error) bool {
@@ -423,40 +315,7 @@ func normalizeInjectedEnvVarName(raw string) string {
 	return key
 }
 
-func (t *BashTool) resolveCWD(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil
-	}
-	alias, rest := detectWritePathAlias(raw)
-	if alias == "" {
-		return pathutil.ExpandHomePath(raw), nil
-	}
-	base := selectBaseForAlias(t.BaseDirs, alias)
-	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("base dir %s is not configured", alias)
-	}
-	rest = strings.TrimLeft(strings.TrimSpace(rest), "/\\")
-	if rest == "" {
-		return filepath.Clean(base), nil
-	}
-	return filepath.Clean(filepath.Join(base, rest)), nil
-}
-
-func (t *BashTool) expandPathAliasesInCommand(cmd string) (string, error) {
-	var err error
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", selectBaseForAlias(t.BaseDirs, "file_cache_dir"))
-	if err != nil {
-		return "", err
-	}
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", selectBaseForAlias(t.BaseDirs, "file_state_dir"))
-	if err != nil {
-		return "", err
-	}
-	return cmd, nil
-}
-
-func replaceAliasTokenInCommand(cmd, alias, baseDir string) (string, error) {
+func replaceAliasTokenInCommand(cmd, alias, baseDir string, isBoundary func(byte) bool) (string, error) {
 	cmd = strings.TrimSpace(cmd)
 	alias = strings.TrimSpace(alias)
 	if cmd == "" || alias == "" {
@@ -475,7 +334,7 @@ func replaceAliasTokenInCommand(cmd, alias, baseDir string) (string, error) {
 			break
 		}
 		i += start
-		if !tokenBoundaryAt(lower, i, len(needle)) {
+		if !tokenBoundaryAt(lower, i, len(needle), isBoundary) {
 			start = i + 1
 			continue
 		}
@@ -538,6 +397,10 @@ func bashCommandDeniedTokens(cmdStr string, denyTokens []string) (string, bool) 
 }
 
 func containsTokenBoundary(haystack, needle string) bool {
+	return containsTokenBoundaryWithBoundary(haystack, needle, isBashBoundaryByte)
+}
+
+func containsTokenBoundaryWithBoundary(haystack, needle string, isBoundary func(byte) bool) bool {
 	if needle == "" {
 		return false
 	}
@@ -547,7 +410,7 @@ func containsTokenBoundary(haystack, needle string) bool {
 			return false
 		}
 		i += start
-		if tokenBoundaryAt(haystack, i, len(needle)) {
+		if tokenBoundaryAt(haystack, i, len(needle), isBoundary) {
 			return true
 		}
 		start = i + 1
@@ -556,13 +419,16 @@ func containsTokenBoundary(haystack, needle string) bool {
 
 func containsTokenBoundaryFold(haystack, needle string) bool {
 	// ASCII-only fold, safe for typical command tokens like "curl".
-	return containsTokenBoundary(strings.ToLower(haystack), strings.ToLower(needle))
+	return containsTokenBoundaryWithBoundary(strings.ToLower(haystack), strings.ToLower(needle), isBashBoundaryByte)
 }
 
-func tokenBoundaryAt(s string, start, n int) bool {
-	beforeOK := start == 0 || isBashBoundaryByte(s[start-1])
+func tokenBoundaryAt(s string, start, n int, isBoundary func(byte) bool) bool {
+	if isBoundary == nil {
+		isBoundary = isBashBoundaryByte
+	}
+	beforeOK := start == 0 || isBoundary(s[start-1])
 	afterIdx := start + n
-	afterOK := afterIdx >= len(s) || isBashBoundaryByte(s[afterIdx])
+	afterOK := afterIdx >= len(s) || isBoundary(s[afterIdx])
 	return beforeOK && afterOK
 }
 
@@ -576,11 +442,16 @@ func isBashBoundaryByte(b byte) bool {
 		return true
 	case '<', '>', '=', ':', ',', '?', '#':
 		return true
-	case '/':
-		return true
 	default:
-		return false
+		return os.IsPathSeparator(b)
 	}
+}
+
+func isPowerShellBoundaryByte(b byte) bool {
+	if b == '\\' {
+		return true
+	}
+	return isBashBoundaryByte(b)
 }
 
 type limitedBuffer struct {
