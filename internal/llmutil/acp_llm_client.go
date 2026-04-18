@@ -14,6 +14,24 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
+// acpObserverContextKey is used to store an acpclient.Observer in context.
+type acpObserverContextKey struct{}
+
+// WithACPObserver attaches an acpclient.Observer to the context.
+// When an acpLLMClient.Chat call uses this context, the observer will receive
+// real-time ACP events (tool start / update / done) instead of the default
+// stderr printer.  This allows channels (console, telegram, slack) to surface
+// gemini_oauth progress in their own UI.
+func WithACPObserver(ctx context.Context, observer acpclient.Observer) context.Context {
+	return context.WithValue(ctx, acpObserverContextKey{}, observer)
+}
+
+// ACPObserverFromContext retrieves the acpclient.Observer stored in context.
+func ACPObserverFromContext(ctx context.Context) (acpclient.Observer, bool) {
+	observer, ok := ctx.Value(acpObserverContextKey{}).(acpclient.Observer)
+	return observer, ok
+}
+
 // acpLLMClient adapts acpclient.RunPrompt to the llm.Client interface.
 type acpLLMClient struct {
 	cfg acpclient.PreparedAgentConfig
@@ -67,6 +85,10 @@ func (o *acpProgressObserver) HandleACPEvent(_ context.Context, event acpclient.
 	}
 }
 
+func defaultACPObserver() acpclient.Observer {
+	return &acpProgressObserver{}
+}
+
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -83,9 +105,14 @@ func (c *acpLLMClient) Chat(ctx context.Context, req llm.Request) (llm.Result, e
 		return llm.Result{}, err
 	}
 
+	observer := defaultACPObserver()
+	if obs, ok := ACPObserverFromContext(ctx); ok && obs != nil {
+		observer = obs
+	}
+
 	result, err := acpclient.RunPrompt(ctx, c.cfg, acpclient.RunRequest{
 		Prompt:   prompt,
-		Observer: &acpProgressObserver{},
+		Observer: observer,
 	})
 	if err != nil {
 		return llm.Result{}, fmt.Errorf("acp prompt failed: %w", err)

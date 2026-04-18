@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -30,6 +31,8 @@ import (
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
+
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 )
 
 type runtimeTaskOptions struct {
@@ -130,6 +133,11 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
+
+	// Wire ACP progress observer so gemini_oauth tool events surface in Telegram.
+	acpObserver := newTelegramACPObserver(sendTelegramText, job.ChatID, job.MessageID, logger)
+	ctx = llmutil.WithACPObserver(ctx, acpObserver)
+
 	meta := job.Meta
 	if meta == nil {
 		meta = map[string]any{
@@ -411,4 +419,70 @@ func defaultEncodeImageToWebP(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// telegramACPObserver surfaces gemini_oauth ACP tool events as Telegram messages.
+type telegramACPObserver struct {
+	sendText  func(context.Context, int64, string, string) error
+	chatID    int64
+	messageID int64
+	logger    *slog.Logger
+}
+
+func newTelegramACPObserver(
+	sendText func(context.Context, int64, string, string) error,
+	chatID int64,
+	messageID int64,
+	logger *slog.Logger,
+) *telegramACPObserver {
+	return &telegramACPObserver{
+		sendText:  sendText,
+		chatID:    chatID,
+		messageID: messageID,
+		logger:    logger,
+	}
+}
+
+func (o *telegramACPObserver) HandleACPEvent(ctx context.Context, event acpclient.Event) {
+	switch event.Kind {
+	case acpclient.EventKindToolCallStart:
+		name := telegramACPToolDisplayName(event)
+		msg := fmt.Sprintf("🔧 %s", name)
+		correlationID := fmt.Sprintf("telegram:acp:%d:%d", o.chatID, o.messageID)
+		if err := o.sendText(ctx, o.chatID, msg, correlationID); err != nil {
+			if o.logger != nil {
+				o.logger.Warn("telegram_acp_event_send_error", "kind", event.Kind, "chat_id", o.chatID, "error", err.Error())
+			}
+		}
+	case acpclient.EventKindToolCallDone:
+		name := telegramACPToolDisplayName(event)
+		status := strings.TrimSpace(event.Status)
+		if status == "" {
+			status = "done"
+		}
+		icon := "✅"
+		if strings.EqualFold(status, "failed") {
+			icon = "❌"
+		}
+		msg := fmt.Sprintf("%s %s — %s", icon, name, status)
+		correlationID := fmt.Sprintf("telegram:acp:%d:%d", o.chatID, o.messageID)
+		if err := o.sendText(ctx, o.chatID, msg, correlationID); err != nil {
+			if o.logger != nil {
+				o.logger.Warn("telegram_acp_event_send_error", "kind", event.Kind, "chat_id", o.chatID, "error", err.Error())
+			}
+		}
+	}
+}
+
+func telegramACPToolDisplayName(event acpclient.Event) string {
+	if title := strings.TrimSpace(event.Title); title != "" {
+		return title
+	}
+	if kind := strings.TrimSpace(event.ToolKind); kind != "" {
+		return kind
+	}
+	if id := strings.TrimSpace(event.ToolCallID); id != "" {
+		return id
+	}
+	return "tool"
 }

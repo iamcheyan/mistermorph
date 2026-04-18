@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -21,6 +23,8 @@ import (
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
+
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 )
 
 type runtimeTaskOptions struct {
@@ -141,6 +145,13 @@ func runSlackTask(
 		"slack_thread_ts":    job.ThreadTS,
 		"slack_from_user_id": job.UserID,
 	}
+
+	// Wire ACP progress observer so gemini_oauth tool events surface in Slack.
+	if sendSlackText != nil {
+		acpObserver := newSlackACPObserver(sendSlackText, job.ChannelID, job.MessageTS, logger)
+		ctx = llmutil.WithACPObserver(ctx, acpObserver)
+	}
+
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
 		Scene:          "slack.loop",
@@ -505,4 +516,70 @@ func buildSlackRegistry(baseReg *tools.Registry, chatType string) *tools.Registr
 		reg.Register(t)
 	}
 	return reg
+}
+
+// slackACPObserver surfaces gemini_oauth ACP tool events as Slack messages.
+type slackACPObserver struct {
+	sendText  func(context.Context, string, string) error
+	channelID string
+	messageTS string
+	logger    *slog.Logger
+}
+
+func newSlackACPObserver(
+	sendText func(context.Context, string, string) error,
+	channelID string,
+	messageTS string,
+	logger *slog.Logger,
+) *slackACPObserver {
+	return &slackACPObserver{
+		sendText:  sendText,
+		channelID: channelID,
+		messageTS: messageTS,
+		logger:    logger,
+	}
+}
+
+func (o *slackACPObserver) HandleACPEvent(ctx context.Context, event acpclient.Event) {
+	switch event.Kind {
+	case acpclient.EventKindToolCallStart:
+		name := slackACPToolDisplayName(event)
+		msg := fmt.Sprintf("🔧 %s", name)
+		correlationID := fmt.Sprintf("slack:acp:%s:%s", o.channelID, o.messageTS)
+		if err := o.sendText(ctx, msg, correlationID); err != nil {
+			if o.logger != nil {
+				o.logger.Warn("slack_acp_event_send_error", "kind", event.Kind, "channel_id", o.channelID, "error", err.Error())
+			}
+		}
+	case acpclient.EventKindToolCallDone:
+		name := slackACPToolDisplayName(event)
+		status := strings.TrimSpace(event.Status)
+		if status == "" {
+			status = "done"
+		}
+		icon := "✅"
+		if strings.EqualFold(status, "failed") {
+			icon = "❌"
+		}
+		msg := fmt.Sprintf("%s %s — %s", icon, name, status)
+		correlationID := fmt.Sprintf("slack:acp:%s:%s", o.channelID, o.messageTS)
+		if err := o.sendText(ctx, msg, correlationID); err != nil {
+			if o.logger != nil {
+				o.logger.Warn("slack_acp_event_send_error", "kind", event.Kind, "channel_id", o.channelID, "error", err.Error())
+			}
+		}
+	}
+}
+
+func slackACPToolDisplayName(event acpclient.Event) string {
+	if title := strings.TrimSpace(event.Title); title != "" {
+		return title
+	}
+	if kind := strings.TrimSpace(event.ToolKind); kind != "" {
+		return kind
+	}
+	if id := strings.TrimSpace(event.ToolCallID); id != "" {
+		return id
+	}
+	return "tool"
 }
