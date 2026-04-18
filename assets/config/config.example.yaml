@@ -14,7 +14,7 @@
 user_agent: "mistermorph/1.0 (+https://github.com/quailyquaily)"
 
 llm:
-  # LLM provider name. Supported: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
+  # LLM provider name. Supported: openai|openai_resp|openai_custom|deepseek|xai|gemini|gemini_oauth|azure|anthropic|bedrock|susanoo|cloudflare.
   provider: openai
   # Default model used by the main agent loop.
   model: "gpt-5.4"
@@ -344,6 +344,14 @@ acp:
   #   env: {}
   #   # Optional: pass flags before the final `acp` subcommand, e.g.:
   #   # args: ["--api-key", "${CURSOR_API_KEY}", "acp"]
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
+  # - name: "gemini"
+  #   # Gemini CLI already speaks ACP directly.
+  #   command: "gemini"
+  #   args: ["--acp"]
+  #   env: {}
   #   cwd: "."
   #   read_roots: ["."]
   #   write_roots: ["."]

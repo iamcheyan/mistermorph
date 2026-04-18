@@ -18,11 +18,12 @@ const (
 	BuiltinPlanCreate   = "plan_create"
 	BuiltinTodoUpdate   = "todo_update"
 	BuiltinContactsSend = "contacts_send"
-	BuiltinSpawn        = "spawn"
-	BuiltinACPSpawn     = "acp_spawn"
-)
+	BuiltinSpawn      = "spawn"
+	BuiltinACPSpawn   = "acp_spawn"
+	BuiltinAskUser    = "ask_user"
+	)
 
-var builtinToolNameSet = map[string]struct{}{
+	var builtinToolNameSet = map[string]struct{}{
 	BuiltinReadFile:     {},
 	BuiltinWriteFile:    {},
 	BuiltinBash:         {},
@@ -34,6 +35,8 @@ var builtinToolNameSet = map[string]struct{}{
 	BuiltinContactsSend: {},
 	BuiltinSpawn:        {},
 	BuiltinACPSpawn:     {},
+	BuiltinAskUser:      {},
+
 }
 
 type StaticRegistryConfig struct {

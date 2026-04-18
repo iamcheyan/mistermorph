@@ -173,6 +173,12 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			ReadTimeout:    cfg.RequestTimeout,
 			ConnectTimeout: 0,
 		}), nil
+	case "gemini_oauth":
+		c, err := newGeminiOAuthACPLLMClient(strings.TrimSpace(cfg.Model))
+		if err != nil {
+			return nil, err
+		}
+		return c, nil
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "susanoo", "cloudflare":
 		c := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,

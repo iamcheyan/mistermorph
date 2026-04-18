@@ -438,6 +438,10 @@ func selectAuthMethod(cfg PreparedAgentConfig, methods []authMethod) string {
 	if _, ok := byID["cursor_login"]; ok {
 		return "cursor_login"
 	}
+	// Gemini CLI ACP mode returns "oauth-personal" when the user has logged in via Google OAuth.
+	if _, ok := byID["oauth-personal"]; ok {
+		return "oauth-personal"
+	}
 	if _, ok := byID["codex-api-key"]; ok && hasEffectiveEnv(cfg, "CODEX_API_KEY") {
 		return "codex-api-key"
 	}
