@@ -53,6 +53,8 @@ type chatSession struct {
 	promptSpec       agent.PromptSpec
 	timeout          time.Duration
 	writer           io.Writer
+	stopAnim         func()
+	setAnimMessage   func(msg string)
 }
 
 func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, error) {
@@ -258,39 +260,52 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	}
 
 	// Use rl.Stdout() as the unified writer
-	var writer io.Writer
-
-	var setAnimMessage func(msg string)
-	var stopAnim func()
+	var sess *chatSession
 
 	// Add tool start callback to show what tools are being used
-	opts = append(opts, agent.WithOnToolStart(func(runCtx *agent.Context, toolName string) {
+	opts = append(opts, agent.WithOnToolStart(func(runCtx *agent.Context, toolName string, params map[string]any) {
+		arg := ""
+		for _, k := range []string{"path", "TargetFile", "target_file", "cmd", "url", "q"} {
+			if v, ok := params[k].(string); ok && v != "" {
+				arg = v
+				break
+			}
+		}
+		if len(arg) > 80 {
+			arg = arg[:77] + "..."
+		}
 		msg := fmt.Sprintf("\x1b[90m  used \x1b[36m%s\x1b[0m", toolName)
-		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
+		if arg != "" {
+			msg += fmt.Sprintf(" \x1b[90m(%s)\x1b[0m", arg)
+		}
+		_, _ = fmt.Fprintf(sess.writer, "\r\033[K%s\n", msg)
 	}))
 	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 		logger.Debug("plan_step_update_callback", "completedIndex", update.CompletedIndex, "startedIndex", update.StartedIndex, "startedStep", update.StartedStep, "reason", update.Reason)
 		payload := formatPlanProgressUpdate(runCtx, update)
 		if payload != "" {
-			if setAnimMessage != nil {
-				setAnimMessage(payload)
+			// Update spinner message to show plan progress instead of "assistant is thinking..."
+			if sess.setAnimMessage != nil {
+				sess.setAnimMessage(payload)
 			}
 		} else if update.CompletedIndex >= 0 && update.CompletedStep != "" {
-			if stopAnim != nil {
-				stopAnim()
+			// Step completed with no next step — stop spinner, print completion, restart
+			if sess.stopAnim != nil {
+				sess.stopAnim()
 			}
 			total := 0
 			if runCtx != nil && runCtx.Plan != nil {
 				total = len(runCtx.Plan.Steps)
 			}
-			_, _ = fmt.Fprintf(writer, "\033[90mplan: ✓ %s", update.CompletedStep)
+			_, _ = fmt.Fprintf(sess.writer, "\033[90mplan: ✓ %s", update.CompletedStep)
 			if total > 0 {
-				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.CompletedIndex+1, total)
+				_, _ = fmt.Fprintf(sess.writer, " [%d/%d]", update.CompletedIndex+1, total)
 			}
-			_, _ = fmt.Fprint(writer, "\033[0m\n")
-			stopAnim, setAnimMessage = thinkingAnimation(writer)
-		} else if setAnimMessage != nil {
-			setAnimMessage("assistant is thinking...")
+			_, _ = fmt.Fprint(sess.writer, "\033[0m\n")
+			sess.stopAnim, sess.setAnimMessage = thinkingAnimation(sess.writer)
+		} else if sess.setAnimMessage != nil {
+			// All plan steps completed or no active plan step — revert to default thinking message
+			sess.setAnimMessage("assistant is thinking...")
 		}
 	}))
 
@@ -317,7 +332,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	}
 	engine := makeEngine(client, mainCfg.Model)
 
-	sess := &chatSession{
+	sess = &chatSession{
 		cmd:              cmd,
 		deps:             deps,
 		logger:           logger,
@@ -340,7 +355,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		makeEngine:       makeEngine,
 		promptSpec:       promptSpec,
 		timeout:          timeout,
-		writer:           writer,
 	}
 
 	return sess, nil

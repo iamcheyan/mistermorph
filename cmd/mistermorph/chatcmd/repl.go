@@ -14,6 +14,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -104,7 +105,7 @@ func runREPL(sess *chatSession) error {
 		}()
 		runID := llmstats.NewSyntheticRunID("chat")
 		turnCtx = llmstats.WithRunID(turnCtx, runID)
-		stopAnim, _ := thinkingAnimation(writer)
+		sess.stopAnim, sess.setAnimMessage = thinkingAnimation(writer)
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt)
 		go func() {
@@ -122,7 +123,7 @@ func runREPL(sess *chatSession) error {
 			History: append([]llm.Message(nil), history...),
 		})
 
-		stopAnim()
+		sess.stopAnim()
 		turnCancel()
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -138,6 +139,7 @@ func runREPL(sess *chatSession) error {
 		}
 
 		output := formatChatOutput(final)
+		output = clifmt.RenderMarkdown(output)
 		if sess.compactMode {
 			_, _ = fmt.Fprintf(writer, "%s\n", output)
 		} else {

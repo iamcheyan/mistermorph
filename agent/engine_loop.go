@@ -383,7 +383,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 			if e.onToolStart != nil {
 				for i := range items {
 					if !items[i].skip {
-						e.onToolStart(st.agentCtx, items[i].tc.Name)
+						e.onToolStart(st.agentCtx, items[i].tc.Name, items[i].tc.Params)
 					}
 				}
 			}
