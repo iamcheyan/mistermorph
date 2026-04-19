@@ -16,6 +16,33 @@ import (
 	"github.com/spf13/viper"
 )
 
+func unsetManagedLLMEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"MISTER_MORPH_LLM_PROVIDER",
+		"MISTER_MORPH_LLM_ENDPOINT",
+		"MISTER_MORPH_LLM_API_KEY",
+		"MISTER_MORPH_LLM_MODEL",
+		"MISTER_MORPH_LLM_AZURE_DEPLOYMENT",
+		"MISTER_MORPH_LLM_REASONING_EFFORT",
+		"MISTER_MORPH_LLM_TOOLS_EMULATION_MODE",
+		"MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID",
+		"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN",
+	} {
+		prev, had := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("Unsetenv(%q) error = %v", name, err)
+		}
+		t.Cleanup(func() {
+			if had {
+				_ = os.Setenv(name, prev)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		})
+	}
+}
+
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
@@ -921,6 +948,8 @@ func TestHandleAgentSettingsGetIncludesCloudflareTokenEnvManagedWithoutCloudflar
 }
 
 func TestHandleAgentSettingsGetIncludesProfileEnvManagedPlaceholders(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: openai\n  model: ${OPENAI_MODEL}\n  api_key: ${OPENAI_API_KEY}\n  profiles:\n    cheap:\n      model: ${CHEAP_MODEL}\n    edge:\n      provider: cloudflare\n      cloudflare:\n        account_id: ${CF_ACCOUNT_ID}\n        api_token: ${CF_API_TOKEN}\n",
@@ -1120,6 +1149,8 @@ func TestHandleAgentSettingsModels(t *testing.T) {
 }
 
 func TestHandleAgentSettingsModelsFallsBackToRuntimeAPIKey(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-runtime" {
 			t.Fatalf("authorization = %q, want Bearer sk-runtime", got)
@@ -1202,6 +1233,8 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
 	prev := runAgentSettingsConnectionTest
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
@@ -1256,6 +1289,8 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
 	prev := runAgentSettingsConnectionTest
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
@@ -1370,6 +1405,8 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
 	prev := runAgentSettingsConnectionTest
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
