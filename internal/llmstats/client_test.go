@@ -3,6 +3,7 @@ package llmstats
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,12 @@ import (
 
 	"github.com/quailyquaily/mistermorph/llm"
 )
+
+const testCostEpsilon = 1e-9
+
+func costAlmostEqual(a, b float64) bool {
+	return math.Abs(a-b) < testCostEpsilon
+}
 
 type stubUsageClient struct{}
 
@@ -20,6 +27,22 @@ func (stubUsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, e
 			InputTokens:  11,
 			OutputTokens: 7,
 			TotalTokens:  18,
+			Cache: llm.UsageCache{
+				CachedInputTokens:        5,
+				CacheCreationInputTokens: 3,
+				Details: map[string]int{
+					"ephemeral_5m_input_tokens": 3,
+				},
+			},
+			Cost: &llm.UsageCost{
+				Currency:           "USD",
+				Estimated:          true,
+				Input:              0.01,
+				CachedInput:        0.002,
+				CacheCreationInput: 0.003,
+				Output:             0.02,
+				Total:              0.035,
+			},
 		},
 		Duration: 250 * time.Millisecond,
 	}, nil
@@ -66,5 +89,14 @@ func TestUsageClientRecordsRequestMetadata(t *testing.T) {
 	}
 	if rec.Scene != "agent.step" || rec.APIHost != "api.openai.com" || rec.TotalTokens != 18 {
 		t.Fatalf("record content = %+v", rec)
+	}
+	if rec.CachedInputTokens != 5 || rec.CacheCreationInputTokens != 3 {
+		t.Fatalf("record cache tokens = %+v", rec)
+	}
+	if got := rec.CacheDetails["ephemeral_5m_input_tokens"]; got != 3 {
+		t.Fatalf("record cache details = %+v", rec.CacheDetails)
+	}
+	if rec.CostCurrency != "USD" || !rec.CostEstimated || !costAlmostEqual(rec.TotalCost, 0.035) {
+		t.Fatalf("record cost = %+v", rec)
 	}
 }

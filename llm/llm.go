@@ -46,7 +46,24 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
-	Cost         float64 // USD
+	Cache        UsageCache
+	Cost         *UsageCost
+}
+
+type UsageCache struct {
+	CachedInputTokens        int
+	CacheCreationInputTokens int
+	Details                  map[string]int
+}
+
+type UsageCost struct {
+	Currency           string
+	Estimated          bool
+	Input              float64
+	CachedInput        float64
+	CacheCreationInput float64
+	Output             float64
+	Total              float64
 }
 
 type StreamToolCallDelta struct {
@@ -75,14 +92,15 @@ type Result struct {
 }
 
 type Request struct {
-	Model      string
-	Scene      string
-	Messages   []Message
-	Tools      []Tool
-	ForceJSON  bool
-	Parameters map[string]any
-	DebugFn    func(label, payload string)
-	OnStream   StreamHandler
+	Model             string
+	InferenceProvider string
+	Scene             string
+	Messages          []Message
+	Tools             []Tool
+	ForceJSON         bool
+	Parameters        map[string]any
+	DebugFn           func(label, payload string)
+	OnStream          StreamHandler
 }
 
 type Client interface {

@@ -190,6 +190,9 @@ func TestPatchInitConfigWithSetup_OpenAICompatiblePrunesCloudflareBlock(t *testi
 	if gotAPIKey := cfg.GetString("llm.api_key"); gotAPIKey != "sk-openai-compatible" {
 		t.Fatalf("llm.api_key = %q, want sk-openai-compatible", gotAPIKey)
 	}
+	if gotPricingFile := cfg.GetString("llm.pricing_file"); gotPricingFile != "" {
+		t.Fatalf("llm.pricing_file = %q, want empty", gotPricingFile)
+	}
 	if strings.Contains(got, "\n  cloudflare:\n") || strings.Contains(got, "account_id:") || strings.Contains(got, "api_token:") {
 		t.Fatalf("patched config should not include cloudflare block: %s", got)
 	}
@@ -217,6 +220,9 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 	}
 	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
 		t.Fatalf("llm.provider = %q, want openai", gotProvider)
+	}
+	if gotPricingFile := cfg.GetString("llm.pricing_file"); gotPricingFile != "" {
+		t.Fatalf("llm.pricing_file = %q, want empty", gotPricingFile)
 	}
 	var endpoints []map[string]any
 	if err := cfg.UnmarshalKey("console.endpoints", &endpoints); err != nil {

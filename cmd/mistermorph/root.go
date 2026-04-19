@@ -216,6 +216,7 @@ func initConfig() {
 			_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 			return
 		}
+		viper.Set("config", cfgFile)
 		expandConfiguredDirKey("file_state_dir")
 		expandConfiguredDirKey("file_cache_dir")
 	}

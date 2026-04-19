@@ -77,18 +77,30 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 	}
 
 	rec := normalizeRequestRecord(RequestRecord{
-		TS:            c.now().UTC().Format(time.RFC3339),
-		RunID:         RunIDFromContext(ctx),
-		OriginEventID: OriginEventIDFromContext(ctx),
-		Provider:      c.Provider,
-		APIBase:       c.APIBase,
-		Model:         firstNonEmpty(strings.TrimSpace(req.Model), c.DefaultModel),
-		Scene:         strings.TrimSpace(req.Scene),
-		InputTokens:   int64(res.Usage.InputTokens),
-		OutputTokens:  int64(res.Usage.OutputTokens),
-		TotalTokens:   int64(res.Usage.TotalTokens),
-		DurationMs:    durationMillis(res.Duration, c.now().Sub(start)),
+		TS:                       c.now().UTC().Format(time.RFC3339),
+		RunID:                    RunIDFromContext(ctx),
+		OriginEventID:            OriginEventIDFromContext(ctx),
+		Provider:                 c.Provider,
+		APIBase:                  c.APIBase,
+		Model:                    firstNonEmpty(strings.TrimSpace(req.Model), c.DefaultModel),
+		Scene:                    strings.TrimSpace(req.Scene),
+		InputTokens:              int64(res.Usage.InputTokens),
+		OutputTokens:             int64(res.Usage.OutputTokens),
+		TotalTokens:              int64(res.Usage.TotalTokens),
+		CachedInputTokens:        int64(res.Usage.Cache.CachedInputTokens),
+		CacheCreationInputTokens: int64(res.Usage.Cache.CacheCreationInputTokens),
+		CacheDetails:             toInt64Map(res.Usage.Cache.Details),
+		DurationMs:               durationMillis(res.Duration, c.now().Sub(start)),
 	})
+	if res.Usage.Cost != nil {
+		rec.CostCurrency = strings.TrimSpace(res.Usage.Cost.Currency)
+		rec.CostEstimated = res.Usage.Cost.Estimated
+		rec.InputCost = res.Usage.Cost.Input
+		rec.CachedInputCost = res.Usage.Cost.CachedInput
+		rec.CacheCreationInputCost = res.Usage.Cost.CacheCreationInput
+		rec.OutputCost = res.Usage.Cost.Output
+		rec.TotalCost = res.Usage.Cost.Total
+	}
 	if _, recErr := c.Journal.Append(rec); recErr != nil && c.Logger != nil {
 		c.Logger.Warn(
 			"llm_usage_record_error",
@@ -99,6 +111,17 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		)
 	}
 	return res, nil
+}
+
+func toInt64Map(in map[string]int) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for key, value := range in {
+		out[key] = int64(value)
+	}
+	return out
 }
 
 func (c *UsageClient) Close() error {

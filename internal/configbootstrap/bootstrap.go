@@ -13,6 +13,7 @@ type LLMConfig struct {
 	Endpoint            string
 	Model               string
 	APIKey              string
+	PricingFile         string
 	CloudflareAccountID string
 	CloudflareAPIToken  string
 }
@@ -110,6 +111,7 @@ func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 	SetOrDeleteMappingScalar(llmNode, "provider", provider)
 	SetOrDeleteMappingScalar(llmNode, "endpoint", strings.TrimSpace(cfg.Endpoint))
 	SetOrDeleteMappingScalar(llmNode, "model", strings.TrimSpace(cfg.Model))
+	SetOrDeleteMappingScalar(llmNode, "pricing_file", strings.TrimSpace(cfg.PricingFile))
 
 	if strings.EqualFold(provider, "cloudflare") {
 		SetOrDeleteMappingScalar(llmNode, "api_key", "")

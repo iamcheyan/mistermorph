@@ -23,13 +23,20 @@ func TestLLMUsageStatsRoute(t *testing.T) {
 	journal := llmstats.NewJournal(statepaths.LLMUsageJournalDir(), llmstats.JournalOptions{})
 	defer func() { _ = journal.Close() }()
 	if _, err := journal.Append(llmstats.RequestRecord{
-		TS:           time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
-		Provider:     "openai",
-		APIBase:      "https://api.openai.com",
-		Model:        "gpt-5.2",
-		InputTokens:  8,
-		OutputTokens: 4,
-		TotalTokens:  12,
+		TS:                       time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Provider:                 "openai",
+		APIBase:                  "https://api.openai.com",
+		Model:                    "gpt-5.2",
+		InputTokens:              8,
+		OutputTokens:             4,
+		TotalTokens:              12,
+		CachedInputTokens:        2,
+		CacheCreationInputTokens: 1,
+		CostCurrency:             "USD",
+		CostEstimated:            true,
+		CachedInputCost:          0.002,
+		CacheCreationInputCost:   0.001,
+		TotalCost:                0.015,
 	}); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
@@ -47,8 +54,12 @@ func TestLLMUsageStatsRoute(t *testing.T) {
 
 	var payload struct {
 		Summary struct {
-			Requests    int64 `json:"requests"`
-			TotalTokens int64 `json:"total_tokens"`
+			Requests                 int64   `json:"requests"`
+			TotalTokens              int64   `json:"total_tokens"`
+			CachedInputTokens        int64   `json:"cached_input_tokens"`
+			CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
+			CostCurrency             string  `json:"cost_currency"`
+			TotalCost                float64 `json:"total_cost"`
 		} `json:"summary"`
 		APIHosts []struct {
 			APIHost string `json:"api_host"`
@@ -59,6 +70,12 @@ func TestLLMUsageStatsRoute(t *testing.T) {
 	}
 	if payload.Summary.Requests != 1 || payload.Summary.TotalTokens != 12 {
 		t.Fatalf("summary = %+v", payload.Summary)
+	}
+	if payload.Summary.CachedInputTokens != 2 || payload.Summary.CacheCreationInputTokens != 1 {
+		t.Fatalf("summary cache = %+v", payload.Summary)
+	}
+	if payload.Summary.CostCurrency != "USD" || payload.Summary.TotalCost < 0.014999 || payload.Summary.TotalCost > 0.015001 {
+		t.Fatalf("summary cost = %+v", payload.Summary)
 	}
 	if len(payload.APIHosts) != 1 || payload.APIHosts[0].APIHost != "api.openai.com" {
 		t.Fatalf("api_hosts = %+v", payload.APIHosts)

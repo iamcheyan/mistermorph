@@ -22,6 +22,7 @@ type Config struct {
 	APIKey   string
 	Model    string
 	Headers  map[string]string
+	Pricing  *uniaiapi.PricingCatalog
 
 	RequestTimeout  time.Duration
 	Temperature     *float64
@@ -76,6 +77,7 @@ func New(cfg Config) *Client {
 		OpenAIAPIBase:       openAIBase,
 		OpenAIModel:         strings.TrimSpace(cfg.Model),
 		ChatHeaders:         cloneStringMap(cfg.Headers),
+		Pricing:             cfg.Pricing,
 		AzureOpenAIAPIKey:   strings.TrimSpace(azureAPIKey),
 		AzureOpenAIEndpoint: strings.TrimSpace(azureEndpoint),
 		AzureOpenAIModel:    strings.TrimSpace(azureDeployment),
@@ -145,12 +147,8 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		Text:      resp.Text,
 		Parts:     toLLMParts(resp.Parts),
 		ToolCalls: toolCalls,
-		Usage: llm.Usage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
-		},
-		Duration: time.Since(start),
+		Usage:     toLLMUsage(resp.Usage),
+		Duration:  time.Since(start),
 	}, nil
 }
 
@@ -180,6 +178,9 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	}
 	if strings.TrimSpace(req.Model) != "" {
 		opts = append(opts, uniaiapi.WithModel(strings.TrimSpace(req.Model)))
+	}
+	if strings.TrimSpace(req.InferenceProvider) != "" {
+		opts = append(opts, uniaiapi.WithInferenceProvider(strings.TrimSpace(req.InferenceProvider)))
 	}
 
 	if len(req.Tools) > 0 {
@@ -263,11 +264,8 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 				}
 			}
 			if ev.Usage != nil {
-				streamEvent.Usage = &llm.Usage{
-					InputTokens:  ev.Usage.InputTokens,
-					OutputTokens: ev.Usage.OutputTokens,
-					TotalTokens:  ev.Usage.TotalTokens,
-				}
+				usage := toLLMUsage(*ev.Usage)
+				streamEvent.Usage = &usage
 			}
 			return req.OnStream(streamEvent)
 		}))
@@ -306,6 +304,50 @@ func cloneStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func toLLMUsage(usage uniaichat.Usage) llm.Usage {
+	return llm.Usage{
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.TotalTokens,
+		Cache:        toLLMUsageCache(usage.Cache),
+		Cost:         toLLMUsageCost(usage.Cost),
+	}
+}
+
+func toLLMUsageCache(cache uniaichat.UsageCache) llm.UsageCache {
+	return llm.UsageCache{
+		CachedInputTokens:        cache.CachedInputTokens,
+		CacheCreationInputTokens: cache.CacheCreationInputTokens,
+		Details:                  cloneIntMap(cache.Details),
+	}
+}
+
+func toLLMUsageCost(cost *uniaichat.UsageCost) *llm.UsageCost {
+	if cost == nil {
+		return nil
+	}
+	return &llm.UsageCost{
+		Currency:           cost.Currency,
+		Estimated:          cost.Estimated,
+		Input:              cost.Input,
+		CachedInput:        cost.CachedInput,
+		CacheCreationInput: cost.CacheCreationInput,
+		Output:             cost.Output,
+		Total:              cost.Total,
+	}
+}
+
+func cloneIntMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
 	for key, value := range in {
 		out[key] = value
 	}

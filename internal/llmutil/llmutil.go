@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
+	uniaiapi "github.com/quailyquaily/uniai"
 	"github.com/spf13/viper"
 )
 
@@ -29,6 +31,8 @@ type RuntimeValues struct {
 	TemperatureRaw     string `config:"llm.temperature"`
 	ReasoningEffortRaw string `config:"llm.reasoning_effort"`
 	ReasoningBudgetRaw string `config:"llm.reasoning_budget_tokens"`
+	PricingFile        string `config:"llm.pricing_file"`
+	ConfigPath         string `config:"config"`
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
@@ -56,6 +60,8 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
 		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
 		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		PricingFile:         strings.TrimSpace(r.GetString("llm.pricing_file")),
+		ConfigPath:          strings.TrimSpace(r.GetString("config")),
 		Profiles:            loadLLMProfilesFromReader(r),
 		Routes:              loadLLMRoutesFromReader(r),
 		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
@@ -133,6 +139,10 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if err != nil {
 		return nil, err
 	}
+	pricing, _, err := LoadPricingCatalog(values)
+	if err != nil {
+		return nil, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "openai_resp" && reasoningBudget != nil {
 		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
@@ -145,6 +155,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),
 			Headers:            cloneStringMap(cfg.Headers),
+			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
@@ -170,6 +181,10 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)
 	}
+}
+
+func LoadPricingCatalog(values RuntimeValues) (*uniaiapi.PricingCatalog, string, error) {
+	return pricingutil.LoadCatalog(values.PricingFile, values.ConfigPath)
 }
 
 type BaseClientBuilder func(cfg llmconfig.ClientConfig, values RuntimeValues) (llm.Client, error)

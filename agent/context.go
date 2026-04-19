@@ -46,7 +46,9 @@ func (c *Context) AddUsage(usage llm.Usage, dur time.Duration) {
 	if c.Metrics.TotalTokens == 0 {
 		c.Metrics.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
-	c.Metrics.TotalCost += usage.Cost
+	if usage.Cost != nil {
+		c.Metrics.TotalCost += usage.Cost.Total
+	}
 	c.Metrics.ElapsedMs = time.Since(c.Metrics.StartTime).Milliseconds()
 	_ = dur
 }

@@ -35,6 +35,9 @@ llm:
   reasoning_effort: ""
   # Optional default reasoning budget tokens. If empty/unset, do not call uniai.WithReasoningBudgetTokens(...).
   # reasoning_budget_tokens: 8192
+  # Optional local pricing catalog YAML to override uniai's embedded default prices.
+  # Relative paths resolve from the config.yaml directory.
+  # pricing_file: "./pricing.yaml"
   # Tool-call emulation mode for providers/models without native tool calling.
   # Values: off | fallback | force
   tools_emulation_mode: "off"

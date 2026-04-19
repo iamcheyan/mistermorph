@@ -89,6 +89,25 @@ func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsMapsInferenceProvider(t *testing.T) {
+	req := llm.Request{
+		Model:             "gpt-5.4",
+		InferenceProvider: "openai",
+		Messages: []llm.Message{
+			{Role: "user", Content: "hello"},
+		},
+	}
+
+	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.InferenceProvider != "openai" {
+		t.Fatalf("inference_provider = %q, want openai", built.InferenceProvider)
+	}
+}
+
 func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 	called := false
 	req := llm.Request{
@@ -106,6 +125,18 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 			}
 			if ev.Usage == nil || ev.Usage.TotalTokens != 9 {
 				t.Fatalf("usage = %#v", ev.Usage)
+			}
+			if ev.Usage.Cache.CachedInputTokens != 3 {
+				t.Fatalf("cached_input_tokens = %d, want 3", ev.Usage.Cache.CachedInputTokens)
+			}
+			if ev.Usage.Cache.CacheCreationInputTokens != 2 {
+				t.Fatalf("cache_creation_input_tokens = %d, want 2", ev.Usage.Cache.CacheCreationInputTokens)
+			}
+			if got := ev.Usage.Cache.Details["ephemeral_5m_input_tokens"]; got != 2 {
+				t.Fatalf("cache details = %#v", ev.Usage.Cache.Details)
+			}
+			if ev.Usage.Cost == nil || ev.Usage.Cost.Total != 0.125 {
+				t.Fatalf("cost = %#v", ev.Usage.Cost)
 			}
 			return nil
 		},
@@ -131,6 +162,21 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 			InputTokens:  4,
 			OutputTokens: 5,
 			TotalTokens:  9,
+			Cache: uniaichat.UsageCache{
+				CachedInputTokens:        3,
+				CacheCreationInputTokens: 2,
+				Details: map[string]int{
+					"ephemeral_5m_input_tokens": 2,
+				},
+			},
+			Cost: &uniaichat.UsageCost{
+				Currency:           "USD",
+				Estimated:          true,
+				CachedInput:        0.025,
+				CacheCreationInput: 0.050,
+				Output:             0.050,
+				Total:              0.125,
+			},
 		},
 		Done: true,
 	}); err != nil {
@@ -138,6 +184,46 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected callback to be called")
+	}
+}
+
+func TestToLLMUsageMapsCacheAndCost(t *testing.T) {
+	usage := toLLMUsage(uniaichat.Usage{
+		InputTokens:  10,
+		OutputTokens: 5,
+		TotalTokens:  15,
+		Cache: uniaichat.UsageCache{
+			CachedInputTokens:        4,
+			CacheCreationInputTokens: 3,
+			Details: map[string]int{
+				"ephemeral_5m_input_tokens": 3,
+			},
+		},
+		Cost: &uniaichat.UsageCost{
+			Currency:           "USD",
+			Estimated:          true,
+			Input:              0.01,
+			CachedInput:        0.002,
+			CacheCreationInput: 0.003,
+			Output:             0.02,
+			Total:              0.035,
+		},
+	})
+
+	if usage.InputTokens != 10 || usage.OutputTokens != 5 || usage.TotalTokens != 15 {
+		t.Fatalf("usage tokens = %#v", usage)
+	}
+	if usage.Cache.CachedInputTokens != 4 || usage.Cache.CacheCreationInputTokens != 3 {
+		t.Fatalf("usage cache = %#v", usage.Cache)
+	}
+	if got := usage.Cache.Details["ephemeral_5m_input_tokens"]; got != 3 {
+		t.Fatalf("usage cache details = %#v", usage.Cache.Details)
+	}
+	if usage.Cost == nil {
+		t.Fatalf("expected cost to be mapped")
+	}
+	if usage.Cost.Total != 0.035 || usage.Cost.CachedInput != 0.002 || usage.Cost.CacheCreationInput != 0.003 {
+		t.Fatalf("usage cost = %#v", usage.Cost)
 	}
 }
 

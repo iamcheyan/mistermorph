@@ -6,18 +6,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
+	"github.com/quailyquaily/mistermorph/internal/pricingutil"
+	uniaiapi "github.com/quailyquaily/uniai"
+	"github.com/spf13/viper"
 )
 
+const projectionSchemaVersion = 2
+
 type ProjectionStore struct {
-	journalDir string
-	path       string
-	now        func() time.Time
+	journalDir  string
+	path        string
+	now         func() time.Time
+	loadPricing func() (*uniaiapi.PricingCatalog, string, error)
+	logger      *slog.Logger
 }
 
 type aggregateState struct {
@@ -37,10 +45,23 @@ func NewProjectionStore(journalDir, path string) *ProjectionStore {
 		journalDir: strings.TrimSpace(journalDir),
 		path:       strings.TrimSpace(path),
 		now:        time.Now,
+		loadPricing: func() (*uniaiapi.PricingCatalog, string, error) {
+			return pricingutil.LoadCatalog(viper.GetString("llm.pricing_file"), viper.GetString("config"))
+		},
+		logger: slog.Default(),
 	}
 }
 
 func (s *ProjectionStore) Refresh() (Projection, error) {
+	startedAt := time.Now()
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	pricing, pricingDigest, err := s.currentPricing()
+	if err != nil {
+		return Projection{}, err
+	}
 	proj, ok, err := loadProjection(s.path)
 	if err != nil || !ok {
 		proj = Projection{}
@@ -59,13 +80,26 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 	}
 
 	start := proj.ProjectedOffset
-	if !offsetValidForSegments(s.journalDir, segments, start) {
+	rebuildReasons := projectionRebuildReasons(proj, ok, pricingDigest, offsetValidForSegments(s.journalDir, segments, start))
+	rebuild := len(rebuildReasons) > 0
+	if rebuild {
+		logger.Info("llm_usage_projection_rebuild",
+			"reasons", strings.Join(rebuildReasons, ","),
+			"schema_version", proj.SchemaVersion,
+			"expected_schema_version", projectionSchemaVersion,
+			"pricing_digest", strings.TrimSpace(proj.PricingDigest),
+			"expected_pricing_digest", strings.TrimSpace(pricingDigest),
+			"projected_records", proj.ProjectedRecords,
+			"from_file", start.File,
+			"from_line", start.Line,
+		)
 		proj = Projection{}
 		start = Offset{}
 	}
 
 	state := aggregateStateFromProjection(proj)
 	nextOffset, skipped, err := scanJournalFrom(s.journalDir, segments, start, func(rec RequestRecord, _ Offset) error {
+		rec = backfillRequestCost(rec, pricing)
 		state.add(rec)
 		return nil
 	})
@@ -75,13 +109,35 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 	state.skipped += skipped
 
 	out := state.toProjection()
+	out.SchemaVersion = projectionSchemaVersion
+	out.PricingDigest = pricingDigest
 	out.UpdatedAt = s.now().UTC().Format(time.RFC3339)
 	out.ProjectedOffset = nextOffset
 	out.ProjectedRecords = out.Summary.Requests
 	if err := saveProjection(s.path, out); err != nil {
 		return Projection{}, err
 	}
+	mode := "incremental"
+	if rebuild {
+		mode = "rebuild"
+	}
+	logger.Info("llm_usage_projection_refreshed",
+		"mode", mode,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+		"journal_segments", len(segments),
+		"projected_records", out.ProjectedRecords,
+		"skipped_records", out.SkippedRecords,
+		"to_file", out.ProjectedOffset.File,
+		"to_line", out.ProjectedOffset.Line,
+	)
 	return out, nil
+}
+
+func (s *ProjectionStore) currentPricing() (*uniaiapi.PricingCatalog, string, error) {
+	if s == nil || s.loadPricing == nil {
+		return nil, "", nil
+	}
+	return s.loadPricing()
 }
 
 func aggregateStateFromProjection(p Projection) *aggregateState {
@@ -163,6 +219,7 @@ func (s *aggregateState) toProjection() Projection {
 	sortAPIHostSummaries(hosts)
 
 	return Projection{
+		SchemaVersion:  projectionSchemaVersion,
 		Summary:        s.summary,
 		APIHosts:       hosts,
 		Models:         models,
@@ -190,6 +247,80 @@ func saveProjection(path string, proj Projection) error {
 		return nil
 	}
 	return fsstore.WriteJSONAtomic(path, proj, fsstore.FileOptions{})
+}
+
+func projectionCompatible(proj Projection, pricingDigest string) bool {
+	if proj.SchemaVersion != projectionSchemaVersion {
+		return false
+	}
+	return strings.TrimSpace(proj.PricingDigest) == strings.TrimSpace(pricingDigest)
+}
+
+func projectionRebuildReasons(proj Projection, projectionExists bool, pricingDigest string, offsetValid bool) []string {
+	reasons := make([]string, 0, 3)
+	if !projectionExists {
+		reasons = append(reasons, "missing_projection")
+	}
+	if !offsetValid {
+		reasons = append(reasons, "offset_invalid")
+	}
+	if proj.SchemaVersion != projectionSchemaVersion {
+		reasons = append(reasons, "schema_version_changed")
+	}
+	if strings.TrimSpace(proj.PricingDigest) != strings.TrimSpace(pricingDigest) {
+		reasons = append(reasons, "pricing_digest_changed")
+	}
+	return reasons
+}
+
+func backfillRequestCost(rec RequestRecord, pricing *uniaiapi.PricingCatalog) RequestRecord {
+	rec = normalizeRequestRecord(rec)
+	if pricing == nil || requestRecordHasCost(rec) {
+		return rec
+	}
+	usage := uniaiapi.Usage{
+		InputTokens:  int(rec.InputTokens),
+		OutputTokens: int(rec.OutputTokens),
+		TotalTokens:  int(rec.TotalTokens),
+		Cache: uniaiapi.UsageCache{
+			CachedInputTokens:        int(rec.CachedInputTokens),
+			CacheCreationInputTokens: int(rec.CacheCreationInputTokens),
+			Details:                  toIntMap(rec.CacheDetails),
+		},
+	}
+	cost, ok := pricing.EstimateChatCost(rec.Model, usage)
+	if !ok || cost == nil {
+		return rec
+	}
+	rec.CostCurrency = cost.Currency
+	rec.CostEstimated = cost.Estimated
+	rec.InputCost = cost.Input
+	rec.CachedInputCost = cost.CachedInput
+	rec.CacheCreationInputCost = cost.CacheCreationInput
+	rec.OutputCost = cost.Output
+	rec.TotalCost = cost.Total
+	return normalizeRequestRecord(rec)
+}
+
+func requestRecordHasCost(rec RequestRecord) bool {
+	return strings.TrimSpace(rec.CostCurrency) != "" ||
+		rec.CostEstimated ||
+		rec.InputCost != 0 ||
+		rec.CachedInputCost != 0 ||
+		rec.CacheCreationInputCost != 0 ||
+		rec.OutputCost != 0 ||
+		rec.TotalCost != 0
+}
+
+func toIntMap(in map[string]int64) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for key, value := range in {
+		out[key] = int(nonNegative(value))
+	}
+	return out
 }
 
 func offsetValidForSegments(dir string, segments []journalSegmentFile, off Offset) bool {

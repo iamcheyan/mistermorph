@@ -1,6 +1,8 @@
 package llmutil
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +175,89 @@ func TestClientFromConfigWithValues_InvalidReasoningBudget(t *testing.T) {
 		t.Fatalf("expected error for invalid reasoning budget")
 	}
 	if !strings.Contains(err.Error(), "llm.reasoning_budget_tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPricingCatalogFromValues_ResolvesRelativeToConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	pricingPath := filepath.Join(dir, "pricing.yaml")
+	if err := os.WriteFile(pricingPath, []byte("version: uniai.pricing.v1\nchat:\n  - inference_provider: openai\n    model: gpt-5.4\n    input_usd_per_million: 1\n    output_usd_per_million: 2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(pricing.yaml) error = %v", err)
+	}
+
+	pricing, digest, err := LoadPricingCatalog(RuntimeValues{
+		ConfigPath:  configPath,
+		PricingFile: "./pricing.yaml",
+	})
+	if err != nil {
+		t.Fatalf("LoadPricingCatalog() error = %v", err)
+	}
+	if pricing == nil || len(pricing.Chat) != 1 {
+		t.Fatalf("pricing catalog = %#v, want one chat rule", pricing)
+	}
+	if strings.TrimSpace(digest) == "" {
+		t.Fatalf("expected non-empty pricing digest")
+	}
+	if pricing.Chat[0].InferenceProvider != "openai" || pricing.Chat[0].Model != "gpt-5.4" {
+		t.Fatalf("pricing rule = %#v", pricing.Chat[0])
+	}
+}
+
+func TestPricingCatalogFromValues_MissingFileFallsBackToDefault(t *testing.T) {
+	dir := t.TempDir()
+
+	pricing, digest, err := LoadPricingCatalog(RuntimeValues{
+		ConfigPath:  filepath.Join(dir, "config.yaml"),
+		PricingFile: "./pricing.yaml",
+	})
+	if err != nil {
+		t.Fatalf("LoadPricingCatalog() error = %v", err)
+	}
+	if pricing == nil {
+		t.Fatalf("expected default pricing catalog")
+	}
+	if len(pricing.Chat) == 0 {
+		t.Fatalf("expected default pricing catalog to include chat rules")
+	}
+	if strings.TrimSpace(digest) == "" {
+		t.Fatalf("expected non-empty pricing digest")
+	}
+}
+
+func TestPricingCatalogFromValues_EmptyPathFallsBackToDefault(t *testing.T) {
+	pricing, digest, err := LoadPricingCatalog(RuntimeValues{})
+	if err != nil {
+		t.Fatalf("LoadPricingCatalog() error = %v", err)
+	}
+	if pricing == nil {
+		t.Fatalf("expected default pricing catalog")
+	}
+	if len(pricing.Chat) == 0 {
+		t.Fatalf("expected default pricing catalog to include chat rules")
+	}
+	if strings.TrimSpace(digest) == "" {
+		t.Fatalf("expected non-empty pricing digest")
+	}
+}
+
+func TestPricingCatalogFromValues_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	pricingPath := filepath.Join(dir, "pricing.yaml")
+	if err := os.WriteFile(pricingPath, []byte("version: ["), 0o644); err != nil {
+		t.Fatalf("WriteFile(pricing.yaml) error = %v", err)
+	}
+
+	_, _, err := LoadPricingCatalog(RuntimeValues{
+		ConfigPath:  configPath,
+		PricingFile: "./pricing.yaml",
+	})
+	if err == nil {
+		t.Fatalf("expected parse error for invalid pricing yaml")
+	}
+	if !strings.Contains(err.Error(), "llm.pricing_file") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

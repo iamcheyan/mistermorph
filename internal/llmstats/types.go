@@ -20,25 +20,45 @@ type Offset struct {
 }
 
 type RequestRecord struct {
-	TS            string  `json:"ts"`
-	RunID         string  `json:"run_id,omitempty"`
-	OriginEventID string  `json:"origin_event_id,omitempty"`
-	Provider      string  `json:"provider"`
-	APIBase       string  `json:"api_base,omitempty"`
-	APIHost       string  `json:"api_host"`
-	Model         string  `json:"model"`
-	Scene         string  `json:"scene,omitempty"`
-	InputTokens   int64   `json:"input_tokens"`
-	OutputTokens  int64   `json:"output_tokens"`
-	TotalTokens   int64   `json:"total_tokens"`
-	DurationMs    int64   `json:"duration_ms,omitempty"`
+	TS                       string           `json:"ts"`
+	RunID                    string           `json:"run_id,omitempty"`
+	OriginEventID            string           `json:"origin_event_id,omitempty"`
+	Provider                 string           `json:"provider"`
+	APIBase                  string           `json:"api_base,omitempty"`
+	APIHost                  string           `json:"api_host"`
+	Model                    string           `json:"model"`
+	Scene                    string           `json:"scene,omitempty"`
+	InputTokens              int64            `json:"input_tokens"`
+	OutputTokens             int64            `json:"output_tokens"`
+	TotalTokens              int64            `json:"total_tokens"`
+	CachedInputTokens        int64            `json:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int64            `json:"cache_creation_input_tokens,omitempty"`
+	CacheDetails             map[string]int64 `json:"cache_details,omitempty"`
+	CostCurrency             string           `json:"cost_currency,omitempty"`
+	CostEstimated            bool             `json:"cost_estimated,omitempty"`
+	InputCost                float64          `json:"input_cost,omitempty"`
+	CachedInputCost          float64          `json:"cached_input_cost,omitempty"`
+	CacheCreationInputCost   float64          `json:"cache_creation_input_cost,omitempty"`
+	OutputCost               float64          `json:"output_cost,omitempty"`
+	TotalCost                float64          `json:"total_cost,omitempty"`
+	DurationMs               int64            `json:"duration_ms,omitempty"`
 }
 
 type Totals struct {
-	Requests     int64   `json:"requests"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
+	Requests                 int64            `json:"requests"`
+	InputTokens              int64            `json:"input_tokens"`
+	OutputTokens             int64            `json:"output_tokens"`
+	TotalTokens              int64            `json:"total_tokens"`
+	CachedInputTokens        int64            `json:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int64            `json:"cache_creation_input_tokens,omitempty"`
+	CacheDetails             map[string]int64 `json:"cache_details,omitempty"`
+	CostCurrency             string           `json:"cost_currency,omitempty"`
+	CostEstimated            bool             `json:"cost_estimated,omitempty"`
+	InputCost                float64          `json:"input_cost,omitempty"`
+	CachedInputCost          float64          `json:"cached_input_cost,omitempty"`
+	CacheCreationInputCost   float64          `json:"cache_creation_input_cost,omitempty"`
+	OutputCost               float64          `json:"output_cost,omitempty"`
+	TotalCost                float64          `json:"total_cost,omitempty"`
 }
 
 type ModelSummary struct {
@@ -53,6 +73,8 @@ type APIHostSummary struct {
 }
 
 type Projection struct {
+	SchemaVersion    int              `json:"schema_version,omitempty"`
+	PricingDigest    string           `json:"pricing_digest,omitempty"`
 	UpdatedAt        string           `json:"updated_at,omitempty"`
 	ProjectedOffset  Offset           `json:"projected_offset,omitempty"`
 	ProjectedRecords int64            `json:"projected_records,omitempty"`
@@ -70,6 +92,23 @@ func (t *Totals) AddRecord(rec RequestRecord) {
 	t.InputTokens += nonNegative(rec.InputTokens)
 	t.OutputTokens += nonNegative(rec.OutputTokens)
 	t.TotalTokens += nonNegative(rec.TotalTokens)
+	t.CachedInputTokens += nonNegative(rec.CachedInputTokens)
+	t.CacheCreationInputTokens += nonNegative(rec.CacheCreationInputTokens)
+	t.CostCurrency = mergeCostCurrency(t.CostCurrency, rec.CostCurrency)
+	t.CostEstimated = t.CostEstimated || rec.CostEstimated
+	t.InputCost += nonNegativeFloat(rec.InputCost)
+	t.CachedInputCost += nonNegativeFloat(rec.CachedInputCost)
+	t.CacheCreationInputCost += nonNegativeFloat(rec.CacheCreationInputCost)
+	t.OutputCost += nonNegativeFloat(rec.OutputCost)
+	t.TotalCost += nonNegativeFloat(rec.TotalCost)
+	if len(rec.CacheDetails) > 0 {
+		if t.CacheDetails == nil {
+			t.CacheDetails = map[string]int64{}
+		}
+		for key, value := range rec.CacheDetails {
+			t.CacheDetails[key] += nonNegative(value)
+		}
+	}
 }
 
 func normalizeRequestRecord(rec RequestRecord) RequestRecord {
@@ -87,6 +126,15 @@ func normalizeRequestRecord(rec RequestRecord) RequestRecord {
 	rec.InputTokens = nonNegative(rec.InputTokens)
 	rec.OutputTokens = nonNegative(rec.OutputTokens)
 	rec.TotalTokens = nonNegative(rec.TotalTokens)
+	rec.CachedInputTokens = nonNegative(rec.CachedInputTokens)
+	rec.CacheCreationInputTokens = nonNegative(rec.CacheCreationInputTokens)
+	rec.CacheDetails = normalizeCacheDetails(rec.CacheDetails)
+	rec.CostCurrency = normalizeCostCurrency(rec.CostCurrency)
+	rec.InputCost = nonNegativeFloat(rec.InputCost)
+	rec.CachedInputCost = nonNegativeFloat(rec.CachedInputCost)
+	rec.CacheCreationInputCost = nonNegativeFloat(rec.CacheCreationInputCost)
+	rec.OutputCost = nonNegativeFloat(rec.OutputCost)
+	rec.TotalCost = nonNegativeFloat(rec.TotalCost)
 	if rec.TotalTokens == 0 {
 		rec.TotalTokens = rec.InputTokens + rec.OutputTokens
 	}
@@ -183,6 +231,47 @@ func nonNegative(v int64) int64 {
 		return 0
 	}
 	return v
+}
+
+func nonNegativeFloat(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func normalizeCacheDetails(in map[string]int64) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for key, value := range in {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = nonNegative(value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeCostCurrency(currency string) string {
+	return strings.ToUpper(strings.TrimSpace(currency))
+}
+
+func mergeCostCurrency(current, next string) string {
+	current = normalizeCostCurrency(current)
+	next = normalizeCostCurrency(next)
+	if current == "" {
+		return next
+	}
+	if next == "" || current == next {
+		return current
+	}
+	return "MIXED"
 }
 
 func sortModelSummaries(items []ModelSummary) {

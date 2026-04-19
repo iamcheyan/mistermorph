@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	uniaiapi "github.com/quailyquaily/uniai"
 )
 
 func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
@@ -22,13 +24,25 @@ func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
 	appendRecord := func(host, model string, input, output int64) {
 		t.Helper()
 		_, err := journal.Append(RequestRecord{
-			TS:           time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
-			Provider:     "openai",
-			APIBase:      "https://" + host,
-			Model:        model,
-			InputTokens:  input,
-			OutputTokens: output,
-			TotalTokens:  input + output,
+			TS:                       time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+			Provider:                 "openai",
+			APIBase:                  "https://" + host,
+			Model:                    model,
+			InputTokens:              input,
+			OutputTokens:             output,
+			TotalTokens:              input + output,
+			CachedInputTokens:        input / 2,
+			CacheCreationInputTokens: output / 2,
+			CacheDetails: map[string]int64{
+				"ephemeral_5m_input_tokens": output / 2,
+			},
+			CostCurrency:           "USD",
+			CostEstimated:          true,
+			InputCost:              float64(input) / 1000,
+			CachedInputCost:        float64(input/2) / 1000,
+			CacheCreationInputCost: float64(output/2) / 1000,
+			OutputCost:             float64(output) / 1000,
+			TotalCost:              float64(input+output) / 1000,
 		})
 		if err != nil {
 			t.Fatalf("Append(%s,%s) error = %v", host, model, err)
@@ -49,6 +63,12 @@ func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
 	if proj.Summary.Requests != 2 || proj.Summary.TotalTokens != 45 {
 		t.Fatalf("projection1 summary = %+v, want requests=2 total_tokens=45", proj.Summary)
 	}
+	if proj.Summary.CachedInputTokens != 15 || proj.Summary.CacheCreationInputTokens != 7 {
+		t.Fatalf("projection1 cache totals = %+v", proj.Summary)
+	}
+	if proj.Summary.CostCurrency != "USD" || !costAlmostEqual(proj.Summary.TotalCost, 0.045) {
+		t.Fatalf("projection1 cost totals = %+v", proj.Summary)
+	}
 	if len(proj.APIHosts) != 1 || proj.APIHosts[0].APIHost != "api.openai.com" {
 		t.Fatalf("projection1 hosts = %+v", proj.APIHosts)
 	}
@@ -63,6 +83,12 @@ func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
 	}
 	if proj.Summary.Requests != 3 || proj.Summary.TotalTokens != 50 {
 		t.Fatalf("projection2 summary = %+v, want requests=3 total_tokens=50", proj.Summary)
+	}
+	if proj.Summary.CachedInputTokens != 16 || proj.Summary.CacheCreationInputTokens != 8 {
+		t.Fatalf("projection2 cache totals = %+v", proj.Summary)
+	}
+	if !costAlmostEqual(proj.Summary.TotalCost, 0.05) {
+		t.Fatalf("projection2 cost totals = %+v", proj.Summary)
 	}
 	if proj.ProjectedOffset.File == "" || proj.ProjectedOffset.Line != 3 {
 		t.Fatalf("projection2 offset = %+v, want line 3", proj.ProjectedOffset)
@@ -95,4 +121,121 @@ func TestProjectionRefreshIgnoresIncompleteTail(t *testing.T) {
 	if proj.ProjectedOffset.File != "since-2026-03-07-0001.jsonl" || proj.ProjectedOffset.Line != 1 {
 		t.Fatalf("projection offset = %+v, want first line only", proj.ProjectedOffset)
 	}
+}
+
+func TestProjectionRefreshBackfillsLegacyCostFromPricing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	projectionPath := filepath.Join(root, "projection.json")
+	journal := NewJournal(journalDir, JournalOptions{MaxFileBytes: 1024 * 1024})
+	defer func() { _ = journal.Close() }()
+
+	if _, err := journal.Append(RequestRecord{
+		TS:           time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Provider:     "openai",
+		APIBase:      "https://api.openai.com",
+		Model:        "gpt-5.4",
+		InputTokens:  1000,
+		OutputTokens: 2000,
+		TotalTokens:  3000,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	pricing := mustParsePricingCatalog(t, `
+version: uniai.pricing.v1
+chat:
+  - inference_provider: openai
+    model: gpt-5.4
+    input_usd_per_million: 1
+    output_usd_per_million: 2
+`)
+	store := NewProjectionStore(journalDir, projectionPath)
+	store.loadPricing = func() (*uniaiapi.PricingCatalog, string, error) {
+		return pricing, "digest-a", nil
+	}
+
+	proj, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if proj.Summary.CostCurrency != "USD" || !costAlmostEqual(proj.Summary.TotalCost, 0.005) {
+		t.Fatalf("projection summary cost = %+v", proj.Summary)
+	}
+	if proj.Summary.InputCost != 0.001 || proj.Summary.OutputCost != 0.004 {
+		t.Fatalf("projection summary breakdown = %+v", proj.Summary)
+	}
+}
+
+func TestProjectionRefreshRebuildsWhenPricingDigestChanges(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	projectionPath := filepath.Join(root, "projection.json")
+	journal := NewJournal(journalDir, JournalOptions{MaxFileBytes: 1024 * 1024})
+	defer func() { _ = journal.Close() }()
+
+	if _, err := journal.Append(RequestRecord{
+		TS:           time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Provider:     "openai",
+		APIBase:      "https://api.openai.com",
+		Model:        "gpt-5.4",
+		InputTokens:  1000,
+		OutputTokens: 2000,
+		TotalTokens:  3000,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	store := NewProjectionStore(journalDir, projectionPath)
+	store.loadPricing = func() (*uniaiapi.PricingCatalog, string, error) {
+		return mustParsePricingCatalog(t, `
+version: uniai.pricing.v1
+chat:
+  - inference_provider: openai
+    model: gpt-5.4
+    input_usd_per_million: 1
+    output_usd_per_million: 2
+`), "digest-a", nil
+	}
+	proj, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh(1) error = %v", err)
+	}
+	if !costAlmostEqual(proj.Summary.TotalCost, 0.005) {
+		t.Fatalf("projection1 summary cost = %+v", proj.Summary)
+	}
+
+	store.loadPricing = func() (*uniaiapi.PricingCatalog, string, error) {
+		return mustParsePricingCatalog(t, `
+version: uniai.pricing.v1
+chat:
+  - inference_provider: openai
+    model: gpt-5.4
+    input_usd_per_million: 2
+    output_usd_per_million: 3
+`), "digest-b", nil
+	}
+	proj, err = store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh(2) error = %v", err)
+	}
+	if !costAlmostEqual(proj.Summary.TotalCost, 0.008) {
+		t.Fatalf("projection2 summary cost = %+v", proj.Summary)
+	}
+	if proj.PricingDigest != "digest-b" {
+		t.Fatalf("projection2 pricing digest = %q, want digest-b", proj.PricingDigest)
+	}
+}
+
+func mustParsePricingCatalog(t *testing.T, yamlText string) *uniaiapi.PricingCatalog {
+	t.Helper()
+	pricing, err := uniaiapi.ParsePricingYAML([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ParsePricingYAML() error = %v", err)
+	}
+	return pricing
 }
