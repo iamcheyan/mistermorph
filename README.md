@@ -1,113 +1,140 @@
-# Mister Morph
+# Mister Morph（个人维护版）
 
-Desktop app, CLI, and reusable Go runtime for AI agents.
+这是 [quailyquaily/mistermorph](https://github.com/quailyquaily/mistermorph) 的个人 fork，基于上游最新代码，并加入了一些个人需要的功能和调整。
 
-Other languages: [简体中文](docs/zh-CN/README.md) | [日本語](docs/ja-JP/README.md)
+---
 
-To try Mister Morph, start with the desktop App from [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases). It includes the Console UI, starts the local backend, and guides first-run setup.
+## 与上游的差异
 
-## Why Mister Morph
+| 项目 | 上游原版 | 本 fork |
+|------|---------|---------|
+| 交互式对话 | ❌ | ✅ 已添加 `chat` 命令，支持 REPL 交互 |
+| 模型切换 | ❌ | ✅ 运行时通过 `/model` 切换模型 |
+| Slash 命令 | ❌ | ✅ `/exit`, `/model`, `/memory`, `/help` 等 |
+| OpenCode 集成 | ❌ | ✅ 支持 OpenCode 模型 |
+| 自动发现模型 | ❌ | ✅ 自动获取可用模型列表 |
+| 用户名显示 | ❌ | ✅ Prompt 中显示系统用户名 |
+| Plan 进度彩色输出 | ❌ | ✅ 彩色格式化 |
 
-- 🖥️ App-first setup: use the desktop App to get started; use the CLI when you need a server or script.
-- 🧩 Reusable Go core: run Mister Morph as an App, CLI, or Console backend, or embed it in your projects.
-- 🤝 Connection: [Aqua](https://mistermorph.com/aqua) lets agents talk to each other, so multiple agents can plan and work together.
-- 🛠️ Practical extensions: built-in tools, `SKILL.md` skills, and Go embedding cover local use and automation.
-- 🔒 Security-minded: auth profiles, outbound policy, approvals, and redaction are built in.
+> 详细变更记录见 [PR #35](https://github.com/quailyquaily/mistermorph/pull/35) 及后续提交。
 
-## Quick Start
+---
 
-### Desktop App (recommended)
+## 当前状态
 
-1. Download a release asset from the [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) page:
-   - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
-   - Windows: `mistermorph-desktop-windows-amd64.zip`
-2. Open the App.
-3. Use the Agent.
+- **默认分支 `main`**：同步上游最新代码 + 个人修改
+- **备份分支 `backup-main-20260419`**：原始 36 个提交的完整备份（包含未整理的功能）
+- **PR #35**：`chat` 交互命令已提交上游，等待 review
 
-Build, packaging, and platform notes: [docs/app.md](docs/app.md)
+---
 
-### CLI
+## 分支说明
 
-Install the CLI:
+| 分支 | 用途 | 状态 |
+|------|------|------|
+| `main` | 个人维护版，GitHub 默认显示 | ✅ 活跃 |
+| `backup-main-20260419` | 原始开发历史备份 | ✅ 长期保留 |
+| `pr-chat` | PR #35 提交分支 | ⏳ 合并后删除 |
+
+---
+
+## 快速开始
+
+### 安装
 
 ```bash
-curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quailyquaily/mistermorph/refs/heads/master/scripts/install-release.sh
-sudo bash /tmp/install-mistermorph.sh
+# 从源码安装
+go install github.com/iamcheyan/mistermorph/cmd/mistermorph@latest
+
+# 或克隆后编译
+git clone https://github.com/iamcheyan/mistermorph.git
+cd mistermorph
+go build -o ./bin/mistermorph ./cmd/mistermorph
 ```
 
-Or install from source:
+### 运行
 
 ```bash
-go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
-```
-
-Set up a workspace, set an API key, and run one task:
-
-```bash
+# 初始化配置
 mistermorph install
-export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
+
+# 设置 API Key
+export MISTER_MORPH_LLM_API_KEY="your-api-key"
+
+# 单次任务
 mistermorph run --task "Hello!"
+
+# 交互式对话（本 fork 新增）
+mistermorph chat
 ```
 
-If `config.yaml` is missing, `mistermorph install` starts the setup wizard and writes the first workspace files.
+---
 
-CLI modes and configuration details: [docs/modes.md](docs/modes.md), [docs/configuration.md](docs/configuration.md)
+## 交互式对话命令
 
-## What It Includes
+在 `chat` 模式下可用：
 
-- A desktop App with first-run setup and the Console UI.
-- A CLI for one-shot tasks, scripts, automation, and server modes.
-- A local Console server for setup, runtime management, and monitoring.
-- Channel runtimes for Telegram, Slack, LINE, and Lark.
-- A Go integration layer for embedding Mister Morph into other projects.
-- Built-in tools and a `SKILL.md`-based skills system.
-- Security controls for auth profiles, outbound policies, approvals, and redaction.
+| 命令 | 说明 |
+|------|------|
+| `/exit` 或 `/quit` | 退出对话 |
+| `/model <模型名>` | 切换当前使用的模型 |
+| `/memory` | 查看记忆状态 |
+| `/remember <内容>` | 添加长期记忆 |
+| `/forget` | 清除记忆 |
+| `/init` | 重置对话历史 |
+| `/help` | 显示帮助 |
 
-## Documentation
+---
 
-Start here:
+## 开发相关
 
-- [Desktop App](docs/app.md)
-- [Modes](docs/modes.md)
-- [Configuration](docs/configuration.md)
-- [Troubleshoots](docs/troubleshoots.md)
+### 本地工作区
 
-Reference:
+`.local/` 目录存放个人开发笔记、日志和脚本，已纳入版本管理：
 
-- [Console](docs/console.md)
-- [Aqua Connection](docs/aqua.md)
-- [Tools](docs/tools.md)
-- [Skills](docs/skills.md)
-- [Security](docs/security.md)
-- [Integration](docs/integration.md)
-- [Architecture](docs/arch.md)
+```
+.local/
+├── notes/          # 开发笔记、功能清单
+├── logs/           # 运行日志
+├── scripts/        # 辅助脚本
+└── backups/        # 本地备份
+```
 
-Channel setup:
-
-- [Telegram](docs/telegram.md)
-- [Slack](docs/slack.md)
-- [LINE](docs/line.md)
-- [Lark](docs/lark.md)
-
-Full docs index: [docs/README.md](docs/README.md)
-
-## Development
-
-Useful commands:
+### 常用命令
 
 ```bash
+# 编译
 ./scripts/build-backend.sh --output ./bin/mistermorph
-./scripts/build-desktop.sh --release
+
+# 测试
 go test ./...
+
+# 同步上游更新
+git fetch upstream
+git checkout main
+git merge upstream/master
 ```
 
-The Console frontend lives in `web/console/` and uses `pnpm`. See [docs/console.md](docs/console.md) and [docs/app.md](docs/app.md) for build details.
+---
 
-## Configuration Template
+## 注意事项
 
-The canonical config template is [assets/config/config.example.yaml](assets/config/config.example.yaml).
-Environment variables use the `MISTER_MORPH_` prefix. Full config notes and common flags are in [docs/configuration.md](docs/configuration.md).
+1. **上游同步**：`main` 分支定期合并 `upstream/master` 的更新。如果修改了上游文件（如 `README.md`），合并时可能需要手动解决冲突。
+
+2. **PR 开发**：给上游提交 PR 时，从 `upstream/master` 新建干净分支，不要从个人 `main` 分支发 PR。
+
+3. **备份分支**：`backup-main-20260419` 包含大量未整理的功能，需要逐步 cherry-pick 到基于上游的新分支中。
+
+4. **私有内容**：`.local/` 和 `README.md` 等个人修改只存在于本 fork，不会向上游提交。
+
+---
+
+## 上游仓库
+
+- 原版地址：https://github.com/quailyquaily/mistermorph
+- 原版文档：[docs/README.md](docs/README.md)
+
+---
 
 ## Star History
 
