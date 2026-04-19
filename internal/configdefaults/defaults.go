@@ -17,6 +17,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("llm.endpoint", "")
 	v.SetDefault("llm.model", "")
 	v.SetDefault("llm.api_key", "")
+	v.SetDefault("llm.cache_ttl", "short")
 	v.SetDefault("llm.request_timeout", 90*time.Second)
 	v.SetDefault("llm.tools_emulation_mode", "off")
 	v.SetDefault("llm.cloudflare.account_id", "")

@@ -147,6 +147,10 @@ func New(deps Dependencies) *cobra.Command {
 				APIBase:          mainCfg.Endpoint,
 				Model:            mainCfg.Model,
 			})
+			systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
+			if err != nil {
+				return err
+			}
 
 			reg := (*tools.Registry)(nil)
 			if deps.RegistryFromViper != nil {
@@ -213,6 +217,9 @@ func New(deps Dependencies) *cobra.Command {
 			}
 			opts = append(opts, agent.WithLogger(logger))
 			opts = append(opts, agent.WithLogOptions(logOpts))
+			if systemPromptCacheControl != nil {
+				opts = append(opts, agent.WithSystemPromptCacheControl(systemPromptCacheControl))
+			}
 			if !isHeartbeat {
 				opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 					if payload := formatPlanProgressUpdate(runCtx, update); payload != "" {

@@ -13,6 +13,10 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
+type CacheControl struct {
+	TTL string `json:"ttl,omitempty"`
+}
+
 const (
 	PartTypeText        = "text"
 	PartTypeImageURL    = "image_url"
@@ -20,17 +24,19 @@ const (
 )
 
 type Part struct {
-	Type       string `json:"type"`
-	Text       string `json:"text,omitempty"`
-	URL        string `json:"url,omitempty"`
-	DataBase64 string `json:"data_base64,omitempty"`
-	MIMEType   string `json:"mime_type,omitempty"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text,omitempty"`
+	URL          string        `json:"url,omitempty"`
+	DataBase64   string        `json:"data_base64,omitempty"`
+	MIMEType     string        `json:"mime_type,omitempty"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 type Tool struct {
-	Name           string `json:"name"`
-	Description    string `json:"description,omitempty"`
-	ParametersJSON string `json:"parameters_json,omitempty"`
+	Name           string        `json:"name"`
+	Description    string        `json:"description,omitempty"`
+	ParametersJSON string        `json:"parameters_json,omitempty"`
+	CacheControl   *CacheControl `json:"cache_control,omitempty"`
 }
 
 type ToolCall struct {

@@ -1,6 +1,7 @@
 package uniai
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/llm"
@@ -17,7 +18,7 @@ func TestBuildChatOptionsReplaceMessages(t *testing.T) {
 
 	opts := append(
 		[]uniaiapi.ChatOption{uniaiapi.WithMessages(uniaiapi.User("old"))},
-		buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)...,
+		buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)...,
 	)
 
 	built, err := uniaichat.BuildRequest(opts...)
@@ -44,7 +45,7 @@ func TestBuildChatOptionsPreserveToolCallIDAsIs(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -70,7 +71,7 @@ func TestBuildChatOptionsMapsMessageParts(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -98,7 +99,7 @@ func TestBuildChatOptionsMapsInferenceProvider(t *testing.T) {
 		},
 	}
 
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -141,7 +142,7 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 			return nil
 		},
 	}
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -232,7 +233,7 @@ func TestBuildChatOptionsDisablesOnStreamForGeminiProvider(t *testing.T) {
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 		OnStream: func(llm.StreamEvent) error { return nil },
 	}
-	opts := buildChatOptions(req, "gemini", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "gemini", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -248,7 +249,7 @@ func TestBuildChatOptionsDisablesOnStreamForCloudflareProvider(t *testing.T) {
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 		OnStream: func(llm.StreamEvent) error { return nil },
 	}
-	opts := buildChatOptions(req, "cloudflare", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "cloudflare", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -268,7 +269,7 @@ func TestBuildChatOptionsMapsDebugFn(t *testing.T) {
 			gotPayload = payload
 		},
 	}
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -287,7 +288,7 @@ func TestBuildChatOptionsAppliesResponseFormatWithoutTools(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 	}
-	opts := buildChatOptions(req, "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -310,7 +311,7 @@ func TestBuildChatOptionsSkipsResponseFormatWhenToolsPresent(t *testing.T) {
 			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
 		}},
 	}
-	opts := buildChatOptions(req, "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -326,11 +327,66 @@ func TestBuildChatOptionsSkipsResponseFormatWhenToolsPresent(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsMapsPromptCacheOptionsForOpenAIResp(t *testing.T) {
+	req := llm.Request{
+		Scene: "runtime.loop",
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "openai_resp", "gpt-5.4", "short", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OpenAI == nil {
+		t.Fatal("expected openai options to be set")
+	}
+	if got := built.Options.OpenAI["prompt_cache_key"]; got == "" || got == nil {
+		t.Fatalf("prompt_cache_key = %#v, want non-empty derived key", got)
+	}
+	if got := built.Options.OpenAI["prompt_cache_retention"]; got != "in-memory" {
+		t.Fatalf("prompt_cache_retention = %#v, want in-memory", got)
+	}
+	if got := built.Options.OpenAI["response_format"]; got != "json_object" {
+		t.Fatalf("response_format = %#v, want json_object", got)
+	}
+}
+
+func TestBuildChatOptionsMapsPromptCacheOptionsForAzure(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "azure", "gpt-5.4", "long", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.Azure == nil {
+		t.Fatal("expected azure options to be set")
+	}
+	if got := built.Options.Azure["prompt_cache_key"]; got == "" || got == nil {
+		t.Fatalf("prompt_cache_key = %#v, want non-empty derived key", got)
+	}
+	if got := built.Options.Azure["prompt_cache_retention"]; got != "24h" {
+		t.Fatalf("prompt_cache_retention = %#v, want 24h", got)
+	}
+	if got := built.Options.Azure["response_format"]; got != "json_object" {
+		t.Fatalf("response_format = %#v, want json_object", got)
+	}
+}
+
 func TestBuildChatOptionsDoesNotInjectTemperatureWhenUnset(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 	}
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -346,7 +402,7 @@ func TestBuildChatOptionsAppliesConfiguredDefaults(t *testing.T) {
 	}
 	temperature := 0.4
 	reasoningBudget := 8192
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "high", &reasoningBudget)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, &temperature, "high", &reasoningBudget)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -367,7 +423,7 @@ func TestBuildChatOptionsSkipsReasoningBudgetForOpenAIResp(t *testing.T) {
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
 	}
 	reasoningBudget := 8192
-	opts := buildChatOptions(req, "openai_resp", false, uniaiapi.ToolsEmulationOff, nil, "high", &reasoningBudget)
+	opts := buildChatOptions(req, "openai_resp", "", "", false, uniaiapi.ToolsEmulationOff, nil, "high", &reasoningBudget)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -386,7 +442,7 @@ func TestBuildChatOptionsRequestTemperatureOverridesConfiguredDefault(t *testing
 		Parameters: map[string]any{"temperature": 0.1},
 	}
 	temperature := 0.4
-	opts := buildChatOptions(req, "", false, uniaiapi.ToolsEmulationOff, &temperature, "", nil)
+	opts := buildChatOptions(req, "", "", "", false, uniaiapi.ToolsEmulationOff, &temperature, "", nil)
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -398,20 +454,160 @@ func TestBuildChatOptionsRequestTemperatureOverridesConfiguredDefault(t *testing
 
 func TestPartRoundTripBetweenLLMAndUniai(t *testing.T) {
 	src := []llm.Part{
-		{Type: llm.PartTypeText, Text: "hello"},
+		{Type: llm.PartTypeText, Text: "hello", CacheControl: &llm.CacheControl{TTL: "5m"}},
 		{Type: llm.PartTypeImageURL, URL: "https://example.com/a.png"},
 		{Type: llm.PartTypeImageBase64, MIMEType: "image/jpeg", DataBase64: "QUJD"},
 	}
-	toUniai := toUniaiPartsFromLLM(src)
+	toUniai := toUniaiPartsFromLLM("anthropic", src)
 	back := toLLMParts(toUniai)
 
-	if len(back) != len(src) {
-		t.Fatalf("parts length mismatch: got %d want %d", len(back), len(src))
+	if !reflect.DeepEqual(back, src) {
+		t.Fatalf("parts mismatch: got %+v want %+v", back, src)
 	}
-	for i := range src {
-		if back[i] != src[i] {
-			t.Fatalf("part[%d] mismatch: got %+v want %+v", i, back[i], src[i])
-		}
+}
+
+func TestBuildChatOptionsMapsToolCacheControl(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		Tools: []llm.Tool{{
+			Name:           "lookup",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+			CacheControl:   &llm.CacheControl{TTL: "1h"},
+		}},
+	}
+	opts := buildChatOptions(req, "anthropic", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if len(built.Tools) != 1 {
+		t.Fatalf("tools length = %d, want 1", len(built.Tools))
+	}
+	if built.Tools[0].CacheControl == nil || built.Tools[0].CacheControl.TTL != "1h" {
+		t.Fatalf("tool cache control = %#v, want 1h", built.Tools[0].CacheControl)
+	}
+}
+
+func TestBuildChatOptionsKeepsExplicitCacheControlForAnthropic(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{
+			{
+				Role: "system",
+				Parts: []llm.Part{{
+					Type:         llm.PartTypeText,
+					Text:         "sys",
+					CacheControl: &llm.CacheControl{TTL: "5m"},
+				}},
+			},
+			{Role: "user", Content: "hello"},
+		},
+		Tools: []llm.Tool{{
+			Name:           "lookup",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+			CacheControl:   &llm.CacheControl{TTL: "1h"},
+		}},
+	}
+
+	opts := buildChatOptions(req, "anthropic", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got := built.Messages[0].Parts[0].CacheControl; got == nil || got.TTL != "5m" {
+		t.Fatalf("system cache control = %#v, want TTL 5m", got)
+	}
+	if got := built.Tools[0].CacheControl; got == nil || got.TTL != "1h" {
+		t.Fatalf("tool cache control = %#v, want TTL 1h", got)
+	}
+}
+
+func TestBuildChatOptionsStripsExplicitCacheControlForOpenAI(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{
+			Role: "system",
+			Parts: []llm.Part{{
+				Type:         llm.PartTypeText,
+				Text:         "sys",
+				CacheControl: &llm.CacheControl{TTL: "5m"},
+			}},
+		}},
+		Tools: []llm.Tool{{
+			Name:           "lookup",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+			CacheControl:   &llm.CacheControl{TTL: "1h"},
+		}},
+	}
+
+	opts := buildChatOptions(req, "openai_resp", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got := built.Messages[0].Parts[0].CacheControl; got != nil {
+		t.Fatalf("system cache control = %#v, want nil", got)
+	}
+	if got := built.Tools[0].CacheControl; got != nil {
+		t.Fatalf("tool cache control = %#v, want nil", got)
+	}
+}
+
+func TestBuildChatOptionsStripsOnlySystemPromptCacheControlForBedrock(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{
+			{
+				Role: "system",
+				Parts: []llm.Part{{
+					Type:         llm.PartTypeText,
+					Text:         "sys",
+					CacheControl: &llm.CacheControl{TTL: "5m"},
+				}},
+			},
+			{
+				Role: "user",
+				Parts: []llm.Part{{
+					Type:         llm.PartTypeText,
+					Text:         "prefix",
+					CacheControl: &llm.CacheControl{TTL: "1h"},
+				}},
+			},
+		},
+		Tools: []llm.Tool{{
+			Name:           "lookup",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+			CacheControl:   &llm.CacheControl{TTL: "1h"},
+		}},
+	}
+
+	opts := buildChatOptions(req, "bedrock", "", "", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got := built.Messages[0].Parts[0].CacheControl; got != nil {
+		t.Fatalf("system cache control = %#v, want nil", got)
+	}
+	if got := built.Messages[1].Parts[0].CacheControl; got == nil || got.TTL != "1h" {
+		t.Fatalf("user cache control = %#v, want TTL 1h", got)
+	}
+	if got := built.Tools[0].CacheControl; got != nil {
+		t.Fatalf("tool cache control = %#v, want nil", got)
+	}
+}
+
+func TestNewStoresCacheTTLDefault(t *testing.T) {
+	client := New(Config{
+		Provider: "openai_resp",
+		Model:    "gpt-5.2",
+		CacheTTL: "long",
+	})
+
+	if client.cacheTTL != "long" {
+		t.Fatalf("cacheTTL = %q, want long", client.cacheTTL)
 	}
 }
 

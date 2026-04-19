@@ -66,6 +66,10 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	if err != nil {
 		return err
 	}
+	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(route.Values.CacheTTL)
+	if err != nil {
+		return err
+	}
 	client, err := depsutil.CreateClient(d.CreateLLMClient, route)
 	if err != nil {
 		return err
@@ -122,23 +126,24 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			defer wg.Done()
 
 			summary, runErr := runHeartbeatTask(ctx, d, heartbeatTaskOptions{
-				Logger:                  logger,
-				LogOptions:              logOpts,
-				Client:                  client,
-				Model:                   model,
-				Task:                    task,
-				Meta:                    meta,
-				TaskRunID:               taskRunID,
-				BaseRegistry:            baseReg,
-				SharedGuard:             sharedGuard,
-				Config:                  cfg,
-				EngineToolsConfig:       opts.EngineToolsConfig,
-				TaskTimeout:             opts.TaskTimeout,
-				WakeSignal:              wakeSignal,
-				MemoryOrchestrator:      orchestrator,
-				MemoryProjectionWorker:  projectionWorker,
-				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+				Logger:                   logger,
+				LogOptions:               logOpts,
+				Client:                   client,
+				Model:                    model,
+				Task:                     task,
+				Meta:                     meta,
+				TaskRunID:                taskRunID,
+				BaseRegistry:             baseReg,
+				SharedGuard:              sharedGuard,
+				Config:                   cfg,
+				EngineToolsConfig:        opts.EngineToolsConfig,
+				TaskTimeout:              opts.TaskTimeout,
+				WakeSignal:               wakeSignal,
+				SystemPromptCacheControl: systemPromptCacheControl,
+				MemoryOrchestrator:       orchestrator,
+				MemoryProjectionWorker:   projectionWorker,
+				MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
+				MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
 			})
 			if runErr != nil {
 				displayErr := depsutil.FormatRuntimeError(runErr)
@@ -194,23 +199,24 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 }
 
 type heartbeatTaskOptions struct {
-	Logger                  *slog.Logger
-	LogOptions              agent.LogOptions
-	Client                  llm.Client
-	Model                   string
-	Task                    string
-	Meta                    map[string]any
-	TaskRunID               string
-	BaseRegistry            *tools.Registry
-	SharedGuard             *guard.Guard
-	Config                  agent.Config
-	EngineToolsConfig       agent.EngineToolsConfig
-	TaskTimeout             time.Duration
-	WakeSignal              daemonruntime.PokeInput
-	MemoryOrchestrator      *memoryruntime.Orchestrator
-	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
+	Logger                   *slog.Logger
+	LogOptions               agent.LogOptions
+	Client                   llm.Client
+	Model                    string
+	Task                     string
+	Meta                     map[string]any
+	TaskRunID                string
+	BaseRegistry             *tools.Registry
+	SharedGuard              *guard.Guard
+	Config                   agent.Config
+	EngineToolsConfig        agent.EngineToolsConfig
+	TaskTimeout              time.Duration
+	WakeSignal               daemonruntime.PokeInput
+	SystemPromptCacheControl *llm.CacheControl
+	MemoryOrchestrator       *memoryruntime.Orchestrator
+	MemoryProjectionWorker   *memoryruntime.ProjectionWorker
+	MemoryInjectionEnabled   bool
+	MemoryInjectionMaxItems  int
 }
 
 func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOptions) (string, error) {
@@ -268,6 +274,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
 		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromHeartbeat(d))),
+		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{

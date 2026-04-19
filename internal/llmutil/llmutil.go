@@ -25,6 +25,7 @@ type RuntimeValues struct {
 	APIKey             string `config:"llm.api_key"`
 	Model              string `config:"llm.model"`
 	Headers            map[string]string
+	CacheTTL           string `config:"llm.cache_ttl"`
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
 	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
@@ -49,27 +50,32 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		return RuntimeValues{}
 	}
 	return RuntimeValues{
-		Provider:            strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
-		Model:               strings.TrimSpace(r.GetString("llm.model")),
-		Headers:             loadStringMapKeyFromReader(r, "llm.headers"),
-		AzureDeployment:     strings.TrimSpace(r.GetString("llm.azure.deployment")),
-		RequestTimeoutRaw:   strings.TrimSpace(r.GetString("llm.request_timeout")),
-		ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
-		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		PricingFile:         strings.TrimSpace(r.GetString("llm.pricing_file")),
-		ConfigPath:          strings.TrimSpace(r.GetString("config")),
-		Profiles:            loadLLMProfilesFromReader(r),
-		Routes:              loadLLMRoutesFromReader(r),
-		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSSecret:    firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSRegion:    firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:     firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
-		CloudflareAccountID: firstNonEmpty(r.GetString("llm.cloudflare.account_id")),
-		CloudflareAPIToken:  firstNonEmpty(r.GetString("llm.cloudflare.api_token")),
+		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:              strings.TrimSpace(r.GetString("llm.model")),
+		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
+		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
+		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
+		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:     strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw: strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw: strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		PricingFile:        strings.TrimSpace(r.GetString("llm.pricing_file")),
+		ConfigPath:         strings.TrimSpace(r.GetString("config")),
+		Profiles:           loadLLMProfilesFromReader(r),
+		Routes:             loadLLMRoutesFromReader(r),
+		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		CloudflareAccountID: firstNonEmpty(
+			r.GetString("llm.cloudflare.account_id"),
+		),
+		CloudflareAPIToken: firstNonEmpty(
+			r.GetString("llm.cloudflare.api_token"),
+		),
 	}
 }
 
@@ -157,6 +163,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Headers:            cloneStringMap(cfg.Headers),
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
+			CacheTTL:           strings.TrimSpace(values.CacheTTL),
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
 			ReasoningEffort:    reasoningEffort,
@@ -249,6 +256,23 @@ func toolsEmulationModeFromValue(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid llm.tools_emulation_mode %q (expected off|fallback|force)", mode)
 	}
+}
+
+func SystemPromptCacheControl(rawTTL string) (*llm.CacheControl, error) {
+	rawTTL = strings.TrimSpace(rawTTL)
+	if rawTTL == "" || strings.EqualFold(rawTTL, "off") {
+		return nil, nil
+	}
+
+	switch strings.ToLower(rawTTL) {
+	case "short", "long":
+		return &llm.CacheControl{TTL: strings.ToLower(rawTTL)}, nil
+	}
+
+	if _, err := time.ParseDuration(rawTTL); err != nil {
+		return nil, fmt.Errorf("invalid llm.cache_ttl %q (expected off|short|long|Go duration)", rawTTL)
+	}
+	return &llm.CacheControl{TTL: rawTTL}, nil
 }
 
 func optionalFloat64FromValue(raw, path string) (*float64, error) {

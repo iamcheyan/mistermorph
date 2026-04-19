@@ -260,6 +260,7 @@ Core LLM:
 - Most providers use `llm.endpoint`, `llm.api_key`, and `llm.model`.
 - Azure uses `llm.azure.deployment`.
 - Bedrock uses `llm.bedrock.*`.
+- `llm.cache_ttl` controls cache intent across providers. Supported values are `off`, `short`, `long`, and Go duration strings such as `5m`, `1h`, and `24h`. The runtime maps this to each provider's supported cache buckets.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, `plan_create`, and `memory_draft`.

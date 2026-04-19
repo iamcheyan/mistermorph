@@ -25,6 +25,7 @@ type ProfileConfig struct {
 	APIKey             string            `mapstructure:"api_key"`
 	Model              string            `mapstructure:"model"`
 	Headers            map[string]string `mapstructure:"headers"`
+	CacheTTL           string            `mapstructure:"cache_ttl"`
 	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
 	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode"`
 	TemperatureRaw     string            `mapstructure:"temperature"`
@@ -296,6 +297,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	cfg.Headers = cloneStringMap(cfg.Headers)
+	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
 	cfg.ToolsEmulationMode = strings.TrimSpace(cfg.ToolsEmulationMode)
 	cfg.TemperatureRaw = strings.TrimSpace(cfg.TemperatureRaw)
@@ -389,6 +391,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
+	applyStringOverride(&out.CacheTTL, override.CacheTTL)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
 	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
 	applyStringOverride(&out.TemperatureRaw, override.TemperatureRaw)

@@ -567,11 +567,13 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v.Set("llm.endpoint", "https://api.openai.com")
 	v.Set("llm.api_key", "base-key")
 	v.Set("llm.model", "gpt-5.2")
+	v.Set("llm.cache_ttl", "short")
 	v.Set("llm.request_timeout", "90s")
 	v.Set("llm.profiles", map[string]any{
 		"cheap": map[string]any{
 			"model":       "gpt-4.1-mini",
 			"temperature": "0.2",
+			"cache_ttl":   "long",
 		},
 		"reasoning": map[string]any{
 			"provider":         "xai",
@@ -597,6 +599,12 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.Profiles["cheap"].Model != "gpt-4.1-mini" {
 		t.Fatalf("cheap model = %q, want gpt-4.1-mini", values.Profiles["cheap"].Model)
 	}
+	if values.CacheTTL != "short" {
+		t.Fatalf("cache_ttl = %q, want short", values.CacheTTL)
+	}
+	if values.Profiles["cheap"].CacheTTL != "long" {
+		t.Fatalf("cheap cache_ttl = %q, want long", values.Profiles["cheap"].CacheTTL)
+	}
 	if values.Profiles["reasoning"].ReasoningEffortRaw != "high" {
 		t.Fatalf("reasoning effort = %q, want high", values.Profiles["reasoning"].ReasoningEffortRaw)
 	}
@@ -614,5 +622,73 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.MemoryDraft.Profile != "cheap" {
 		t.Fatalf("memory draft route profile = %q, want cheap", values.Routes.MemoryDraft.Profile)
+	}
+}
+
+func TestResolveProfile_AppliesCacheTTLOverrides(t *testing.T) {
+	values := RuntimeValues{
+		Provider: "openai_resp",
+		Model:    "gpt-5.2",
+		CacheTTL: "short",
+		Profiles: map[string]ProfileConfig{
+			"cheap": {
+				Model:    "gpt-4.1-mini",
+				CacheTTL: "long",
+			},
+		},
+	}
+
+	resolved, err := ResolveProfile(values, "cheap")
+	if err != nil {
+		t.Fatalf("ResolveProfile() error = %v", err)
+	}
+	if resolved.Values.CacheTTL != "long" {
+		t.Fatalf("resolved cache_ttl = %q, want long", resolved.Values.CacheTTL)
+	}
+	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
+		t.Fatalf("resolved model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
+	}
+}
+
+func TestSystemPromptCacheControl(t *testing.T) {
+	ctrl, err := SystemPromptCacheControl("short")
+	if err != nil {
+		t.Fatalf("SystemPromptCacheControl() error = %v", err)
+	}
+	if ctrl == nil || ctrl.TTL != "short" {
+		t.Fatalf("cache control = %#v, want TTL short", ctrl)
+	}
+}
+
+func TestSystemPromptCacheControlEmpty(t *testing.T) {
+	ctrl, err := SystemPromptCacheControl("")
+	if err != nil {
+		t.Fatalf("SystemPromptCacheControl() error = %v", err)
+	}
+	if ctrl != nil {
+		t.Fatalf("cache control = %#v, want nil", ctrl)
+	}
+}
+
+func TestSystemPromptCacheControlOff(t *testing.T) {
+	ctrl, err := SystemPromptCacheControl("off")
+	if err != nil {
+		t.Fatalf("SystemPromptCacheControl() error = %v", err)
+	}
+	if ctrl != nil {
+		t.Fatalf("cache control = %#v, want nil", ctrl)
+	}
+}
+
+func TestSystemPromptCacheControlRejectsInvalidTTL(t *testing.T) {
+	ctrl, err := SystemPromptCacheControl("not-a-ttl")
+	if err == nil {
+		t.Fatal("expected error for invalid cache ttl")
+	}
+	if ctrl != nil {
+		t.Fatalf("cache control = %#v, want nil", ctrl)
+	}
+	if !strings.Contains(err.Error(), "expected off|short|long|Go duration") {
+		t.Fatalf("error = %v, want cache ttl validation message", err)
 	}
 }

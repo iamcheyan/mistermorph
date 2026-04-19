@@ -37,6 +37,16 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+func WithSystemPromptCacheControl(ctrl *llm.CacheControl) Option {
+	return func(e *Engine) {
+		if ctrl == nil {
+			return
+		}
+		cloned := *ctrl
+		e.systemPromptCacheControl = &cloned
+	}
+}
+
 // WithPromptBuilder replaces the default system prompt builder.
 // This hook is intended for tests in this repository.
 func WithPromptBuilder(fn func(*tools.Registry, string) string) Option {
@@ -152,6 +162,8 @@ type Engine struct {
 
 	engineToolsConfig EngineToolsConfig
 
+	systemPromptCacheControl *llm.CacheControl
+
 	promptBuilder    func(registry *tools.Registry, task string) string
 	paramsBuilder    func(opts RunOptions) map[string]any
 	onToolStart      func(ctx *Context, toolName string)
@@ -238,7 +250,17 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		systemPrompt = BuildSystemPrompt(e.registry, e.spec)
 	}
 
-	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	systemMessage := llm.Message{Role: "system", Content: systemPrompt}
+	if e.systemPromptCacheControl != nil && strings.TrimSpace(systemPrompt) != "" {
+		ctrl := *e.systemPromptCacheControl
+		systemMessage.Parts = []llm.Part{{
+			Type:         llm.PartTypeText,
+			Text:         systemPrompt,
+			CacheControl: &ctrl,
+		}}
+	}
+
+	messages := []llm.Message{systemMessage}
 
 	injectedMeta := runtimeclock.WithRuntimeClockMeta(opts.Meta, time.Now())
 	if _, ok := injectedMeta["host_os"]; !ok {

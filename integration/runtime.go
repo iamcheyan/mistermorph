@@ -146,6 +146,10 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	if err != nil {
 		return nil, err
 	}
+	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
+	if err != nil {
+		return nil, err
+	}
 	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	var promptInspector *llminspect.PromptInspector
@@ -261,6 +265,9 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
 		}),
 		agent.WithACPAgents(snap.ACPAgents),
+	}
+	if systemPromptCacheControl != nil {
+		opts = append(opts, agent.WithSystemPromptCacheControl(systemPromptCacheControl))
 	}
 	if g := rt.buildGuard(snap.Guard, logger); g != nil {
 		opts = append(opts, agent.WithGuard(g))

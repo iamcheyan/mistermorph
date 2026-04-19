@@ -28,6 +28,7 @@ type Config struct {
 	Temperature     *float64
 	ReasoningEffort string
 	ReasoningBudget *int
+	CacheTTL        string
 
 	ToolsEmulationMode  string
 	AzureAPIKey         string
@@ -51,6 +52,7 @@ type Client struct {
 	temperature        *float64
 	reasoningEffort    string
 	reasoningBudget    *int
+	cacheTTL           string
 	toolsEmulationMode uniaiapi.ToolsEmulationMode
 	client             *uniaiapi.Client
 }
@@ -103,6 +105,7 @@ func New(cfg Config) *Client {
 		temperature:        cloneFloat64(cfg.Temperature),
 		reasoningEffort:    strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort)),
 		reasoningBudget:    cloneInt(cfg.ReasoningBudget),
+		cacheTTL:           strings.TrimSpace(cfg.CacheTTL),
 		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
 		client:             uniaiapi.New(uCfg),
 	}
@@ -115,14 +118,13 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
 	}
-
-	opts := buildChatOptions(req, c.provider, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+	opts := buildChatOptions(req, c.provider, c.model, c.cacheTTL, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
 		c.emitChatError(req.DebugFn, err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+		opts = buildChatOptions(req, c.provider, c.model, c.cacheTTL, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
 			c.emitChatError(req.DebugFn, err, false, 2)
@@ -156,12 +158,13 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
+	req = adaptRequestForProvider(req, provider)
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
 		if len(m.Parts) > 0 {
-			msg.Parts = toUniaiPartsFromLLM(m.Parts)
+			msg.Parts = toUniaiPartsFromLLM(provider, m.Parts)
 		}
 		if strings.TrimSpace(m.ToolCallID) != "" {
 			msg.ToolCallID = m.ToolCallID
@@ -173,6 +176,8 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	}
 
 	opts := []uniaiapi.ChatOption{uniaiapi.WithReplaceMessages(msgs...)}
+	openAIOptions := structs.JSONMap{}
+	azureOptions := structs.JSONMap{}
 	if provider != "" {
 		opts = append(opts, uniaiapi.WithProvider(provider))
 	}
@@ -190,11 +195,17 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 			if name == "" {
 				continue
 			}
-			tools = append(tools, uniaiapi.FunctionTool(
+			tool := uniaiapi.FunctionTool(
 				name,
 				strings.TrimSpace(t.Description),
 				[]byte(t.ParametersJSON),
-			))
+			)
+			if t.CacheControl != nil {
+				if ctrl, ok := toUniaiCacheControlForProvider(provider, *t.CacheControl); ok {
+					tool = uniaiapi.WithToolCacheControl(tool, ctrl)
+				}
+			}
+			tools = append(tools, tool)
 		}
 		if len(tools) > 0 {
 			opts = append(opts, uniaiapi.WithTools(tools))
@@ -240,10 +251,18 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
+	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, req, openAIOptions, azureOptions)
 	if forceJSON && len(req.Tools) == 0 {
-		opts = append(opts, uniaichat.WithOpenAIOptions(structs.JSONMap{
-			"response_format": "json_object",
-		}))
+		openAIOptions["response_format"] = "json_object"
+		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
+			azureOptions["response_format"] = "json_object"
+		}
+	}
+	if len(openAIOptions) > 0 {
+		opts = append(opts, uniaiapi.WithOpenAIOptions(openAIOptions))
+	}
+	if len(azureOptions) > 0 {
+		opts = append(opts, uniaiapi.WithAzureOptions(azureOptions))
 	}
 
 	if req.DebugFn != nil {
@@ -354,6 +373,110 @@ func cloneIntMap(in map[string]int) map[string]int {
 	return out
 }
 
+func toLLMCacheControl(ctrl *uniaiapi.CacheControl) *llm.CacheControl {
+	if ctrl == nil {
+		return nil
+	}
+	return &llm.CacheControl{TTL: strings.TrimSpace(ctrl.TTL)}
+}
+
+func toUniaiCacheControlForProvider(provider string, ctrl llm.CacheControl) (uniaiapi.CacheControl, bool) {
+	ttl := explicitCacheTTLForProvider(provider, ctrl.TTL)
+	if ttl == "" {
+		return uniaiapi.CacheControl{}, false
+	}
+	return uniaiapi.CacheControl{TTL: ttl}, true
+}
+
+func adaptRequestForProvider(req llm.Request, provider string) llm.Request {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "anthropic":
+		return req
+	case "bedrock":
+		return stripExplicitCacheControl(req, false, true)
+	default:
+		return stripExplicitCacheControl(req, true, true)
+	}
+}
+
+func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools bool) llm.Request {
+	out := req
+
+	if len(req.Messages) > 0 {
+		messages := make([]llm.Message, len(req.Messages))
+		copy(messages, req.Messages)
+		changed := false
+		for i, msg := range messages {
+			if len(msg.Parts) == 0 {
+				continue
+			}
+			parts := make([]llm.Part, len(msg.Parts))
+			copy(parts, msg.Parts)
+			partChanged := false
+			for j, part := range parts {
+				if part.CacheControl == nil {
+					continue
+				}
+				if stripAllParts || strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
+					part.CacheControl = nil
+					parts[j] = part
+					partChanged = true
+				}
+			}
+			if partChanged {
+				msg.Parts = parts
+				messages[i] = msg
+				changed = true
+			}
+		}
+		if changed {
+			out.Messages = messages
+		}
+	}
+
+	if stripTools && len(req.Tools) > 0 {
+		tools := make([]llm.Tool, len(req.Tools))
+		copy(tools, req.Tools)
+		changed := false
+		for i, tool := range tools {
+			if tool.CacheControl == nil {
+				continue
+			}
+			tool.CacheControl = nil
+			tools[i] = tool
+			changed = true
+		}
+		if changed {
+			out.Tools = tools
+		}
+	}
+
+	return out
+}
+
+func applyPromptCacheOptions(provider, model, cacheTTL string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
+	retention := promptCacheRetentionForProvider(provider, cacheTTL)
+	key := derivedPromptCacheKey(provider, model, req)
+	if key == "" && retention == "" {
+		return
+	}
+	var target structs.JSONMap
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai", "openai_resp":
+		target = openAIOptions
+	case "azure":
+		target = azureOptions
+	default:
+		return
+	}
+	if key != "" {
+		target["prompt_cache_key"] = key
+	}
+	if retention != "" {
+		target["prompt_cache_retention"] = retention
+	}
+}
+
 func normalizeToolsEmulationMode(mode string) uniaiapi.ToolsEmulationMode {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "force":
@@ -437,11 +560,12 @@ func toLLMParts(parts []uniaiapi.Part) []llm.Part {
 			continue
 		}
 		out = append(out, llm.Part{
-			Type:       partType,
-			Text:       part.Text,
-			URL:        part.URL,
-			DataBase64: part.DataBase64,
-			MIMEType:   part.MIMEType,
+			Type:         partType,
+			Text:         part.Text,
+			URL:          part.URL,
+			DataBase64:   part.DataBase64,
+			MIMEType:     part.MIMEType,
+			CacheControl: toLLMCacheControl(part.CacheControl),
 		})
 	}
 	if len(out) == 0 {
@@ -450,7 +574,7 @@ func toLLMParts(parts []uniaiapi.Part) []llm.Part {
 	return out
 }
 
-func toUniaiPartsFromLLM(parts []llm.Part) []uniaiapi.Part {
+func toUniaiPartsFromLLM(provider string, parts []llm.Part) []uniaiapi.Part {
 	if len(parts) == 0 {
 		return nil
 	}
@@ -466,6 +590,164 @@ func toUniaiPartsFromLLM(parts []llm.Part) []uniaiapi.Part {
 			URL:        part.URL,
 			DataBase64: part.DataBase64,
 			MIMEType:   part.MIMEType,
+			CacheControl: func() *uniaiapi.CacheControl {
+				if part.CacheControl == nil {
+					return nil
+				}
+				ctrl, ok := toUniaiCacheControlForProvider(provider, *part.CacheControl)
+				if !ok {
+					return nil
+				}
+				return &ctrl
+			}(),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func promptCacheRetentionForProvider(provider, rawTTL string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai", "openai_resp", "azure":
+	default:
+		return ""
+	}
+	return normalizePromptCacheRetention(rawTTL)
+}
+
+func normalizePromptCacheRetention(rawTTL string) string {
+	rawTTL = strings.TrimSpace(rawTTL)
+	if rawTTL == "" || strings.EqualFold(rawTTL, "off") {
+		return ""
+	}
+	switch strings.ToLower(rawTTL) {
+	case "short":
+		return "in-memory"
+	case "long":
+		return "24h"
+	}
+	d, err := time.ParseDuration(rawTTL)
+	if err != nil {
+		return ""
+	}
+	if d <= 5*time.Minute {
+		return "in-memory"
+	}
+	return "24h"
+}
+
+func explicitCacheTTLForProvider(provider, rawTTL string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "anthropic", "bedrock":
+	default:
+		return ""
+	}
+	rawTTL = strings.TrimSpace(rawTTL)
+	if rawTTL == "" || strings.EqualFold(rawTTL, "off") {
+		return ""
+	}
+	switch strings.ToLower(rawTTL) {
+	case "short":
+		return "5m"
+	case "long":
+		return "1h"
+	}
+	d, err := time.ParseDuration(rawTTL)
+	if err != nil {
+		return ""
+	}
+	if d <= 5*time.Minute {
+		return "5m"
+	}
+	return "1h"
+}
+
+func derivedPromptCacheKey(provider, model string, req llm.Request) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai", "openai_resp", "azure":
+	default:
+		return ""
+	}
+
+	stable := promptCacheStablePayload{
+		Model: strings.TrimSpace(model),
+		Scene: strings.TrimSpace(req.Scene),
+	}
+	for _, msg := range req.Messages {
+		if !strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
+			continue
+		}
+		stable.Messages = append(stable.Messages, stablePromptMessage{
+			Content: strings.TrimSpace(msg.Content),
+			Parts:   stableParts(msg.Parts),
+		})
+	}
+	for _, tool := range req.Tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		stable.Tools = append(stable.Tools, stablePromptTool{
+			Name:           name,
+			Description:    strings.TrimSpace(tool.Description),
+			ParametersJSON: strings.TrimSpace(tool.ParametersJSON),
+		})
+	}
+	if len(stable.Messages) == 0 && len(stable.Tools) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(stable)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return "mm-" + base64.RawURLEncoding.EncodeToString(sum[:12])
+}
+
+type promptCacheStablePayload struct {
+	Model    string                `json:"model,omitempty"`
+	Scene    string                `json:"scene,omitempty"`
+	Messages []stablePromptMessage `json:"messages,omitempty"`
+	Tools    []stablePromptTool    `json:"tools,omitempty"`
+}
+
+type stablePromptMessage struct {
+	Content string       `json:"content,omitempty"`
+	Parts   []stablePart `json:"parts,omitempty"`
+}
+
+type stablePromptTool struct {
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	ParametersJSON string `json:"parameters_json,omitempty"`
+}
+
+type stablePart struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	URL        string `json:"url,omitempty"`
+	DataBase64 string `json:"data_base64,omitempty"`
+	MIMEType   string `json:"mime_type,omitempty"`
+}
+
+func stableParts(parts []llm.Part) []stablePart {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]stablePart, 0, len(parts))
+	for _, part := range parts {
+		partType := strings.TrimSpace(part.Type)
+		if partType == "" {
+			continue
+		}
+		out = append(out, stablePart{
+			Type:       partType,
+			Text:       strings.TrimSpace(part.Text),
+			URL:        strings.TrimSpace(part.URL),
+			DataBase64: strings.TrimSpace(part.DataBase64),
+			MIMEType:   strings.TrimSpace(part.MIMEType),
 		})
 	}
 	if len(out) == 0 {

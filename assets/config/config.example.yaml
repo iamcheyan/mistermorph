@@ -26,6 +26,14 @@ llm:
   # headers:
   #   YOUR-HEADER: "${YOUR_HEADER_VALUE}"
   #   "-X-ABC-TOKEN": "${ABC_TOKEN}"
+  # Cache hint shared across providers.
+  # Values:
+  #   - off
+  #   - short
+  #   - long
+  #   - Go duration strings such as "5m", "1h", "24h"
+  # The runtime maps this to provider-supported cache buckets automatically.
+  cache_ttl: "short"
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -58,6 +66,7 @@ llm:
   # profiles:
   #   cheap:
   #     model: "gpt-4.1-mini"
+  #     cache_ttl: "long"
   #   reasoning:
   #     provider: xai
   #     model: "grok-4.1-fast-reasoning"

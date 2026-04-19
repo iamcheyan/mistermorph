@@ -186,6 +186,10 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	defer closeRuntimeClient(logger, mainClient)
+	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
+	if err != nil {
+		return RunResult{}, err
+	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = strings.TrimSpace(mainRoute.ClientConfig.Model)
@@ -236,6 +240,9 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		agent.WithSubtaskRunner(rt),
 		agent.WithEngineToolsConfig(engineToolsConfig),
 		agent.WithACPAgents(rt.ACPAgents),
+	}
+	if systemPromptCacheControl != nil {
+		engineOpts = append(engineOpts, agent.WithSystemPromptCacheControl(systemPromptCacheControl))
 	}
 	if rt.SharedGuard != nil {
 		engineOpts = append(engineOpts, agent.WithGuard(rt.SharedGuard))

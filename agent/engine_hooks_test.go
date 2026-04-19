@@ -185,6 +185,23 @@ func TestWithParamsBuilder_SetsField(t *testing.T) {
 	}
 }
 
+func TestWithSystemPromptCacheControl_SetsField(t *testing.T) {
+	client := newMockClient(finalResponse("ok"))
+	e := New(
+		client,
+		baseRegistry(),
+		baseCfg(),
+		DefaultPromptSpec(),
+		WithSystemPromptCacheControl(&llm.CacheControl{TTL: "5m"}),
+	)
+	if e.systemPromptCacheControl == nil {
+		t.Fatal("expected systemPromptCacheControl to be set")
+	}
+	if e.systemPromptCacheControl.TTL != "5m" {
+		t.Fatalf("systemPromptCacheControl.TTL = %q, want 5m", e.systemPromptCacheControl.TTL)
+	}
+}
+
 func TestWithOnToolSuccess_SetsField(t *testing.T) {
 	fn := func(ctx *Context, toolName string) {}
 	client := newMockClient(finalResponse("ok"))
@@ -468,6 +485,47 @@ func TestPromptBuilder_DefaultUsedWhenNil(t *testing.T) {
 	expected := BuildSystemPrompt(reg, DefaultPromptSpec())
 	if calls[0].Messages[0].Content != expected {
 		t.Error("expected default BuildSystemPrompt to be used when promptBuilder is nil")
+	}
+}
+
+func TestRun_AddsSystemPromptCacheControlPart(t *testing.T) {
+	client := newMockClient(finalResponse("ok"))
+	reg := baseRegistry()
+
+	e := New(
+		client,
+		reg,
+		baseCfg(),
+		DefaultPromptSpec(),
+		WithSystemPromptCacheControl(&llm.CacheControl{TTL: "1h"}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test task", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls := client.allCalls()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one LLM call")
+	}
+
+	expected := BuildSystemPrompt(reg, DefaultPromptSpec())
+	msg := calls[0].Messages[0]
+	if msg.Content != expected {
+		t.Fatalf("system prompt content = %q, want %q", msg.Content, expected)
+	}
+	if len(msg.Parts) != 1 {
+		t.Fatalf("system prompt parts len = %d, want 1", len(msg.Parts))
+	}
+	if msg.Parts[0].Type != llm.PartTypeText {
+		t.Fatalf("system prompt part type = %q, want text", msg.Parts[0].Type)
+	}
+	if msg.Parts[0].Text != expected {
+		t.Fatalf("system prompt part text = %q, want %q", msg.Parts[0].Text, expected)
+	}
+	if msg.Parts[0].CacheControl == nil || msg.Parts[0].CacheControl.TTL != "1h" {
+		t.Fatalf("system prompt cache control = %#v, want TTL 1h", msg.Parts[0].CacheControl)
 	}
 }
 

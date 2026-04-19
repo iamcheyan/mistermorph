@@ -75,6 +75,9 @@ func (r *localSubtaskRunner) runAgentSubtask(ctx context.Context, meta map[strin
 	if r.engine.guard != nil {
 		subOpts = append(subOpts, WithGuard(r.engine.guard))
 	}
+	if r.engine.systemPromptCacheControl != nil {
+		subOpts = append(subOpts, WithSystemPromptCacheControl(r.engine.systemPromptCacheControl))
+	}
 
 	subEngine := New(client, req.Registry, Config{
 		MaxSteps:        r.engine.config.MaxSteps,
