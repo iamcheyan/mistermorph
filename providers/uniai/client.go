@@ -295,7 +295,7 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 
 func supportsStreaming(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "gemini", "cloudflare":
+	case "anthropic", "gemini", "cloudflare":
 		return false
 	default:
 		return true
