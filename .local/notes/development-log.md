@@ -48,6 +48,45 @@ git push origin feat/xxx
 
 ---
 
+## 2026-04-19 (晚) - PR #35 Review 反馈修复
+
+### 背景
+上游 lyricat 对 PR #35（chat 命令）提出了三点 review 反馈：
+
+1. **memory worker 生命周期**：chat 里用 `defer cancel()` 导致 worker 随 `buildChatSession()` 退出而终止，其他 runtime 都是挂长生命周期 ctx
+2. **/reset 语义**：应该跟 Telegram 一样只清会话态（history），不删持久 memory；删 memory 用 /forget
+3. **memory 注入方向**：确认注入的是 projection 产物（PrepareInjection -> BuildInjection），方向正确
+
+### 修复内容（commit `bf44582` on `pr-chat`）
+
+**文件**: `cmd/mistermorph/chatcmd/session.go`
+- 用 `context.WithCancel(context.Background())` 创建长生命周期 `workerCtx`
+- `memWorker.Start(workerCtx)` 替代 `memWorker.Start(baseCtx)`
+- `sess.memCleanup` 改为 `workerCancel` 函数，REPL 退出时 cancel worker ctx
+- `promptCtx` 单独用 `WithTimeout` 给 `PromptSpecWithSkills`
+
+**文件**: `cmd/mistermorph/chatcmd/memory.go`
+- `handleForget()` 新增 `mgr *memory.Manager` 参数
+- 调用 `clearCLIProjectedMemory(mgr, subjectID)` 实际删除持久 memory 文件
+
+**文件**: `cmd/mistermorph/chatcmd/commands.go`
+- 新增 `/reset` 命令：`*history = nil`（只清历史，不动 memory）
+- `/forget` 调用传入 `sess.memManager`
+- 更新 help 文本
+
+**文件**: `cmd/mistermorph/chatcmd/repl.go`
+- TAB 补全列表新增 `/reset`
+
+**系统 prompt 更新**：
+- `/reset` — reset the current conversation (clear history, keep memory)
+- `/forget` — clear the project memory (persistent records)
+
+### 状态
+- `pr-chat` 分支已 force push 到 origin
+- 等待 lyricat 再次 review
+
+---
+
 ## 2026-04-19
 
 ### 已完成
