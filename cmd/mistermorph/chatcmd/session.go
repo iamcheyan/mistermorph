@@ -38,6 +38,7 @@ type chatSession struct {
 	mainCfg          llmconfig.ClientConfig
 	engine           *agent.Engine
 	toolRegistry     *tools.Registry
+	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
 	memManager       *memory.Manager
 	memOrchestrator  *memoryruntime.Orchestrator
 	memWorker        *memoryruntime.ProjectionWorker
@@ -50,12 +51,62 @@ type chatSession struct {
 	sessionStore     *llmselect.Store
 	llmValues        llmutil.RuntimeValues
 	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine       func(llm.Client, string) *agent.Engine
+	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
 	promptSpec       agent.PromptSpec
 	timeout          time.Duration
 	writer           io.Writer
 	stopAnim         func()
 	setAnimMessage   func(msg string)
+}
+
+func cloneToolRegistry(base *tools.Registry) *tools.Registry {
+	reg := tools.NewRegistry()
+	if base == nil {
+		return reg
+	}
+	for _, t := range base.All() {
+		reg.Register(t)
+	}
+	return reg
+}
+
+func buildChatToolRegistry(deps Dependencies) *tools.Registry {
+	if deps.RegistryFromViper == nil {
+		return tools.NewRegistry()
+	}
+	return cloneToolRegistry(deps.RegistryFromViper())
+}
+
+func (s *chatSession) rebuildRuntimeState() error {
+	currentRoute, err := llmselect.ResolveMainRoute(s.llmValues, s.sessionStore.Get())
+	if err != nil {
+		return err
+	}
+
+	reg := buildChatToolRegistry(s.deps)
+
+	planRoute, err := llmutil.ResolveRoute(s.llmValues, llmutil.RoutePurposePlanCreate)
+	if err != nil {
+		return err
+	}
+	planClient := s.client
+	if !planRoute.SameProfile(currentRoute) {
+		planClient, err = s.buildClient(planRoute, nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	toolsutil.RegisterRuntimeTools(reg, s.runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
+		DefaultClient:    s.client,
+		DefaultModel:     strings.TrimSpace(s.mainCfg.Model),
+		PlanCreateClient: planClient,
+		PlanCreateModel:  strings.TrimSpace(planRoute.ClientConfig.Model),
+	})
+
+	s.toolRegistry = reg
+	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model)
+	return nil
 }
 
 func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, error) {
@@ -140,13 +191,8 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 
-	reg := (*tools.Registry)(nil)
-	if deps.RegistryFromViper != nil {
-		reg = deps.RegistryFromViper()
-	}
-	if reg == nil {
-		reg = tools.NewRegistry()
-	}
+	reg := buildChatToolRegistry(deps)
+	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 
 	planClient := client
 	planModel := strings.TrimSpace(mainCfg.Model)
@@ -169,7 +215,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}
 	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
-	toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
+	toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient:    client,
 		DefaultModel:     strings.TrimSpace(mainCfg.Model),
 		PlanCreateClient: planClient,
@@ -221,27 +267,8 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	if err != nil {
 		logger.Warn("chat_memory_init_failed", "error", err.Error())
 	}
-	if memCleanup != nil {
-		defer memCleanup()
-	}
 	if memWorker != nil {
 		memWorker.Start(workerCtx)
-	}
-
-	// Inject memory context into prompt
-	if memOrchestrator != nil {
-		memCtx, memErr := memOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      subjectID,
-			RequestContext: memory.ContextPrivate,
-			MaxItems:       20,
-		})
-		if memErr != nil {
-			logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
-		} else if strings.TrimSpace(memCtx) != "" {
-			promptSpec.Blocks = append([]agent.PromptBlock{{
-				Content: "## Project Memory\n\n" + memCtx,
-			}}, promptSpec.Blocks...)
-		}
 	}
 
 	var opts []agent.Option
@@ -316,10 +343,10 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}))
 
-	makeEngine := func(engClient llm.Client, defaultModel string) *agent.Engine {
+	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) *agent.Engine {
 		return agent.New(
 			engClient,
-			reg,
+			engReg,
 			agent.Config{
 				MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
 				ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
@@ -337,7 +364,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			)...,
 		)
 	}
-	engine := makeEngine(client, mainCfg.Model)
+	engine := makeEngine(reg, client, mainCfg.Model)
 
 	sess = &chatSession{
 		cmd:              cmd,
@@ -348,10 +375,16 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		mainCfg:          mainCfg,
 		engine:           engine,
 		toolRegistry:     reg,
+		runtimeToolsCfg:  runtimeToolsCfg,
 		memManager:       memManager,
 		memOrchestrator:  memOrchestrator,
 		memWorker:        memWorker,
-		memCleanup:       workerCancel,
+		memCleanup: func() {
+			workerCancel()
+			if memCleanup != nil {
+				memCleanup()
+			}
+		},
 		subjectID:        subjectID,
 		compactMode:      compactMode,
 		userName:         userName,
