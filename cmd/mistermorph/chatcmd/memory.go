@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -23,7 +21,7 @@ func buildTurnSummary(userInput, assistantOutput string, steps []agent.Step) str
 	}
 
 	lower := strings.ToLower(userInput)
-	if strings.HasPrefix(lower, "/remember") || strings.HasPrefix(lower, "/forget") || strings.HasPrefix(lower, "/memory") {
+	if strings.HasPrefix(lower, "/remember") || strings.HasPrefix(lower, "/memory") {
 		return ""
 	}
 
@@ -125,8 +123,7 @@ func autoUpdateMemory(
 func handleRemember(
 	writer io.Writer,
 	input string,
-	memOrchestrator *memoryruntime.Orchestrator,
-	memWorker *memoryruntime.ProjectionWorker,
+	mgr *memory.Manager,
 	subjectID string,
 ) {
 	entry := input[len("/remember "):]
@@ -134,47 +131,22 @@ func handleRemember(
 		_, _ = fmt.Fprintln(writer, "Usage: /remember <content>")
 		return
 	}
-	if memOrchestrator == nil {
+	if mgr == nil {
 		_, _ = fmt.Fprintln(writer, "Memory system not available.")
 		return
 	}
-	_, recErr := memOrchestrator.Record(memoryruntime.RecordRequest{
-		TaskRunID:   "remember_" + time.Now().UTC().Format("20060102_150405"),
-		SessionID:   subjectID,
-		SubjectID:   subjectID,
-		Channel:     "cli",
-		TaskText:    entry,
-		FinalOutput: entry,
-		SessionContext: memory.SessionContext{
-			ConversationID: subjectID,
-		},
+	updated, err := mgr.UpdateLongTerm(subjectID, memory.PromoteDraft{
+		GoalsProjects: []string{entry},
 	})
-	if recErr != nil {
-		_, _ = fmt.Fprintf(writer, "error saving memory: %v\n", recErr)
-	} else {
-		if memWorker != nil {
-			memWorker.NotifyRecordAppended()
-		}
-		_, _ = fmt.Fprintln(writer, "Remembered.")
-	}
-}
-
-func handleForget(
-	writer io.Writer,
-	memOrchestrator *memoryruntime.Orchestrator,
-	memWorker *memoryruntime.ProjectionWorker,
-	mgr *memory.Manager,
-	subjectID string,
-) {
-	if memOrchestrator == nil {
-		_, _ = fmt.Fprintln(writer, "Memory system not available.")
+	if err != nil {
+		_, _ = fmt.Fprintf(writer, "error saving long-term memory: %v\n", err)
 		return
 	}
-	if err := clearCLIProjectedMemory(mgr, subjectID); err != nil {
-		_, _ = fmt.Fprintf(writer, "Error clearing memory: %v\n", err)
+	if !updated {
+		_, _ = fmt.Fprintln(writer, "No long-term memory added.")
 		return
 	}
-	_, _ = fmt.Fprintln(writer, "Memory cleared.")
+	_, _ = fmt.Fprintln(writer, "Remembered.")
 }
 
 func handleMemory(
@@ -215,21 +187,4 @@ func prepareTurnMemoryContext(memOrchestrator *memoryruntime.Orchestrator, subje
 	})
 }
 
-func clearCLIProjectedMemory(mgr *memory.Manager, subjectID string) error {
-	if mgr == nil {
-		return nil
-	}
-	now := time.Now().UTC()
-	for dayOffset := 0; dayOffset < mgr.ShortTermDays; dayOffset++ {
-		date := now.AddDate(0, 0, -dayOffset)
-		abs, _ := mgr.ShortTermSessionPath(date, subjectID)
-		if abs != "" {
-			_ = os.Remove(abs)
-		}
-	}
-	abs, _ := mgr.LongTermPath(subjectID)
-	if abs != "" {
-		_ = os.Remove(abs)
-	}
-	return nil
-}
+

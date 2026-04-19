@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -55,8 +56,9 @@ type chatSession struct {
 	promptSpec       agent.PromptSpec
 	timeout          time.Duration
 	writer           io.Writer
+	uiMu             sync.Mutex
 	stopAnim         func()
-	setAnimMessage   func(msg string)
+	setAnimMessage   func(string)
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -75,6 +77,70 @@ func buildChatToolRegistry(deps Dependencies) *tools.Registry {
 		return tools.NewRegistry()
 	}
 	return cloneToolRegistry(deps.RegistryFromViper())
+}
+
+func (s *chatSession) setWriter(writer io.Writer) {
+	if s == nil {
+		return
+	}
+	s.uiMu.Lock()
+	s.writer = writer
+	s.uiMu.Unlock()
+}
+
+func (s *chatSession) currentWriter() io.Writer {
+	if s == nil {
+		return io.Discard
+	}
+	s.uiMu.Lock()
+	writer := s.writer
+	cmd := s.cmd
+	s.uiMu.Unlock()
+	if writer != nil {
+		return writer
+	}
+	if cmd != nil {
+		return cmd.OutOrStdout()
+	}
+	return io.Discard
+}
+
+func (s *chatSession) startThinkingAnimation() {
+	if s == nil {
+		return
+	}
+	writer := s.currentWriter()
+	stopAnim, setAnimMessage := thinkingAnimation(writer)
+	s.uiMu.Lock()
+	s.stopAnim = stopAnim
+	s.setAnimMessage = setAnimMessage
+	s.uiMu.Unlock()
+}
+
+func (s *chatSession) stopThinkingAnimation() {
+	if s == nil {
+		return
+	}
+	s.uiMu.Lock()
+	stopAnim := s.stopAnim
+	s.stopAnim = nil
+	s.setAnimMessage = nil
+	s.uiMu.Unlock()
+	if stopAnim != nil {
+		stopAnim()
+	}
+}
+
+func (s *chatSession) setThinkingMessage(msg string) {
+	if s == nil {
+		return
+	}
+	s.uiMu.Lock()
+	setAnimMessage := s.setAnimMessage
+	s.uiMu.Unlock()
+	if setAnimMessage != nil {
+		setAnimMessage(msg)
+	}
 }
 
 func (s *chatSession) rebuildRuntimeState() error {
@@ -253,9 +319,8 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			"The user can type these special commands at any time:\n"+
 			"- `/exit` or `/quit` — exit the chat session\n"+
 			"- `/reset` — reset the current conversation (clear history, keep memory)\n"+
-			"- `/forget` — clear the project memory (persistent records)\n"+
 			"- `/memory` — display the current project memory\n"+
-			"- `/remember <content>` — add an entry to project memory\n"+
+			"- `/remember <content>` — add a long-term memory item for the current project\n"+
 			"- `/init` — generate an AGENTS.md file for the current project (analyzes the codebase and creates a guide for AI assistants)\n"+
 			"- `/update` — regenerate AGENTS.md, overwriting the existing file (useful after major project changes)\n"+
 			"If the user asks about any of these commands, explain what they do.", chatFileCacheDir),
@@ -293,11 +358,13 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		agentName = "assistant"
 	}
 
-	// Use rl.Stdout() as the unified writer
 	var sess *chatSession
 
 	// Add tool start callback to show what tools are being used
 	opts = append(opts, agent.WithOnToolStart(func(runCtx *agent.Context, toolName string, params map[string]any) {
+		if sess == nil {
+			return
+		}
 		arg := ""
 		for _, k := range []string{"path", "TargetFile", "target_file", "cmd", "url", "q"} {
 			if v, ok := params[k].(string); ok && v != "" {
@@ -308,38 +375,36 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		if len(arg) > 80 {
 			arg = arg[:77] + "..."
 		}
+		writer := sess.currentWriter()
 		msg := fmt.Sprintf("\x1b[90m  used \x1b[36m%s\x1b[0m", toolName)
 		if arg != "" {
 			msg += fmt.Sprintf(" \x1b[90m(%s)\x1b[0m", arg)
 		}
-		_, _ = fmt.Fprintf(sess.writer, "\r\033[K%s\n", msg)
+		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
 	}))
 	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+		if sess == nil {
+			return
+		}
 		logger.Debug("plan_step_update_callback", "completedIndex", update.CompletedIndex, "startedIndex", update.StartedIndex, "startedStep", update.StartedStep, "reason", update.Reason)
 		payload := formatPlanProgressUpdate(runCtx, update)
 		if payload != "" {
-			// Update spinner message to show plan progress instead of "assistant is thinking..."
-			if sess.setAnimMessage != nil {
-				sess.setAnimMessage(payload)
-			}
+			sess.setThinkingMessage(payload)
 		} else if update.CompletedIndex >= 0 && update.CompletedStep != "" {
-			// Step completed with no next step — stop spinner, print completion, restart
-			if sess.stopAnim != nil {
-				sess.stopAnim()
-			}
+			sess.stopThinkingAnimation()
+			writer := sess.currentWriter()
 			total := 0
 			if runCtx != nil && runCtx.Plan != nil {
 				total = len(runCtx.Plan.Steps)
 			}
-			_, _ = fmt.Fprintf(sess.writer, "\033[90mplan: ✓ %s", update.CompletedStep)
+			_, _ = fmt.Fprintf(writer, "\033[90mplan: ✓ %s", update.CompletedStep)
 			if total > 0 {
-				_, _ = fmt.Fprintf(sess.writer, " [%d/%d]", update.CompletedIndex+1, total)
+				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.CompletedIndex+1, total)
 			}
-			_, _ = fmt.Fprint(sess.writer, "\033[0m\n")
-			sess.stopAnim, sess.setAnimMessage = thinkingAnimation(sess.writer)
-		} else if sess.setAnimMessage != nil {
-			// All plan steps completed or no active plan step — revert to default thinking message
-			sess.setAnimMessage("assistant is thinking...")
+			_, _ = fmt.Fprint(writer, "\033[0m\n")
+			sess.startThinkingAnimation()
+		} else {
+			sess.setThinkingMessage("assistant is thinking...")
 		}
 	}))
 
@@ -367,18 +432,18 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	engine := makeEngine(reg, client, mainCfg.Model)
 
 	sess = &chatSession{
-		cmd:              cmd,
-		deps:             deps,
-		logger:           logger,
-		logOpts:          logOpts,
-		client:           client,
-		mainCfg:          mainCfg,
-		engine:           engine,
-		toolRegistry:     reg,
-		runtimeToolsCfg:  runtimeToolsCfg,
-		memManager:       memManager,
-		memOrchestrator:  memOrchestrator,
-		memWorker:        memWorker,
+		cmd:             cmd,
+		deps:            deps,
+		logger:          logger,
+		logOpts:         logOpts,
+		client:          client,
+		mainCfg:         mainCfg,
+		engine:          engine,
+		toolRegistry:    reg,
+		runtimeToolsCfg: runtimeToolsCfg,
+		memManager:      memManager,
+		memOrchestrator: memOrchestrator,
+		memWorker:       memWorker,
 		memCleanup: func() {
 			workerCancel()
 			if memCleanup != nil {
