@@ -12,56 +12,56 @@
 
 ### 1.1 输入交互改进（5 个）
 
-| 提交 | 说明 | 优先级 | 状态 |
-|------|------|--------|------|
-| `f638f7f` | 用 readline 替换 bufio（历史、行编辑） | 🔴 高 | 已在 PR #35 |
-| `d435dd4` | Ctrl+C 中断处理 + 禁用 Glamour | 🟡 中 | |
-| `bd84ad0` | 用 os/signal.Notify 处理 Ctrl+C | 🟡 中 | |
-| `032d607` | TAB 自动补全（/exit, /init 等） | 🟡 中 | |
-| `6e01e01` | rl.Stdout() 统一 writer 修复换行 bug | 🔴 高 | |
+| 提交 | 功能说明 | 优先级 | 状态 |
+|------|----------|--------|------|
+| `f638f7f` | 用 readline 库替换 bufio 读取输入，支持方向键历史、行编辑、退格 | 🔴 高 | 已在 PR #35 |
+| `d435dd4` | 按 Ctrl+C 可以中断当前操作（不再卡死），同时临时关闭 Glamour 渲染对比效果 | 🟡 中 | |
+| `bd84ad0` | 改进 Ctrl+C 的实现方式，用标准信号处理替代原来的轮询检测 | 🟡 中 | |
+| `032d607` | 按 TAB 键自动补全 slash 命令（比如输入 `/ex` 按 TAB 补全成 `/exit`） | 🟡 中 | |
+| `6e01e01` | 统一用 readline 的 Stdout 输出，修复某些情况下换行显示错乱的 bug | 🔴 高 | |
 
-### 1.2 输出美化（6 个）
+### 1.2 输出美化（9 个）
 
-| 提交 | 说明 | 优先级 | 状态 |
-|------|------|--------|------|
-| `5431e7d` | 带边框的代码块 + 工具通知 | 🟡 中 | |
-| `f2143aa` | 纯代码块语法高亮 + 中文过滤 | 🟡 中 | |
-| `3821cf1` | 终端语法高亮（chroma） | 🟡 中 | |
-| `1b51740` | plan progress 彩色格式化（替代 raw JSON） | 🔴 高 | |
-| `05da6b6` | plan progress 图标 + 进度条 | 🟡 中 | |
-| `f63788e` | 简化 plan progress 显示 | 🟡 中 | |
-| `fc5aed8` | 简化 plan progress 格式 | 🟡 中 | |
-| `dbb917b` | plan progress 整合到 spinner + 截断长消息 | 🟡 中 | |
-| `4e4acd3` | 清除多行 spinner 输出 | 🟡 中 | |
+| 提交 | 功能说明 | 优先级 | 状态 |
+|------|----------|--------|------|
+| `5431e7d` | AI 输出的代码块加上边框，工具调用时显示通知（比如"正在搜索..."） | 🟡 中 | |
+| `f2143aa` | 普通代码块（没标记语言的）也做语法高亮，过滤掉中文乱码 | 🟡 中 | |
+| `3821cf1` | 引入 chroma 库做终端语法高亮，让代码带颜色显示 | 🟡 中 | |
+| `1b51740` | AI 做计划时的进度信息，从 raw JSON 改成人类可读的彩色文字 | 🔴 高 | |
+| `05da6b6` | 计划进度加上图标（✓ ✗）和进度条，更直观 | 🟡 中 | |
+| `f63788e` | 简化计划进度的显示，去掉冗余信息 | 🟡 中 | |
+| `fc5aed8` | 进一步简化计划进度的格式 | 🟡 中 | |
+| `dbb917b` | 计划进度和 loading 动画合并，长消息自动截断不换行 | 🟡 中 | |
+| `4e4acd3` | 多行 loading 动画清除时，正确清理残留字符 | 🟡 中 | |
 
-### 1.3 Prompt/UI 改进（5 个）
+### 1.3 Prompt/UI 改进（6 个）
 
-| 提交 | 说明 | 优先级 | 状态 |
-|------|------|--------|------|
-| `01c7787` | 用系统用户名替代硬编码 'you' | 🔴 高 | |
-| `6550c8f` | assistant prompt 显示 persona 名 | 🟡 中 | |
-| `30aadfc` | 恢复 you> 提示，用 persona 名输出 | 🟡 中 | |
-| `316de16` | 注入工作目录到 system prompt | 🟡 中 | |
-| `b4ed69f` | compact mode 最小显示模式 | 🟡 中 | |
-| `696e0b4` | compact mode 绿色 bullet | 🟡 中 | |
+| 提交 | 功能说明 | 优先级 | 状态 |
+|------|----------|--------|------|
+| `01c7787` | 用户输入提示从固定的 "you>" 改成系统真实用户名（比如 "tetsuya>"） | 🔴 高 | |
+| `6550c8f` | AI 回复的提示从 "assistant>" 改成 persona 名字（比如 "カビ>"） | 🟡 中 | |
+| `30aadfc` | 用户输入用 "you>"，AI 输出用 persona 名，区分更清楚 | 🟡 中 | |
+| `316de16` | 把当前工作目录路径注入到 system prompt，让 AI 知道你在哪个项目 | 🟡 中 | |
+| `b4ed69f` | 新增 compact mode（紧凑模式），减少输出占用的屏幕空间 | 🟡 中 | |
+| `696e0b4` | compact mode 下用绿色圆点作为提示符 | 🟡 中 | |
 
 ### 1.4 /init 命令相关（5 个）
 
-| 提交 | 说明 | 优先级 | 状态 |
-|------|------|--------|------|
-| `0ee5a2e` | /init 命令生成 AGENTS.md | 🟡 中 | 已在 PR #35 |
-| `2c7f1af` | 在 system prompt 中添加 /init 说明 | 🟡 中 | 已在 PR #35 |
-| `b80f172` | /init 的 thinking 动画 | 🟢 低 | |
-| `6b1e3e0` | /init 后注入 AGENTS.md 到对话历史 | 🟡 中 | |
-| `421f5d3` | 禁止 AI 用 write_file，直接返回内容 | 🟡 中 | |
+| 提交 | 功能说明 | 优先级 | 状态 |
+|------|----------|--------|------|
+| `0ee5a2e` | 新增 `/init` 命令，扫描当前项目生成 AGENTS.md 文件 | 🟡 中 | 已在 PR #35 |
+| `2c7f1af` | 在 AI 的系统提示里说明 `/init` 命令的作用 | 🟡 中 | 已在 PR #35 |
+| `b80f172` | `/init` 执行时显示 thinking 动画（"思考中..."） | 🟢 低 | |
+| `6b1e3e0` | `/init` 完成后把 AGENTS.md 内容注入对话，让 AI 了解项目背景 | 🟡 中 | |
+| `421f5d3` | 禁止 AI 用 write_file 工具写 AGENTS.md，直接返回内容给用户 | 🟡 中 | |
 
-### 1.5 其他 CLI 修复/改进（4 个）
+### 1.5 其他 CLI 修复/改进（2 个）+ 废弃（2 个）
 
-| 提交 | 说明 | 优先级 | 状态 |
-|------|------|--------|------|
-| `15c901a` | chat mod 修复（早期） | ⚪ 低 | 可能已过时 |
-| `6bc717a` | chat → cli 重命名（已改回） | ❌ 废弃 | |
-| `53ae334` | CLI 项目级记忆（.morph/memory.md） | ❌ 废弃 | 已被 memoryruntime 替代 |
+| 提交 | 功能说明 | 优先级 | 状态 |
+|------|----------|--------|------|
+| `15c901a` | 早期 chat 命令的 bug 修复 | ⚪ 低 | 可能已过时 |
+| `6bc717a` | 把 chat 命令改名成 cli（后来又改回来了） | ❌ 废弃 | 不用管 |
+| `53ae334` | 在 .morph/ 目录存项目级记忆文件 | ❌ 废弃 | 已被 memoryruntime 替代 |
 
 ---
 
@@ -71,20 +71,20 @@
 
 ### 2.1 ACP/Provider 相关（4 个）
 
-| 提交 | 说明 | 影响范围 | 优先级 |
-|------|------|----------|--------|
-| `ee3e08d` | runtime model switching + --profile + OpenCode 集成 + auto-discover models | `cmd/mistermorph/`, `internal/llmselect/`, `docs/` | 🔴 高 |
-| `794b86a` | gemini_oauth ACP 实时进度反馈 | `internal/acpclient/`, `internal/llmutil/`, `assets/config/` | 🟡 中 |
-| `baa3266` | gemini_oauth 进度事件路由到 Telegram/Slack | `internal/channelruntime/`, `providers/gemini/` | 🟡 中 |
-| `9f1779e` | ACP tool 事件结构化日志 | `internal/llmutil/` | 🟢 低 |
+| 提交 | 功能说明 | 影响范围 | 优先级 |
+|------|----------|----------|--------|
+| `ee3e08d` | **运行时切换模型**：在 chat 里用 `/model` 切换不同 AI 模型；新增 `--profile` 参数加载不同配置；集成 OpenCode 模型；自动发现可用模型列表 | `cmd/mistermorph/`, `internal/llmselect/`, `docs/` | 🔴 高 |
+| `794b86a` | gemini_oauth 登录时显示实时进度（比如"正在授权... 50%"） | `internal/acpclient/`, `internal/llmutil/`, `assets/config/` | 🟡 中 |
+| `baa3266` | gemini_oauth 的进度事件同时推送到 Telegram 和 Slack 频道 | `internal/channelruntime/`, `providers/gemini/` | 🟡 中 |
+| `9f1779e` | ACP 工具调用时输出结构化日志（方便调试） | `internal/llmutil/` | 🟢 低 |
 
 ### 2.2 文档/脚本（3 个）
 
-| 提交 | 说明 | 影响范围 | 优先级 |
-|------|------|----------|--------|
-| `fc98225` | 合并 help/ 到 docs/ 并更新导航 | `docs/`, `help/` | 🟢 低 |
-| `c898e94` | opencode2api 一键部署脚本 | `scripts/`, `docs/` | 🟢 低 |
-| `3668905` | 删除误提交的 npm tarball | `nsalerni-gemini-acp-0.1.18.tgz` | ✅ 已完成 |
+| 提交 | 功能说明 | 影响范围 | 优先级 |
+|------|----------|----------|--------|
+| `fc98225` | 把 help/ 目录的文档合并到 docs/，统一导航 | `docs/`, `help/` | 🟢 低 |
+| `c898e94` | 一键部署 opencode2api 的脚本（把 OpenCode 模型包装成 API） | `scripts/`, `docs/` | 🟢 低 |
+| `3668905` | 删除误提交到仓库的 npm 包文件 | `nsalerni-gemini-acp-0.1.18.tgz` | ✅ 已完成 |
 
 ---
 
@@ -102,7 +102,7 @@
 ## 四、与 PR #35 的关系
 
 PR #35 已包含以下提交（无需重复处理）：
-- `f638f7f` — readline
+- `f638f7f` — readline 输入
 - `0ee5a2e` — /init 命令
 - `2c7f1af` — /init system prompt
 - 以及 PR #35 中其他相关改动
