@@ -410,6 +410,13 @@ skills:
   # Unknown entries are ignored.
   load: [] # e.g. [] | ["skill-creator", "my-skill-id"]
 
+# CLI interactive mode settings.
+cli:
+  # Compact display mode: omit user/assistant name prefixes.
+  # When true, prompts show ">" instead of "username>" and
+  # assistant output has no name prefix.
+  compact_mode: false
+
 # Shared runtime server settings.
 server:
   # Bearer token required for submit/get endpoints.
