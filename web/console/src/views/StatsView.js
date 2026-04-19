@@ -4,6 +4,40 @@ import "./StatsView.css";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
+import modelVendorPrefixes from "../core/model-vendor-prefixes.json";
+import anthropicIcon from "../assets/model-vendors/anthropic.png";
+import deepseekIcon from "../assets/model-vendors/deepseek.png";
+import geminiIcon from "../assets/model-vendors/gemini.png";
+import groqIcon from "../assets/model-vendors/groq.svg";
+import mistralIcon from "../assets/model-vendors/mistral.svg";
+import openaiIcon from "../assets/model-vendors/openai.svg";
+import xaiIcon from "../assets/model-vendors/xai.png";
+
+const MODEL_VENDOR_ICONS = {
+  anthropic: anthropicIcon,
+  deepseek: deepseekIcon,
+  gemini: geminiIcon,
+  groq: groqIcon,
+  mistral: mistralIcon,
+  openai: openaiIcon,
+  xai: xaiIcon,
+};
+
+const MODEL_VENDOR_LABELS = {
+  anthropic: "Anthropic",
+  deepseek: "DeepSeek",
+  gemini: "Gemini",
+  groq: "Groq",
+  mistral: "Mistral",
+  openai: "OpenAI",
+  xai: "xAI",
+};
+
+const MODEL_VENDOR_RULES = Array.isArray(modelVendorPrefixes)
+  ? [...modelVendorPrefixes]
+      .filter((item) => item && typeof item.prefix === "string" && typeof item.vendor === "string")
+      .sort((a, b) => b.prefix.length - a.prefix.length)
+  : [];
 
 function hasMetricValue(totals, key) {
   return Boolean(totals) && Object.prototype.hasOwnProperty.call(totals, key);
@@ -51,66 +85,120 @@ function formatFixedCost(value, currency = "USD", fractionDigits = 6) {
   }
 }
 
-function summaryLeadMetric(t, totals) {
+function summaryHeroMetric(t, totals, key) {
   const costCurrency = typeof totals?.cost_currency === "string" ? totals.cost_currency : "USD";
-  if (hasMetricValue(totals, "total_cost")) {
-    return {
-      key: "total_cost",
-      label: t("stats_total_cost"),
-      value: formatCost(totals.total_cost, costCurrency),
-    };
+  switch (key) {
+    case "total_cost":
+      return {
+        key,
+        label: t("stats_total_cost"),
+        value: hasMetricValue(totals, key) ? formatCost(totals[key], costCurrency) : "-",
+        unavailable: !hasMetricValue(totals, key),
+      };
+    case "total_tokens":
+      return {
+        key,
+        label: t("stats_total_tokens"),
+        value: hasMetricValue(totals, key) ? formatNumber(totals[key]) : "-",
+        unavailable: !hasMetricValue(totals, key),
+      };
+    case "requests":
+      return {
+        key,
+        label: t("stats_requests"),
+        value: hasMetricValue(totals, key) ? formatNumber(totals[key]) : "-",
+        unavailable: !hasMetricValue(totals, key),
+      };
+    default:
+      return {
+        key,
+        label: key,
+        value: "-",
+        unavailable: true,
+      };
   }
+}
+
+function summaryHeroMetrics(t, totals) {
+  const orderedKeys = ["total_cost", "total_tokens", "requests"];
+  const primaryKey = orderedKeys.find((key) => hasMetricValue(totals, key)) || orderedKeys[0];
   return {
-    key: "total_tokens",
-    label: t("stats_total_tokens"),
-    value: formatNumber(totals.total_tokens),
+    primary: summaryHeroMetric(t, totals, primaryKey),
+    secondary: orderedKeys.filter((key) => key !== primaryKey).map((key) => summaryHeroMetric(t, totals, key)),
   };
 }
 
-function summaryPrimaryMetrics(t, totals) {
-  const leadKey = summaryLeadMetric(t, totals).key;
-  return [
-    { key: "total_tokens", label: t("stats_total_tokens"), value: formatNumber(totals.total_tokens) },
-    { key: "input_tokens", label: t("stats_input_tokens"), value: formatNumber(totals.input_tokens) },
-    { key: "output_tokens", label: t("stats_output_tokens"), value: formatNumber(totals.output_tokens) },
-    { key: "requests", label: t("stats_requests"), value: formatNumber(totals.requests) },
-    { key: "cached_input_tokens", label: t("stats_cached_input_tokens"), value: formatNumber(totals.cached_input_tokens) },
-    {
-      key: "cache_creation_input_tokens",
-      label: t("stats_cache_creation_input_tokens"),
-      value: formatNumber(totals.cache_creation_input_tokens),
-    },
-  ].filter((item) => item.key !== leadKey);
-}
-
-function summaryCostMetrics(t, totals) {
+function summaryCostMetrics(t, totals, includeTotal = true) {
   const costCurrency = typeof totals?.cost_currency === "string" ? totals.cost_currency : "USD";
   return [
+    {
+      key: "total_cost",
+      label: t("stats_total_cost"),
+      value: hasMetricValue(totals, "total_cost") ? formatCost(totals?.total_cost, costCurrency) : "-",
+      unavailable: !hasMetricValue(totals, "total_cost"),
+    },
     {
       key: "input_cost",
       label: t("stats_input_cost"),
       value: formatCost(totals?.input_cost, costCurrency),
-      available: hasMetricValue(totals, "input_cost"),
+      unavailable: !hasMetricValue(totals, "input_cost"),
     },
     {
       key: "output_cost",
       label: t("stats_output_cost"),
       value: formatCost(totals?.output_cost, costCurrency),
-      available: hasMetricValue(totals, "output_cost"),
+      unavailable: !hasMetricValue(totals, "output_cost"),
     },
     {
       key: "cached_input_cost",
       label: t("stats_cached_input_cost"),
       value: formatCost(totals?.cached_input_cost, costCurrency),
-      available: hasMetricValue(totals, "cached_input_cost"),
+      unavailable: !hasMetricValue(totals, "cached_input_cost"),
     },
     {
       key: "cache_creation_input_cost",
       label: t("stats_cache_creation_input_cost"),
       value: formatCost(totals?.cache_creation_input_cost, costCurrency),
-      available: hasMetricValue(totals, "cache_creation_input_cost"),
+      unavailable: !hasMetricValue(totals, "cache_creation_input_cost"),
     },
-  ].filter((item) => item.available);
+  ].filter((item) => (includeTotal || item.key !== "total_cost") && !item.unavailable);
+}
+
+function summaryTokenMetrics(t, totals, includeTotal = true) {
+  return [
+    {
+      key: "total_tokens",
+      label: t("stats_total_tokens"),
+      value: hasMetricValue(totals, "total_tokens") ? formatNumber(totals?.total_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "total_tokens"),
+    },
+    {
+      key: "input_tokens",
+      label: t("stats_input_tokens"),
+      value: hasMetricValue(totals, "input_tokens") ? formatNumber(totals?.input_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "input_tokens"),
+    },
+    {
+      key: "output_tokens",
+      label: t("stats_output_tokens"),
+      value: hasMetricValue(totals, "output_tokens") ? formatNumber(totals?.output_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "output_tokens"),
+    },
+    {
+      key: "cached_input_tokens",
+      label: t("stats_cached_input_tokens"),
+      value: hasMetricValue(totals, "cached_input_tokens") ? formatNumber(totals?.cached_input_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "cached_input_tokens"),
+    },
+    {
+      key: "cache_creation_input_tokens",
+      label: t("stats_cache_creation_input_tokens"),
+      value: hasMetricValue(totals, "cache_creation_input_tokens")
+        ? formatNumber(totals?.cache_creation_input_tokens)
+        : "-",
+      unavailable: !hasMetricValue(totals, "cache_creation_input_tokens"),
+    },
+  ].filter((item) => (includeTotal || item.key !== "total_tokens") && !item.unavailable);
 }
 
 function costMetrics(t, totals) {
@@ -148,24 +236,47 @@ function costMetrics(t, totals) {
         : "-",
       unavailable: !hasMetricValue(totals, "cache_creation_input_cost"),
     },
-  ].filter((item) => item.key === "total_cost" || !item.unavailable);
+  ];
 }
 
 function tokenMetrics(t, totals) {
   return [
-    { key: "total_tokens", label: t("stats_total_tokens"), value: formatNumber(totals.total_tokens) },
-    { key: "input_tokens", label: t("stats_input_tokens"), value: formatNumber(totals.input_tokens) },
-    { key: "output_tokens", label: t("stats_output_tokens"), value: formatNumber(totals.output_tokens) },
-    { key: "cached_input_tokens", label: t("stats_cached_input_tokens"), value: formatNumber(totals.cached_input_tokens) },
+    {
+      key: "total_tokens",
+      label: t("stats_total_tokens"),
+      value: hasMetricValue(totals, "total_tokens") ? formatNumber(totals.total_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "total_tokens"),
+    },
+    {
+      key: "input_tokens",
+      label: t("stats_input_tokens"),
+      value: hasMetricValue(totals, "input_tokens") ? formatNumber(totals.input_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "input_tokens"),
+    },
+    {
+      key: "output_tokens",
+      label: t("stats_output_tokens"),
+      value: hasMetricValue(totals, "output_tokens") ? formatNumber(totals.output_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "output_tokens"),
+    },
+    {
+      key: "cached_input_tokens",
+      label: t("stats_cached_input_tokens"),
+      value: hasMetricValue(totals, "cached_input_tokens") ? formatNumber(totals.cached_input_tokens) : "-",
+      unavailable: !hasMetricValue(totals, "cached_input_tokens"),
+    },
     {
       key: "cache_creation_input_tokens",
       label: t("stats_cache_creation_input_tokens"),
-      value: formatNumber(totals.cache_creation_input_tokens),
+      value: hasMetricValue(totals, "cache_creation_input_tokens")
+        ? formatNumber(totals.cache_creation_input_tokens)
+        : "-",
+      unavailable: !hasMetricValue(totals, "cache_creation_input_tokens"),
     },
   ];
 }
 
-function visibleModelCostColumns(t, rows) {
+function visibleModelCostColumns(t) {
   const columns = [
     { key: "total_cost", label: t("stats_total_cost"), kind: "cost" },
     { key: "input_cost", label: t("stats_input_cost"), kind: "cost" },
@@ -173,23 +284,18 @@ function visibleModelCostColumns(t, rows) {
     { key: "cached_input_cost", label: t("stats_cached_input_cost"), kind: "cost" },
     { key: "cache_creation_input_cost", label: t("stats_cache_creation_input_cost"), kind: "cost" },
   ];
-  if (!rows.some((row) => columns.some((column) => hasMetricValue(row, column.key)))) {
-    return [];
-  }
-  return columns.filter((column) => rows.some((row) => hasMetricValue(row, column.key)));
+  return columns;
 }
 
-function visibleModelTokenColumns(t, rows) {
+function visibleModelTokenColumns(t) {
   const columns = [
-    { key: "total_tokens", label: t("stats_total_tokens"), kind: "token", always: true },
-    { key: "input_tokens", label: t("stats_input_tokens"), kind: "token", always: true },
-    { key: "output_tokens", label: t("stats_output_tokens"), kind: "token", always: true },
+    { key: "total_tokens", label: t("stats_total_tokens"), kind: "token" },
+    { key: "input_tokens", label: t("stats_input_tokens"), kind: "token" },
+    { key: "output_tokens", label: t("stats_output_tokens"), kind: "token" },
     { key: "cached_input_tokens", label: t("stats_cached_input_tokens"), kind: "token" },
     { key: "cache_creation_input_tokens", label: t("stats_cache_creation_input_tokens"), kind: "token" },
   ];
-  return columns.filter(
-    (column) => column.always || rows.some((row) => hasMetricValue(row, column.key) || Number(row?.[column.key] || 0) > 0)
-  );
+  return columns;
 }
 
 function formatModelLedgerValue(row, column) {
@@ -197,11 +303,48 @@ function formatModelLedgerValue(row, column) {
     const currency = typeof row?.cost_currency === "string" ? row.cost_currency : "USD";
     return hasMetricValue(row, column.key) ? formatFixedCost(row[column.key], currency) : "-";
   }
-  return formatNumber(row?.[column.key]);
+  return hasMetricValue(row, column.key) ? formatNumber(row[column.key]) : "-";
 }
 
 function isModelLedgerValueUnavailable(row, column) {
-  return column.kind === "cost" && !hasMetricValue(row, column.key);
+  return !hasMetricValue(row, column.key);
+}
+
+function normalizeModelName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function modelMatchCandidates(modelName) {
+  const normalized = normalizeModelName(modelName);
+  if (!normalized) {
+    return [];
+  }
+  const candidates = [normalized];
+  const slashIndex = normalized.lastIndexOf("/");
+  if (slashIndex >= 0 && slashIndex < normalized.length - 1) {
+    candidates.push(normalized.slice(slashIndex + 1));
+  }
+  return [...new Set(candidates)];
+}
+
+function modelVendorMeta(modelName) {
+  const candidates = modelMatchCandidates(modelName);
+  if (candidates.length === 0) {
+    return {
+      vendor: "",
+      icon: "",
+      label: "",
+    };
+  }
+  const matchedRule = candidates
+    .flatMap((candidate) => MODEL_VENDOR_RULES.filter((item) => candidate.startsWith(item.prefix)))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  const vendor = matchedRule?.vendor || "";
+  return {
+    vendor,
+    icon: vendor ? MODEL_VENDOR_ICONS[vendor] || "" : "",
+    label: vendor ? MODEL_VENDOR_LABELS[vendor] || vendor : "",
+  };
 }
 
 const StatsView = {
@@ -231,9 +374,9 @@ const StatsView = {
 
     const visibleHosts = computed(() => (Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : []));
     const visibleModels = computed(() => (Array.isArray(payload.value.models) ? payload.value.models : []));
-    const primarySummaryMetric = computed(() => summaryLeadMetric(t, payload.value.summary || {}));
-    const secondarySummaryMetrics = computed(() => summaryPrimaryMetrics(t, payload.value.summary || {}));
-    const secondarySummaryCosts = computed(() => summaryCostMetrics(t, payload.value.summary || {}));
+    const heroSummaryMetrics = computed(() => summaryHeroMetrics(t, payload.value.summary || {}));
+    const summaryCosts = computed(() => summaryCostMetrics(t, payload.value.summary || {}, false));
+    const summaryTokens = computed(() => summaryTokenMetrics(t, payload.value.summary || {}, false));
     const summaryMetaItems = computed(() => {
       const items = [];
       if (payload.value.updated_at) {
@@ -303,9 +446,9 @@ const StatsView = {
       selectedStatsTab,
       visibleHosts,
       visibleModels,
-      primarySummaryMetric,
-      secondarySummaryMetrics,
-      secondarySummaryCosts,
+      heroSummaryMetrics,
+      summaryCosts,
+      summaryTokens,
       summaryMetaItems,
       onTabChange,
       hostCostMetrics,
@@ -314,6 +457,7 @@ const StatsView = {
       modelLedgerTokenColumns,
       formatModelLedgerValue,
       isModelLedgerValueUnavailable,
+      modelVendorMeta,
       formatNumber,
     };
   },
@@ -323,29 +467,47 @@ const StatsView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
 
       <section class="stats-page">
-        <header class="stats-hero">
+        <header class="stats-hero block-default">
           <div class="stats-hero-copy">
             <div class="stats-hero-head">
               <AppKicker as="h3" left="LLM" right="Usage" />
-              <p v-if="summaryMetaItems.length > 0" class="stats-hero-meta">
-                <span v-for="item in summaryMetaItems" :key="item" class="stats-hero-meta-item">{{ item }}</span>
-              </p>
             </div>
-            <div class="stats-lead-block">
-              <span class="stats-lead-label">{{ primarySummaryMetric.label }}</span>
-              <span class="stats-lead-value">{{ primarySummaryMetric.value }}</span>
-            </div>
-            <div v-if="secondarySummaryCosts.length > 0" class="stats-inline-meta stats-inline-meta-summary">
-              <div v-for="item in secondarySummaryCosts" :key="item.key" class="stats-inline-meta-item">
-                <span class="stats-inline-meta-label">{{ item.label }}</span>
-                <span class="stats-inline-meta-value">{{ item.value }}</span>
-              </div>
-            </div>
+            <p v-if="summaryMetaItems.length > 0" class="stats-hero-meta">
+              <span v-for="item in summaryMetaItems" :key="item" class="stats-hero-meta-item">{{ item }}</span>
+            </p>
           </div>
-          <div class="stats-glance-grid">
-            <div v-for="item in secondarySummaryMetrics" :key="item.key" class="stats-glance-item">
-              <span class="stats-glance-label">{{ item.label }}</span>
-              <span class="stats-glance-value">{{ item.value }}</span>
+
+          <section class="stats-hero-spotlight">
+            <span class="stats-hero-primary-label">{{ heroSummaryMetrics.primary.label }}</span>
+            <span class="stats-hero-primary-value" :class="{ 'stats-hero-primary-value-unavailable': heroSummaryMetrics.primary.unavailable }">
+              {{ heroSummaryMetrics.primary.value }}
+            </span>
+          </section>
+
+          <div class="stats-hero-side">
+            <div class="stats-hero-secondary-grid">
+              <article v-for="item in heroSummaryMetrics.secondary" :key="item.key" class="stats-hero-secondary-item">
+                <span class="stats-hero-secondary-label">{{ item.label }}</span>
+                <span class="stats-hero-secondary-value" :class="{ 'stats-hero-secondary-value-unavailable': item.unavailable }">
+                  {{ item.value }}
+                </span>
+              </article>
+            </div>
+
+            <div v-if="summaryCosts.length > 0 || summaryTokens.length > 0" class="stats-hero-detail-groups">
+              <div v-if="summaryCosts.length > 0" class="stats-inline-meta stats-inline-meta-summary">
+                <div v-for="item in summaryCosts" :key="'summary:cost:' + item.key" class="stats-inline-meta-item">
+                  <span class="stats-inline-meta-label">{{ item.label }}</span>
+                  <span class="stats-inline-meta-value">{{ item.value }}</span>
+                </div>
+              </div>
+
+              <div v-if="summaryTokens.length > 0" class="stats-inline-meta stats-inline-meta-summary">
+                <div v-for="item in summaryTokens" :key="'summary:token:' + item.key" class="stats-inline-meta-item">
+                  <span class="stats-inline-meta-label">{{ item.label }}</span>
+                  <span class="stats-inline-meta-value">{{ item.value }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </header>
@@ -395,7 +557,7 @@ const StatsView = {
                   <div class="stats-band-grid">
                     <div v-for="item in hostTokenMetrics(host)" :key="host.api_host + ':token:' + item.key" class="stats-band-cell">
                       <span class="stats-ledger-label">{{ item.label }}</span>
-                      <span class="stats-ledger-value">{{ item.value }}</span>
+                      <span class="stats-ledger-value" :class="{ 'stats-ledger-value-unavailable': item.unavailable }">{{ item.value }}</span>
                     </div>
                   </div>
                 </section>
@@ -444,7 +606,18 @@ const StatsView = {
                       <tbody>
                         <tr v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-ledger-row">
                           <th scope="row" class="stats-model-ledger-model">
-                            <code class="stats-model-name">{{ model.model }}</code>
+                            <div class="stats-model-ident">
+                              <span class="stats-model-vendor-badge" :class="{ 'stats-model-vendor-badge-fallback': !modelVendorMeta(model.model).icon }">
+                                <img
+                                  v-if="modelVendorMeta(model.model).icon"
+                                  :src="modelVendorMeta(model.model).icon"
+                                  :alt="modelVendorMeta(model.model).label"
+                                  class="stats-model-vendor-image"
+                                />
+                                <QIconCpuChip v-else class="stats-model-vendor-fallback icon" />
+                              </span>
+                              <code class="stats-model-name">{{ model.model }}</code>
+                            </div>
                           </th>
                           <td class="stats-model-ledger-value-cell stats-model-ledger-requests">{{ formatNumber(model.requests) }}</td>
                           <td
@@ -459,6 +632,7 @@ const StatsView = {
                             v-for="column in modelLedgerTokenColumns(host.models)"
                             :key="host.api_host + ':' + model.model + ':token:' + column.key"
                             class="stats-model-ledger-value-cell"
+                            :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"
                           >
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
@@ -526,7 +700,18 @@ const StatsView = {
                       <tbody>
                         <tr v-for="model in visibleModels" :key="model.model" class="stats-model-ledger-row">
                           <th scope="row" class="stats-model-ledger-model">
-                            <code class="stats-model-name">{{ model.model }}</code>
+                            <div class="stats-model-ident">
+                              <span class="stats-model-vendor-badge" :class="{ 'stats-model-vendor-badge-fallback': !modelVendorMeta(model.model).icon }">
+                                <img
+                                  v-if="modelVendorMeta(model.model).icon"
+                                  :src="modelVendorMeta(model.model).icon"
+                                  :alt="modelVendorMeta(model.model).label"
+                                  class="stats-model-vendor-image"
+                                />
+                                <QIconCpuChip v-else class="stats-model-vendor-fallback icon" />
+                              </span>
+                              <code class="stats-model-name">{{ model.model }}</code>
+                            </div>
                           </th>
                           <td class="stats-model-ledger-value-cell stats-model-ledger-requests">{{ formatNumber(model.requests) }}</td>
                           <td
@@ -541,6 +726,7 @@ const StatsView = {
                             v-for="column in modelLedgerTokenColumns(visibleModels)"
                             :key="model.model + ':token:' + column.key"
                             class="stats-model-ledger-value-cell"
+                            :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"
                           >
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
