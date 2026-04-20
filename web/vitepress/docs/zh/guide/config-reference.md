@@ -274,6 +274,8 @@ Shell 默认值按平台区分：
 
 ## 循环限制与文件目录
 
+`workspace_dir` 是运行时附着的目录，不是配置字段。它和 `file_cache_dir`、`file_state_dir` 的关系，见 [文件系统根目录](/zh/guide/filesystem-roots)。
+
 | 字段 | 含义 |
 |---|---|
 | `max_steps` | 单次任务最多工具调用步数。 |

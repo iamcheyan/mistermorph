@@ -27,6 +27,7 @@ description: より詳細な設計・実装文書への入口。
 - リファレンス
   - [Integration API](/ja/guide/integration-references)
   - [設定フィールド](/ja/guide/config-reference)
+  - [ファイルシステムのルート](/ja/guide/filesystem-roots)
   - [環境変数](/ja/guide/env-vars-reference)
   - [CLI フラグ](/ja/guide/cli-flags)
 - 運用とガバナンス

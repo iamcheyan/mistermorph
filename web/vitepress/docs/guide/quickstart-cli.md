@@ -18,7 +18,7 @@ sudo bash /tmp/install.sh
 mistermorph install
 ```
 
-Mister Morph initializes the required files. By default it installs into `~/.morph/` and uses `~/.morph/config.yaml` as the config file.
+Mister Morph initializes the required files. By default it keeps state under `~/.morph/`, cache under `~/.cache/morph`, and uses `~/.morph/config.yaml` as the config file.
 
 During initialization, Mister Morph asks for the minimum required configuration, including the LLM setup, agent name, and persona.
 
@@ -55,7 +55,17 @@ It may output:
 }
 ```
 
-## 4. Debug switches
+## 4. Start an interactive chat
+
+```bash
+mistermorph chat --workspace .
+```
+
+`mistermorph chat` also attaches the current working directory by default. Use `--no-workspace` when you want a chat session without a project tree.
+
+For the difference between `workspace_dir`, `file_cache_dir`, and `file_state_dir`, see [Filesystem Roots](/guide/filesystem-roots).
+
+## 5. Debug switches
 
 ```bash
 mistermorph run --inspect-prompt --inspect-request --task "Hello"

@@ -24,7 +24,9 @@ go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 mistermorph install
 ```
 
-Default workspace is `~/.morph/`.
+By default, state is stored under `~/.morph/` and cache under `~/.cache/morph`.
+
+For the difference between `workspace_dir`, `file_cache_dir`, and `file_state_dir`, see [Filesystem Roots](/guide/filesystem-roots).
 
 ## Config Sources (precedence)
 

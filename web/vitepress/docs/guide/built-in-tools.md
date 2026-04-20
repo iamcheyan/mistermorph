@@ -23,6 +23,8 @@ Mistermorph does not register every tool as one flat bundle. Tools are layered b
 
 ## Static Tools (config-driven)
 
+For how `workspace_dir`, `file_cache_dir`, and `file_state_dir` fit together, see [Filesystem Roots](/guide/filesystem-roots).
+
 Shell defaults are platform-specific:
 
 - Linux/macOS: `bash` enabled by default, `powershell` disabled by default.

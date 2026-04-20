@@ -50,6 +50,27 @@ description: mistermorph 的命令行参数总览。
 - `--timeout`：整体超时。
 - `--tool-repeat-limit`：同一个成功工具调用重复过多次后强制收尾输出。
 
+## `chat`
+
+- `--api-key`：覆盖 API key。
+- `--compact-mode`：交互式 chat 的紧凑显示模式。
+- `--endpoint`：覆盖 provider 的 base URL。
+- `--llm-request-timeout`：单次 LLM HTTP 请求超时。
+- `--max-steps`：最大 tool-call 步数。
+- `--max-token-budget`：累计 token budget 上限。
+- `--model`：覆盖模型名。
+- `--no-workspace`：启动 chat 时不附着 workspace。
+- `--parse-retries`：JSON 解析最大重试次数。
+- `--profile`：覆盖使用的命名 LLM profile。
+- `--provider`：覆盖 provider 名称。
+- `--skill`：要加载的 skill 名称或 id，可重复。
+- `--skills-dir`：skills 根目录，可重复。
+- `--skills-enabled`：是否启用配置中的 skills 加载。
+- `--timeout`：整体超时。
+- `--tool-repeat-limit`：同一个成功工具调用重复过多次后强制收尾输出。
+- `--verbose`：chat 过程中输出 info 级日志。
+- `--workspace`：为当前 chat 会话附着 workspace 目录。
+
 ## `console serve`
 
 - `--allow-empty-password`：允许在未设置 `console.password` / `console.password_hash` 时启动 console。

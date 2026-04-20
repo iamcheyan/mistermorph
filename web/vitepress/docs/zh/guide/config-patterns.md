@@ -24,7 +24,9 @@ go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 mistermorph install
 ```
 
-默认工作目录是 `~/.morph/`。
+默认情况下，状态目录是 `~/.morph/`，缓存目录是 `~/.cache/morph`。
+
+`workspace_dir`、`file_cache_dir`、`file_state_dir` 的区别，见 [文件系统根目录](/zh/guide/filesystem-roots)。
 
 ## 配置来源优先级
 
