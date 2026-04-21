@@ -131,7 +131,11 @@ fi
 
 echo "==> Building desktop ${DESKTOP_OUTPUT}"
 echo "    tags: ${desktop_tags[*]}"
-go build -tags "${desktop_tags[*]}" -o "${DESKTOP_OUTPUT}" ./desktop/wails
+desktop_ldflags=()
+if [[ "$(target_goos)" == "windows" ]]; then
+  desktop_ldflags=(-ldflags "-H=windowsgui")
+fi
+go build "${desktop_ldflags[@]}" -tags "${desktop_tags[*]}" -o "${DESKTOP_OUTPUT}" ./desktop/wails
 
 echo
 echo "Built:"

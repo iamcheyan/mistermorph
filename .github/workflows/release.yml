@@ -167,8 +167,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
+          desktop_ldflags="-s -w"
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            desktop_ldflags="${desktop_ldflags} -H=windowsgui"
+          fi
           GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
-            go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "-s -w" -o "${{ matrix.raw_desktop_binary }}" ./desktop/wails
+            go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "${desktop_ldflags}" -o "${{ matrix.raw_desktop_binary }}" ./desktop/wails
 
       - name: Build bundled backend binary
         shell: bash
