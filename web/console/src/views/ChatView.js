@@ -2320,6 +2320,7 @@ const ChatView = {
       composerPlaceholder,
       displayAgentName,
       consoleTopicsEnabled,
+      mobileMode,
       mobileTopicSplitEnabled,
       mobileBarTitle,
       mobileShowBack,
