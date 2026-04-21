@@ -1512,6 +1512,10 @@ const SettingsView = {
       mobilePanelVisible.value = false;
     }
 
+    function openCreditsPage() {
+      router.push("/settings/credits");
+    }
+
     function selectSection(id) {
       selectedSectionID.value = String(id || "").trim();
       if (isMobile.value) {
@@ -1662,6 +1666,7 @@ const SettingsView = {
       isSelectedSection,
       sectionClass,
       showIndexView,
+      openCreditsPage,
       apiBasePickerOpen,
       modelPickerOpen,
       modelPickerLoading,
@@ -1708,6 +1713,17 @@ const SettingsView = {
               </span>
               <span class="workspace-sidebar-item-marker">
                 <QBadge v-if="isSelectedSection(item)" dot type="primary" size="sm" />
+              </span>
+            </button>
+          </div>
+          <div class="settings-index-links workspace-sidebar-list">
+            <button type="button" class="settings-index-link workspace-sidebar-item" @click="openCreditsPage">
+              <span class="workspace-sidebar-item-copy">
+                <span class="workspace-sidebar-item-title">{{ t("settings_credits_title") }}</span>
+                <span class="workspace-sidebar-item-meta">{{ t("settings_credits_meta") }}</span>
+              </span>
+              <span class="workspace-sidebar-item-marker">
+                <QIconLinkExternal class="icon" />
               </span>
             </button>
           </div>

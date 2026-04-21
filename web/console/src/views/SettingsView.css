@@ -59,6 +59,14 @@
   padding: clamp(14px, 1.4vw, 20px) 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
 }
 
+.settings-index-links.workspace-sidebar-list {
+  padding: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
+}
+
+.settings-index-link {
+  width: 100%;
+}
+
 .settings-panel-card.q-card-default {
   margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
 }

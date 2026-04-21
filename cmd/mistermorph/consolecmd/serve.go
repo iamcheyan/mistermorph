@@ -397,6 +397,7 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
 	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
+	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
