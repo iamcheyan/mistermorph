@@ -21,7 +21,7 @@ func TestCreditsCommand(t *testing.T) {
 		"Open Source",
 		"Cobra",
 		"Contributors",
-		"Quaily",
+		"Lyric Wai",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
