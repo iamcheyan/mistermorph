@@ -93,3 +93,40 @@ func TestWriteFileTool_BareAliasRejected(t *testing.T) {
 		t.Fatalf("unexpected file created under cache dir")
 	}
 }
+
+func TestWriteFileTool_MissingContentRejected(t *testing.T) {
+	base := t.TempDir()
+	tool := NewWriteFileTool(true, 1024, base)
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"path": "a.txt",
+	})
+	if err == nil {
+		t.Fatalf("expected error, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "missing required param: content") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(base, "a.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("unexpected file created for missing content")
+	}
+}
+
+func TestWriteFileTool_EmptyContentRejected(t *testing.T) {
+	base := t.TempDir()
+	tool := NewWriteFileTool(true, 1024, base)
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"path":    "a.txt",
+		"content": "",
+	})
+	if err == nil {
+		t.Fatalf("expected error, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "content must not be empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(base, "a.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("unexpected file created for empty content")
+	}
+}

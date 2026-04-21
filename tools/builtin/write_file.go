@@ -55,7 +55,7 @@ func (t *WriteFileTool) ParameterSchema() string {
 			},
 			"content": map[string]any{
 				"type":        "string",
-				"description": "Text content to write.",
+				"description": "Non-empty text content to write.",
 			},
 			"mode": map[string]any{
 				"type":        "string",
@@ -84,7 +84,19 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (strin
 	}
 	path = resolvedPath
 
-	content, _ := params["content"].(string)
+	// Refuse writes without explicit payload so the tool cannot silently truncate
+	// a file to zero bytes when the model forgets to include content.
+	rawContent, ok := params["content"]
+	if !ok {
+		return "", fmt.Errorf("missing required param: content")
+	}
+	content, ok := rawContent.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid param: content must be a string")
+	}
+	if content == "" {
+		return "", fmt.Errorf("invalid param: content must not be empty")
+	}
 	if t.MaxBytes > 0 && len(content) > t.MaxBytes {
 		return "", fmt.Errorf("content too large (%d bytes > %d max)", len(content), t.MaxBytes)
 	}
