@@ -127,9 +127,12 @@ if [[ -n "${CODESIGN_IDENTITY}" ]]; then
     --timestamp \
     "${APP_DIR}"
 else
-  echo "no CODESIGN_IDENTITY set; applying ad-hoc signature"
+  echo "no CODESIGN_IDENTITY set; applying ad-hoc signature for test distribution"
   codesign --deep --force --sign - "${APP_DIR}"
 fi
+
+echo "verifying app bundle signature..."
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
 if [[ -n "${CODESIGN_IDENTITY}" && -n "${APPLE_ID}" && -n "${APPLE_TEAM_ID}" && -n "${APPLE_APP_PASSWORD}" ]]; then
   echo "submitting app bundle for notarization..."
@@ -140,6 +143,8 @@ if [[ -n "${CODESIGN_IDENTITY}" && -n "${APPLE_ID}" && -n "${APPLE_TEAM_ID}" && 
     --wait
   echo "stapling notarization ticket to app bundle..."
   xcrun stapler staple "${APP_DIR}"
+elif [[ -n "${CODESIGN_IDENTITY}" ]]; then
+  echo "skipping notarization because Apple notarization credentials are incomplete"
 fi
 
 tar -C "${OUT_DIR}" -czf "${TARBALL_PATH}" "${APP_BUNDLE_NAME}.app"
