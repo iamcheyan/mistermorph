@@ -1,16 +1,35 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { lastTopicID } from "../core/chat-topic-memory";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import {
   authValid,
   endpointState,
   ensureEndpointSelection,
   loadEndpoints,
+  runtimeEndpointByRef,
   setSelectedEndpointRef,
   translate,
 } from "../core/context";
 import { NAV_ITEMS_META } from "../router";
+
+function chatRoutePath(topicID = "") {
+  const normalizedTopicID = String(topicID || "").trim();
+  return normalizedTopicID ? `/chat/${encodeURIComponent(normalizedTopicID)}` : "/chat";
+}
+
+function chatSubmitEndpointRef(endpointRef) {
+  const selected = runtimeEndpointByRef(endpointRef);
+  if (!selected) {
+    return "";
+  }
+  const mapped = String(selected.submit_endpoint_ref || "").trim();
+  if (mapped) {
+    return mapped;
+  }
+  return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
+}
 
 function useAppShell() {
   const t = translate;
@@ -93,8 +112,12 @@ function useAppShell() {
       return;
     }
     mobileNavOpen.value = false;
-    if (route.path !== item.id) {
-      router.push(item.id);
+    let nextPath = item.id;
+    if (item.id === "/chat") {
+      nextPath = chatRoutePath(lastTopicID(chatSubmitEndpointRef(endpointState.selectedRef)));
+    }
+    if (route.path !== nextPath) {
+      router.push(nextPath);
     }
   }
 

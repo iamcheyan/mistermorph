@@ -6,6 +6,8 @@ import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
 import RawJsonDialog from "../components/RawJsonDialog";
+import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
+import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { endpointChannelLabel } from "../core/endpoints";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
@@ -60,6 +62,25 @@ function normalizeEndpointMode(raw) {
 
 function normalizeTopicID(raw) {
   return String(raw || "").trim();
+}
+
+function rememberTopicSelection(endpointRef, topicID) {
+  const normalizedTopicID = normalizeTopicID(topicID);
+  if (!normalizedTopicID || normalizedTopicID === HEARTBEAT_TOPIC_ID) {
+    return;
+  }
+  rememberLastTopicID(endpointRef, normalizedTopicID);
+}
+
+function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopicID, routeTopicID) {
+  if (!consoleTopicsEnabled || creatingTopic) {
+    return "";
+  }
+  const normalizedSelectedTopicID = normalizeTopicID(selectedTopicID);
+  if (normalizedSelectedTopicID) {
+    return normalizedSelectedTopicID;
+  }
+  return normalizeTopicID(routeTopicID);
 }
 
 function isWorkspaceCommandText(raw) {
@@ -538,6 +559,7 @@ const ChatView = {
     const pollTimers = new Set();
     const streamSockets = new Map();
     const composerField = ref(null);
+    const suppressDraftPersistence = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const rawRevealItemID = ref("");
@@ -561,6 +583,15 @@ const ChatView = {
       return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
     });
     const submitEndpoint = computed(() => runtimeEndpointByRef(submitEndpointRef.value));
+    const composerDraftScope = computed(() => ({
+      endpointRef: String(submitEndpointRef.value || "").trim(),
+      topicID: composerDraftTopicID(
+        consoleTopicsEnabled.value,
+        creatingTopic.value,
+        selectedTopicID.value,
+        routeTopicID.value
+      ),
+    }));
     const activeAgentName = computed(() => {
       const submitName = String(submitEndpoint.value?.agent_name || "").trim();
       if (submitName) {
@@ -924,6 +955,25 @@ const ChatView = {
         return null;
       }
       return root.querySelector("textarea");
+    }
+
+    function persistComposerDraft(scope = composerDraftScope.value, text = taskInput.value) {
+      const endpointRef = String(scope?.endpointRef || "").trim();
+      if (!endpointRef) {
+        return;
+      }
+      rememberChatDraft(endpointRef, normalizeTopicID(scope?.topicID), text);
+    }
+
+    function restoreComposerDraft(scope = composerDraftScope.value) {
+      const endpointRef = String(scope?.endpointRef || "").trim();
+      const nextText = endpointRef ? chatDraft(endpointRef, normalizeTopicID(scope?.topicID)) : "";
+      suppressDraftPersistence.value = true;
+      taskInput.value = nextText;
+      syncComposerHeight();
+      void nextTick(() => {
+        suppressDraftPersistence.value = false;
+      });
     }
 
     function focusComposer() {
@@ -1851,6 +1901,7 @@ const ChatView = {
 
         if (preferredTopicID && items.some((topic) => normalizeTopicID(topic?.id) === preferredTopicID)) {
           selectedTopicID.value = preferredTopicID;
+          rememberTopicSelection(submitEndpointRef.value, preferredTopicID);
           creatingTopic.value = false;
           syncMobileTopicView({ preferChat: true });
           return true;
@@ -1861,6 +1912,7 @@ const ChatView = {
         }
         const currentID = normalizeTopicID(selectedTopicID.value);
         if (currentID && items.some((topic) => normalizeTopicID(topic?.id) === currentID)) {
+          rememberTopicSelection(submitEndpointRef.value, currentID);
           creatingTopic.value = false;
           syncMobileTopicView({ preferChat: true });
           return true;
@@ -2083,6 +2135,7 @@ const ChatView = {
       }
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
+      rememberTopicSelection(submitEndpointRef.value, normalized);
       syncMobileTopicView({ preferChat: true });
       void loadHistory().finally(() => {
         focusComposer();
@@ -2107,6 +2160,7 @@ const ChatView = {
       if (!task || sending.value) {
         return;
       }
+      const submittedDraftScope = composerDraftScope.value;
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
         err.value = submitBlockedMessage.value || t("msg_select_endpoint");
@@ -2122,6 +2176,7 @@ const ChatView = {
 
       sending.value = true;
       err.value = "";
+      suppressDraftPersistence.value = true;
       taskInput.value = "";
       if (consoleTopicsEnabled.value && !normalizeTopicID(selectedTopicID.value)) {
         creatingTopic.value = true;
@@ -2152,6 +2207,7 @@ const ChatView = {
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
         }
+        clearChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID);
         const existingAgentItem = chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
         patchHistoryItem(agentHistoryID, {
           taskId: taskID,
@@ -2168,6 +2224,7 @@ const ChatView = {
           }
           creatingTopic.value = false;
           selectedTopicID.value = topicID;
+          rememberTopicSelection(submitEndpointRef.value, topicID);
           await loadTopics({
             preferredTopicID: topicID,
             preserveSelection: true,
@@ -2181,12 +2238,15 @@ const ChatView = {
       } catch (e) {
         const message = e?.message || t("msg_load_failed");
         err.value = message;
+        rememberChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID, task);
+        taskInput.value = task;
         patchHistoryItem(agentHistoryID, {
           status: "failed",
           text: message,
           rawJSON: "",
         });
       } finally {
+        suppressDraftPersistence.value = false;
         sending.value = false;
         syncComposerHeight();
         focusComposer();
@@ -2206,6 +2266,7 @@ const ChatView = {
       syncComposerHeight();
     });
     onUnmounted(() => {
+      persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
       clearStreamSockets();
@@ -2256,7 +2317,20 @@ const ChatView = {
         }
       }
     );
+    watch(
+      () => composerDraftScope.value,
+      (nextScope, prevScope) => {
+        if (prevScope?.endpointRef) {
+          persistComposerDraft(prevScope);
+        }
+        restoreComposerDraft(nextScope);
+      },
+      { immediate: true }
+    );
     watch(taskInput, () => {
+      if (!suppressDraftPersistence.value) {
+        persistComposerDraft();
+      }
       syncComposerHeight();
     });
 
