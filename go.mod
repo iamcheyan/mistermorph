@@ -3,12 +3,13 @@ module github.com/quailyquaily/mistermorph
 go 1.25.0
 
 require (
+	github.com/chzyer/readline v1.5.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/lyricat/goutils v1.2.3
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
-	github.com/quailyquaily/uniai v0.1.18
+	github.com/quailyquaily/uniai v0.1.19
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
@@ -31,7 +32,6 @@ require (
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
-	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
