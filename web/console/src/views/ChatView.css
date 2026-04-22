@@ -194,6 +194,10 @@
   white-space: nowrap;
 }
 
+.chat-topic-item-title {
+  height: 20px;
+}
+
 .chat-topic-item-meta {
   display: flex;
   align-items: center;
@@ -274,6 +278,7 @@
 
 .chat-desk-title {
   margin: 0;
+  height: 24px;
   max-width: min(100%, 34rem);
   overflow: hidden;
   text-overflow: ellipsis;
