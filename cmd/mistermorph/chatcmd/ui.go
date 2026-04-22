@@ -5,9 +5,8 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"regexp"
 	"strings"
-	"sync"
-	"time"
 
 	"golang.org/x/term"
 )
@@ -41,105 +40,90 @@ func buildUserPrompt(compactMode bool, userName string) string {
 }
 
 func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg string)) {
-	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	ticker := time.NewTicker(80 * time.Millisecond)
-	done := make(chan struct{})
-	msgMu := sync.RWMutex{}
-	msg := "assistant is thinking..."
-	var wg sync.WaitGroup
-
-	var lastLinesMu sync.Mutex
-	lastLines := 1
-
-	calcLines := func(text string) int {
-		width, _, _ := term.GetSize(int(os.Stdout.Fd()))
-		if width <= 0 {
-			width = 80
-		}
-		prefixWidth := 2 // spinner icon (1) + space (1)
-		totalWidth := prefixWidth + stringDisplayWidth(text)
-		lines := totalWidth / width
-		if totalWidth%width != 0 {
-			lines++
-		}
-		if lines < 1 {
-			lines = 1
-		}
-		return lines
+	if !isTerminalWriter(writer) {
+		return func() {}, func(string) {}
 	}
 
-	buildClearSeq := func(n int) string {
-		if n <= 1 {
-			return "\r\033[K"
-		}
-		var b strings.Builder
-		for i := 1; i < n; i++ {
-			b.WriteString("\033[A")
-		}
-		b.WriteString("\r")
-		for i := 0; i < n; i++ {
-			b.WriteString("\033[2K")
-			if i < n-1 {
-				b.WriteString("\033[B")
-			}
-		}
-		for i := 1; i < n; i++ {
-			b.WriteString("\033[A")
-		}
-		b.WriteString("\r")
-		return b.String()
+	currentMsg := "assistant is thinking..."
+	render := func(msg string) {
+		renderMsg := formatThinkingMessageForTerminal(msg)
+		_, _ = fmt.Fprintf(writer, "\r\033[K\033[90m%s\033[0m", renderMsg)
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		i := 0
-		for {
-			select {
-			case <-ticker.C:
-				msgMu.RLock()
-				currentMsg := msg
-				msgMu.RUnlock()
-
-				lastLinesMu.Lock()
-				prevLines := lastLines
-				lastLines = calcLines(currentMsg)
-				lastLinesMu.Unlock()
-
-				clearSeq := buildClearSeq(prevLines)
-				_, _ = fmt.Fprintf(writer, "%s\033[36m%s\033[0m \033[90m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
-				i++
-			case <-done:
-				return
-			}
-		}
-	}()
+	render(currentMsg)
 	stop = func() {
-		close(done)
-		ticker.Stop()
-		wg.Wait()
-
-		lastLinesMu.Lock()
-		prevLines := lastLines
-		lastLinesMu.Unlock()
-
-		_, _ = fmt.Fprint(writer, buildClearSeq(prevLines))
+		_, _ = fmt.Fprint(writer, "\r\033[K")
 	}
 	setMessage = func(newMsg string) {
-		msgMu.Lock()
-		msg = truncateString(newMsg, 80)
-		msgMu.Unlock()
+		normalized := normalizeThinkingMessage(newMsg)
+		if normalized == currentMsg {
+			return
+		}
+		currentMsg = normalized
+		render(currentMsg)
 	}
 	return stop, setMessage
 }
 
-func printChatSessionHeader(writer io.Writer, model string, fileCacheDir string) {
-	_, _ = fmt.Fprint(writer, chatBanner)
+var thinkingWhitespaceRe = regexp.MustCompile(`\s+`)
+
+type fdWriter interface {
+	Fd() uintptr
+}
+
+func isTerminalWriter(writer io.Writer) bool {
+	fw, ok := writer.(fdWriter)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(fw.Fd()))
+}
+
+func normalizeThinkingMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "assistant is thinking..."
+	}
+	msg = thinkingWhitespaceRe.ReplaceAllString(msg, " ")
+	return strings.TrimSpace(msg)
+}
+
+func formatThinkingMessageForTerminal(msg string) string {
+	msg = normalizeThinkingMessage(msg)
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 {
+		width = 80
+	}
+
+	available := width - 4 // spinner + space + a little margin to avoid terminal wrapping
+	if available < 20 {
+		available = 20
+	}
+	return truncateDisplayWidth(msg, available)
+}
+
+func printChatSessionHeader(writer io.Writer, compactMode bool, model string, fileCacheDir string) {
+	if !compactMode {
+		_, _ = fmt.Fprint(writer, chatBanner)
+	}
 	if model != "" {
-		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
+		_, _ = fmt.Fprintf(writer, "model=%s\n", displayModelName(model))
 	}
 	if fileCacheDir != "" {
 		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)
 	}
-	_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	if !compactMode {
+		_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	}
+}
+
+func displayModelName(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(model, "/"); idx >= 0 && idx+1 < len(model) {
+		return strings.TrimSpace(model[idx+1:])
+	}
+	return model
 }

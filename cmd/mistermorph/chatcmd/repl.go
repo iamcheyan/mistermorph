@@ -49,8 +49,11 @@ func runREPL(sess *chatSession) error {
 
 	sess.setWriter(rl.Stdout())
 	writer := sess.currentWriter()
+	refreshPrompt := func() {
+		rl.Refresh()
+	}
 
-	printChatSessionHeader(writer, strings.TrimSpace(sess.mainCfg.Model), sess.chatFileCacheDir)
+	printChatSessionHeader(writer, sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.chatFileCacheDir)
 
 	reg := chatcommands.NewRegistry()
 	history := make([]llm.Message, 0, 32)
@@ -84,6 +87,7 @@ func runREPL(sess *chatSession) error {
 			result, handled, err := reg.Dispatch(context.Background(), input)
 			if err != nil {
 				_, _ = fmt.Fprintf(writer, "error: %v\n", err)
+				refreshPrompt()
 				continue
 			}
 			if handled {
@@ -93,6 +97,7 @@ func runREPL(sess *chatSession) error {
 				if result != nil && result.Reply != "" {
 					_, _ = fmt.Fprintln(writer, result.Reply)
 				}
+				refreshPrompt()
 				continue
 			}
 		}
@@ -134,6 +139,7 @@ func runREPL(sess *chatSession) error {
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				_, _ = fmt.Fprintln(writer, "\n\033[33m⚡ Interrupted.\033[0m")
+				refreshPrompt()
 				continue
 			}
 			displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
@@ -141,6 +147,7 @@ func runREPL(sess *chatSession) error {
 				displayErr = strings.TrimSpace(err.Error())
 			}
 			_, _ = fmt.Fprintf(writer, "error: %s\n", displayErr)
+			refreshPrompt()
 			continue
 		}
 
@@ -151,6 +158,7 @@ func runREPL(sess *chatSession) error {
 		} else {
 			_, _ = fmt.Fprintf(writer, "\033[48;5;208m\033[30m %s> \033[0m %s\n", sess.agentName, output)
 		}
+		refreshPrompt()
 
 		history = append(history,
 			llm.Message{Role: "user", Content: input},

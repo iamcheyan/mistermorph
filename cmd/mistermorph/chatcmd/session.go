@@ -380,7 +380,11 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		if arg != "" {
 			msg += fmt.Sprintf(" \x1b[90m(%s)\x1b[0m", arg)
 		}
-		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
+		if isTerminalWriter(writer) {
+			_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
+		} else {
+			_, _ = fmt.Fprintf(writer, "%s\n", msg)
+		}
 	}))
 	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 		if sess == nil {

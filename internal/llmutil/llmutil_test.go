@@ -119,6 +119,15 @@ func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	}
 }
 
+func TestModelForProviderWithValues_BedrockModelARNFallback(t *testing.T) {
+	values := RuntimeValues{
+		BedrockModelARN: "arn:aws:bedrock:ap-northeast-1::foundation-model/moonshotai.kimi-k2.5",
+	}
+	if got := ModelForProviderWithValues("bedrock", values); got != values.BedrockModelARN {
+		t.Fatalf("ModelForProviderWithValues() = %q, want %q", got, values.BedrockModelARN)
+	}
+}
+
 func TestClientFromConfigWithValues_InvalidToolsMode(t *testing.T) {
 	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
 		Provider:       "openai",

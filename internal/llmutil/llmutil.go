@@ -124,6 +124,11 @@ func ModelForProviderWithValues(provider string, values RuntimeValues) string {
 			values.AzureDeployment,
 			values.Model,
 		)
+	case "bedrock":
+		return firstNonEmpty(
+			values.Model,
+			values.BedrockModelARN,
+		)
 	default:
 		return strings.TrimSpace(values.Model)
 	}

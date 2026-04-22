@@ -109,6 +109,28 @@ func truncateString(s string, maxLen int) string {
 	return string(runes[:maxLen-3]) + "..."
 }
 
+func truncateDisplayWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 || stringDisplayWidth(s) <= maxWidth {
+		return s
+	}
+	if maxWidth <= 3 {
+		return strings.Repeat(".", maxWidth)
+	}
+
+	targetWidth := maxWidth - 3
+	var b strings.Builder
+	width := 0
+	for _, r := range s {
+		rw := runeDisplayWidth(r)
+		if width+rw > targetWidth {
+			break
+		}
+		b.WriteRune(r)
+		width += rw
+	}
+	return strings.TrimRight(b.String(), " ") + "..."
+}
+
 func stringDisplayWidth(s string) int {
 	w := 0
 	for _, r := range s {
