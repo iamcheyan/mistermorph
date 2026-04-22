@@ -190,7 +190,29 @@ func (c *Client) buildRequest(modelID string, req llm.Request) (map[string]any, 
 	if len(system) > 0 {
 		payload["system"] = system
 	}
-	if len(req.Tools) > 0 {
+	
+	// Check if messages contain toolUse or toolResult blocks
+	hasToolBlocks := false
+	for _, msg := range messages {
+		if content, ok := msg["content"].([]map[string]any); ok {
+			for _, block := range content {
+				if _, hasToolUse := block["toolUse"]; hasToolUse {
+					hasToolBlocks = true
+					break
+				}
+				if _, hasToolResult := block["toolResult"]; hasToolResult {
+					hasToolBlocks = true
+					break
+				}
+			}
+			if hasToolBlocks {
+				break
+			}
+		}
+	}
+	
+	// If tools are provided OR messages contain tool blocks, include toolConfig
+	if len(req.Tools) > 0 || hasToolBlocks {
 		toolConfig, err := toToolConfig(req.Tools)
 		if err != nil {
 			return nil, err
