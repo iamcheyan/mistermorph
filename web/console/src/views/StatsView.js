@@ -51,6 +51,11 @@ function formatNumber(value) {
   return Math.trunc(n).toLocaleString();
 }
 
+function toFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function formatCost(value, currency = "USD") {
   const n = Number(value);
   if (!Number.isFinite(n)) {
@@ -83,6 +88,91 @@ function formatFixedCost(value, currency = "USD", fractionDigits = 6) {
   } catch {
     return `${String(currency || "USD").toUpperCase()} ${n.toFixed(fractionDigits)}`;
   }
+}
+
+function formatSignedFixedCost(value, currency = "USD", fractionDigits = 6) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return "-";
+  }
+  const rounded = Number(n.toFixed(fractionDigits));
+  if (!Number.isFinite(rounded)) {
+    return "-";
+  }
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: String(currency || "USD").toUpperCase(),
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+      signDisplay: "exceptZero",
+    }).format(rounded);
+  } catch {
+    const sign = rounded > 0 ? "+" : rounded < 0 ? "-" : "";
+    return `${sign}${String(currency || "USD").toUpperCase()} ${Math.abs(rounded).toFixed(fractionDigits)}`;
+  }
+}
+
+function formatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return "-";
+  }
+  const clamped = Math.min(Math.max(n, 0), 1);
+  return new Intl.NumberFormat(undefined, {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(clamped);
+}
+
+function modelCacheBaseInputTokens(row) {
+  const inputTokens = toFiniteNumber(row?.input_tokens);
+  const cachedInputTokens = toFiniteNumber(row?.cached_input_tokens);
+  const cacheCreationInputTokens = toFiniteNumber(row?.cache_creation_input_tokens);
+  return Math.max(0, inputTokens - cachedInputTokens - cacheCreationInputTokens);
+}
+
+function modelCacheRate(row) {
+  const inputTokens = toFiniteNumber(row?.input_tokens);
+  if (inputTokens <= 0) {
+    return null;
+  }
+  const cachedInputTokens = Math.min(toFiniteNumber(row?.cached_input_tokens), inputTokens);
+  return Math.max(0, cachedInputTokens / inputTokens);
+}
+
+function modelCacheCostDelta(row) {
+  const inputTokens = toFiniteNumber(row?.input_tokens);
+  if (inputTokens <= 0) {
+    return null;
+  }
+
+  const cachedInputTokens = toFiniteNumber(row?.cached_input_tokens);
+  const cacheCreationInputTokens = toFiniteNumber(row?.cache_creation_input_tokens);
+  if (cachedInputTokens <= 0 && cacheCreationInputTokens <= 0) {
+    return 0;
+  }
+
+  const baseInputTokens = modelCacheBaseInputTokens(row);
+  if (baseInputTokens <= 0 || !hasMetricValue(row, "input_cost")) {
+    return null;
+  }
+
+  const inputCost = Number(row?.input_cost);
+  if (!Number.isFinite(inputCost)) {
+    return null;
+  }
+
+  const baseInputCostPerToken = inputCost / baseInputTokens;
+  if (!Number.isFinite(baseInputCostPerToken)) {
+    return null;
+  }
+
+  const actualInputCost =
+    inputCost + toFiniteNumber(row?.cached_input_cost) + toFiniteNumber(row?.cache_creation_input_cost);
+  const baselineInputCostWithoutCache = baseInputCostPerToken * inputTokens;
+  return actualInputCost - baselineInputCostWithoutCache;
 }
 
 function summaryHeroMetric(t, totals, key) {
@@ -283,6 +373,7 @@ function visibleModelCostColumns(t) {
     { key: "output_cost", label: t("stats_output_cost"), kind: "cost" },
     { key: "cached_input_cost", label: t("stats_cached_input_cost"), kind: "cost" },
     { key: "cache_creation_input_cost", label: t("stats_cache_creation_input_cost"), kind: "cost" },
+    { key: "cache_cost_delta", label: t("stats_cache_cost_delta"), kind: "cache_cost_delta" },
   ];
   return columns;
 }
@@ -294,6 +385,7 @@ function visibleModelTokenColumns(t) {
     { key: "output_tokens", label: t("stats_output_tokens"), kind: "token" },
     { key: "cached_input_tokens", label: t("stats_cached_input_tokens"), kind: "token" },
     { key: "cache_creation_input_tokens", label: t("stats_cache_creation_input_tokens"), kind: "token" },
+    { key: "cache_rate", label: t("stats_cache_rate"), kind: "cache_rate" },
   ];
   return columns;
 }
@@ -303,11 +395,37 @@ function formatModelLedgerValue(row, column) {
     const currency = typeof row?.cost_currency === "string" ? row.cost_currency : "USD";
     return hasMetricValue(row, column.key) ? formatFixedCost(row[column.key], currency) : "-";
   }
+  if (column.kind === "cache_cost_delta") {
+    const currency = typeof row?.cost_currency === "string" ? row.cost_currency : "USD";
+    const delta = modelCacheCostDelta(row);
+    return delta === null ? "-" : formatSignedFixedCost(delta, currency);
+  }
+  if (column.kind === "cache_rate") {
+    const rate = modelCacheRate(row);
+    return rate === null ? "-" : formatPercent(rate);
+  }
   return hasMetricValue(row, column.key) ? formatNumber(row[column.key]) : "-";
 }
 
 function isModelLedgerValueUnavailable(row, column) {
+  if (column.kind === "cache_cost_delta") {
+    return modelCacheCostDelta(row) === null;
+  }
+  if (column.kind === "cache_rate") {
+    return modelCacheRate(row) === null;
+  }
   return !hasMetricValue(row, column.key);
+}
+
+function modelLedgerValueToneClass(row, column) {
+  if (column.kind !== "cache_cost_delta") {
+    return "";
+  }
+  const delta = modelCacheCostDelta(row);
+  if (delta === null || Math.abs(delta) < 1e-12) {
+    return "";
+  }
+  return delta > 0 ? "stats-model-ledger-value-cell-cost-up" : "stats-model-ledger-value-cell-cost-down";
 }
 
 function normalizeModelName(value) {
@@ -457,6 +575,7 @@ const StatsView = {
       modelLedgerTokenColumns,
       formatModelLedgerValue,
       isModelLedgerValueUnavailable,
+      modelLedgerValueToneClass,
       modelVendorMeta,
       formatNumber,
     };
@@ -624,7 +743,10 @@ const StatsView = {
                             v-for="column in modelLedgerCostColumns(host.models)"
                             :key="host.api_host + ':' + model.model + ':cost:' + column.key"
                             class="stats-model-ledger-value-cell"
-                            :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"
+                            :class="[
+                              { 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) },
+                              modelLedgerValueToneClass(model, column),
+                            ]"
                           >
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
@@ -718,7 +840,10 @@ const StatsView = {
                             v-for="column in modelLedgerCostColumns(visibleModels)"
                             :key="model.model + ':cost:' + column.key"
                             class="stats-model-ledger-value-cell"
-                            :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"
+                            :class="[
+                              { 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) },
+                              modelLedgerValueToneClass(model, column),
+                            ]"
                           >
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
