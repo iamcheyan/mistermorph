@@ -1116,7 +1116,35 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	}
 
 	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger)
+	var progressMu sync.Mutex
+	var latestPlan *consolePlanProgress
+	var latestActivity *consoleActivityProgress
+	storeProgress := func() {
+		progressMu.Lock()
+		plan := cloneConsolePlanProgress(latestPlan)
+		activity := cloneConsoleActivityProgress(latestActivity)
+		progressMu.Unlock()
+		if plan == nil && activity == nil {
+			return
+		}
+		result := map[string]any{}
+		if plan != nil {
+			result["plan"] = plan
+		}
+		if activity != nil {
+			result["activity"] = activity
+		}
+		r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+			info.Result = result
+		})
+	}
 	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger)
+	eventSink.activityUpdated = func(progress *consoleActivityProgress) {
+		progressMu.Lock()
+		latestActivity = cloneConsoleActivityProgress(progress)
+		progressMu.Unlock()
+		storeProgress()
+	}
 	if bundle := job.Generation.bundle; bundle != nil {
 		eventSink.observer = newConsoleLLMObserver(bundle.taskRuntime, job.Model, logger)
 	}
@@ -1130,7 +1158,21 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 
 	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
 	runCtx = agent.WithEventSinkContext(runCtx, eventSink)
-	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream)
+	planStepUpdate := func(runCtx *agent.Context, _ agent.PlanStepUpdate) {
+		progress := buildConsolePlanProgress(consoleTaskPlan(nil, runCtx))
+		if progress == nil {
+			return
+		}
+		progressMu.Lock()
+		latestPlan = cloneConsolePlanProgress(progress)
+		progressMu.Unlock()
+		storeProgress()
+		if r.streamHub != nil {
+			r.streamHub.PublishPlan(job.TaskID, progress)
+		}
+	}
+
+	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream, planStepUpdate)
 	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
 	cancel()
 
@@ -1157,7 +1199,10 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.Status = daemonruntime.TaskPending
 			info.PendingAt = &pendingAt
 			info.ApprovalRequestID = pendingID
-			info.Result = buildConsoleTaskResult(final, agentCtx)
+			progressMu.Lock()
+			activity := cloneConsoleActivityProgress(latestActivity)
+			progressMu.Unlock()
+			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
 		})
 		streamTracker.LogSummary("pending")
 		r.completeHeartbeatTask(job, heartbeatTaskResultSkipped, nil, time.Time{})
@@ -1174,12 +1219,15 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt
-		info.Result = buildConsoleTaskResult(final, agentCtx)
+		progressMu.Lock()
+		activity := cloneConsoleActivityProgress(latestActivity)
+		progressMu.Unlock()
+		info.Result = buildConsoleTaskResult(final, agentCtx, activity)
 	})
 	r.maybeRefreshTopicTitle(job, output)
 }
 
-func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler) (*agent.Final, *agent.Context, error) {
+func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler, planStepUpdate func(*agent.Context, agent.PlanStepUpdate)) (*agent.Final, *agent.Context, error) {
 	if r == nil {
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
@@ -1256,6 +1304,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		OnStream:       onStream,
 		Meta:           meta,
 		PromptAugment:  promptAugment,
+		PlanStepUpdate: planStepUpdate,
 		Memory:         memoryHooks,
 	})
 	if err != nil {
@@ -1264,9 +1313,15 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	return result.Final, result.Context, nil
 }
 
-func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context) map[string]any {
+func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context, activity *consoleActivityProgress) map[string]any {
 	out := map[string]any{
 		"final": final,
+	}
+	if plan := buildConsolePlanProgress(consoleTaskPlan(final, runCtx)); plan != nil {
+		out["plan"] = plan
+	}
+	if activity != nil {
+		out["activity"] = cloneConsoleActivityProgress(activity)
 	}
 	if runCtx != nil {
 		out["metrics"] = buildConsoleTaskMetrics(runCtx.Metrics)

@@ -27,17 +27,19 @@ type consoleSemanticObserver interface {
 }
 
 type consoleEventPreviewSink struct {
-	hub            *consoleStreamHub
-	taskID         string
-	logger         *slog.Logger
-	now            func() time.Time
-	observer       consoleSemanticObserver
-	observeTimeout time.Duration
-	observeCtx     context.Context
-	observeCancel  context.CancelFunc
-	observeWake    chan struct{}
+	hub             *consoleStreamHub
+	taskID          string
+	logger          *slog.Logger
+	activityUpdated func(*consoleActivityProgress)
+	now             func() time.Time
+	observer        consoleSemanticObserver
+	observeTimeout  time.Duration
+	observeCtx      context.Context
+	observeCancel   context.CancelFunc
+	observeWake     chan struct{}
 
 	mu              sync.Mutex
+	activity        *consoleActivityProgress
 	subtaskLine     string
 	toolLine        string
 	stdoutTail      string
@@ -81,6 +83,14 @@ func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Eve
 		return
 	}
 
+	activity, activityChanged := s.consumeActivity(event)
+	if activityChanged && activity != nil {
+		s.hub.PublishActivity(s.taskID, activity)
+		if s.activityUpdated != nil {
+			s.activityUpdated(activity)
+		}
+	}
+
 	text, shouldPublish, observeReq := s.consume(event)
 	if observeReq != nil {
 		s.enqueueObserve(*observeReq)
@@ -88,7 +98,18 @@ func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Eve
 	if !shouldPublish || strings.TrimSpace(text) == "" {
 		return
 	}
-	s.hub.PublishSnapshot(s.taskID, text)
+	s.hub.PublishPreview(s.taskID, text)
+}
+
+func (s *consoleEventPreviewSink) consumeActivity(event agent.Event) (*consoleActivityProgress, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next, changed := updateConsoleActivityProgress(s.activity, event)
+	if changed {
+		s.activity = cloneConsoleActivityProgress(next)
+	}
+	return next, changed
 }
 
 func (s *consoleEventPreviewSink) consume(event agent.Event) (string, bool, *consoleObserveRequest) {
@@ -291,6 +312,9 @@ func formatConsoleSubtaskDone(event agent.Event) string {
 
 func formatConsoleToolStart(event agent.Event) string {
 	name := strings.TrimSpace(event.ToolName)
+	if strings.EqualFold(name, "plan_create") {
+		return ""
+	}
 	if name == "" {
 		name = "tool"
 	}
@@ -304,6 +328,9 @@ func formatConsoleToolDone(event agent.Event) string {
 	}
 	if errText := strings.TrimSpace(event.Error); errText != "" {
 		return fmt.Sprintf("[%s] failed: %s", name, daemonruntime.TruncateUTF8(errText, 160))
+	}
+	if strings.EqualFold(name, "plan_create") {
+		return ""
 	}
 	status := strings.TrimSpace(event.Status)
 	if status == "" {
@@ -387,7 +414,7 @@ func (s *consoleEventPreviewSink) observeLoop() {
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
-			s.hub.PublishSnapshot(s.taskID, text)
+			s.hub.PublishPreview(s.taskID, text)
 		}
 	}
 }

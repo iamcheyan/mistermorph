@@ -30,7 +30,7 @@ func TestExecuteTool_PreservesStructuredObservationOnError(t *testing.T) {
 	})
 
 	engine := New(nil, reg, Config{}, DefaultPromptSpec())
-	observation, err := engine.executeTool(context.Background(), &engineLoopState{}, &ToolCall{Name: "structured"})
+	observation, err := engine.executeTool(context.Background(), &engineLoopState{}, 0, &ToolCall{Name: "structured"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -48,7 +48,7 @@ func TestExecuteTool_AppendsErrorForPlainObservation(t *testing.T) {
 	})
 
 	engine := New(nil, reg, Config{}, DefaultPromptSpec())
-	observation, err := engine.executeTool(context.Background(), &engineLoopState{}, &ToolCall{Name: "plain"})
+	observation, err := engine.executeTool(context.Background(), &engineLoopState{}, 0, &ToolCall{Name: "plain"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

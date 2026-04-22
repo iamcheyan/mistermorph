@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"math/rand/v2"
 	"strings"
@@ -405,7 +406,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				}
 				item := &items[i]
 				g.Go(func() error {
-					obs, toolErr := e.executeTool(gCtx, st, &item.tc)
+					obs, toolErr := e.executeTool(gCtx, st, step, &item.tc)
 					item.observation = obs
 					item.err = toolErr
 					item.executed = true
@@ -523,11 +524,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					)
 				}
 				EmitEvent(ctx, nil, Event{
-					Kind:     EventKindToolDone,
-					Step:     step,
-					ToolName: strings.TrimSpace(tc.Name),
-					Status:   toolEventStatus(item.err),
-					Error:    eventErrorString(item.err),
+					Kind:       EventKindToolDone,
+					Step:       step,
+					ActivityID: toolActivityID(step, &tc),
+					ToolName:   strings.TrimSpace(tc.Name),
+					Status:     toolEventStatus(item.err),
+					Error:      eventErrorString(item.err),
+					Args:       toolDisplayArgsSummary(strings.TrimSpace(tc.Name), tc.Params, e.logOpts),
 				})
 
 				if item.err == nil {
@@ -641,7 +644,7 @@ func (e *Engine) guardPreCheck(ctx context.Context, st *engineLoopState, step in
 }
 
 // executeTool runs the tool. Safe for concurrent use.
-func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolCall) (string, error) {
+func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, step int, tc *ToolCall) (string, error) {
 	tool, found := e.registry.Get(tc.Name)
 	if !found {
 		return fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames()), fmt.Errorf("tool not found")
@@ -649,9 +652,11 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolC
 
 	toolCtx := ctx
 	EmitEvent(ctx, nil, Event{
-		Kind:     EventKindToolStart,
-		ToolName: strings.TrimSpace(tc.Name),
-		Status:   "running",
+		Kind:       EventKindToolStart,
+		ActivityID: toolActivityID(step, tc),
+		ToolName:   strings.TrimSpace(tc.Name),
+		Status:     "running",
+		Args:       toolDisplayArgsSummary(strings.TrimSpace(tc.Name), tc.Params, e.logOpts),
 	})
 	if e.subtaskRunner != nil {
 		toolCtx = WithSubtaskRunnerContext(toolCtx, e.subtaskRunner)
@@ -710,6 +715,22 @@ func toolCallSignature(tc ToolCall) string {
 	}
 	b, _ := json.Marshal(tc.Params)
 	return tc.Name + ":" + string(b)
+}
+
+func toolActivityID(step int, tc *ToolCall) string {
+	if tc == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(tc.ID); id != "" {
+		return id
+	}
+	sig := toolCallSignature(*tc)
+	if sig == "" {
+		return fmt.Sprintf("tool:%d:%s", step, normalizedToolName(tc.Name))
+	}
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(sig))
+	return fmt.Sprintf("tool:%d:%016x", step, hasher.Sum64())
 }
 
 func normalizedToolName(name string) string {

@@ -191,7 +191,7 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 			ToolCalls:    2,
 			ParseRetries: 1,
 		},
-	})
+	}, nil)
 
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -231,6 +231,81 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 	}
 	if _, ok := payload.Metrics["TotalTokens"]; ok {
 		t.Fatalf("metrics unexpectedly contains camelCase key: %#v", payload.Metrics)
+	}
+}
+
+func TestBuildConsoleTaskResultIncludesPlan(t *testing.T) {
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{
+		Plan: &agent.Plan{
+			Steps: []agent.PlanStep{
+				{Step: "collect logs", Status: agent.PlanStatusCompleted},
+				{Step: "patch bug", Status: agent.PlanStatusInProgress},
+			},
+		},
+	}, nil)
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Plan *consolePlanProgress `json:"plan"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if payload.Plan == nil {
+		t.Fatal("payload.Plan = nil")
+	}
+	if len(payload.Plan.Steps) != 2 {
+		t.Fatalf("len(payload.Plan.Steps) = %d, want 2", len(payload.Plan.Steps))
+	}
+	if payload.Plan.Steps[1].Status != agent.PlanStatusInProgress {
+		t.Fatalf("payload.Plan.Steps[1].Status = %q, want %q", payload.Plan.Steps[1].Status, agent.PlanStatusInProgress)
+	}
+}
+
+func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{}, &consoleActivityProgress{
+		Current: &consoleActivityEntry{
+			ID:     "tool:1",
+			Kind:   "tool",
+			Name:   "web_search",
+			Status: "done",
+			Args: map[string]any{
+				"q": "alpha",
+			},
+		},
+		History: []consoleActivityEntry{
+			{
+				ID:     "tool:1",
+				Kind:   "tool",
+				Name:   "web_search",
+				Status: "done",
+			},
+		},
+	})
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Activity *consoleActivityProgress `json:"activity"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if payload.Activity == nil || payload.Activity.Current == nil {
+		t.Fatalf("payload.Activity = %#v, want current activity", payload.Activity)
+	}
+	if payload.Activity.Current.Name != "web_search" {
+		t.Fatalf("payload.Activity.Current.Name = %q, want web_search", payload.Activity.Current.Name)
+	}
+	if payload.Activity.Current.Args["q"] != "alpha" {
+		t.Fatalf("payload.Activity.Current.Args[q] = %#v, want alpha", payload.Activity.Current.Args["q"])
 	}
 }
 
