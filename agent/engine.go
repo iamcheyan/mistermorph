@@ -186,7 +186,7 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		cfg.ParseRetries = 0
 	}
 	if cfg.ToolRepeatLimit <= 0 {
-		cfg.ToolRepeatLimit = 3
+		cfg.ToolRepeatLimit = DefaultToolRepeatLimit
 	}
 	if spec.Identity == "" {
 		spec = DefaultPromptSpec()

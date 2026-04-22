@@ -578,13 +578,13 @@ heartbeat:
 
 # Agent loop limits.
 # - max_steps: maximum tool-call steps in the ReAct loop.
-max_steps: 15
+max_steps: 64
 # - parse_retries: how many times to ask the model to retry if it emits invalid JSON.
 parse_retries: 2
 # - max_token_budget: stop the loop once cumulative tokens exceed this (0 disables).
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
-tool_repeat_limit: 3
+tool_repeat_limit: 64
 # Overall run timeout.
 timeout: "10m"
 

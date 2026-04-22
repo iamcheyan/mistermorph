@@ -44,8 +44,8 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.AgentLimits.ParseRetries != 2 {
 		t.Fatalf("agent parse retries = %d, want 2", got.AgentLimits.ParseRetries)
 	}
-	if got.AgentLimits.ToolRepeatLimit != 3 {
-		t.Fatalf("agent tool repeat limit = %d, want 3", got.AgentLimits.ToolRepeatLimit)
+	if got.AgentLimits.ToolRepeatLimit != 64 {
+		t.Fatalf("agent tool repeat limit = %d, want 64", got.AgentLimits.ToolRepeatLimit)
 	}
 	if got.MaxConcurrency != 3 {
 		t.Fatalf("max concurrency = %d, want 3", got.MaxConcurrency)
