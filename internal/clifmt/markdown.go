@@ -2,21 +2,28 @@ package clifmt
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
 )
 
+var markdownCodeBlockPlaceholderRe = regexp.MustCompile(`§§MMCODEBLOCK\d+§§`)
+
 // RenderMarkdown renders markdown text for terminal display using Glamour,
 // while preserving our custom boxed code blocks.
 func RenderMarkdown(text string) string {
-	if !useColor() {
+	return renderMarkdown(text, useColor())
+}
+
+func renderMarkdown(text string, enableColor bool) string {
+	if !enableColor {
 		return text
 	}
 
 	// 1. Extract and process explicit markdown code blocks
 	var codeBlocks []string
-	placeholderFormat := "MM_CODE_BLOCK_%d_MM"
+	placeholderFormat := "§§MMCODEBLOCK%d§§"
 
 	processedText := codeBlockRe.ReplaceAllStringFunc(text, func(block string) string {
 		highlighted := HighlightCodeBlocks(block)
@@ -29,7 +36,7 @@ func RenderMarkdown(text string) string {
 	paragraphs := strings.Split(processedText, "\n\n")
 	for i, para := range paragraphs {
 		trimmed := strings.TrimSpace(para)
-		if trimmed == "" || strings.Contains(para, fmt.Sprintf(placeholderFormat, 0)) {
+		if trimmed == "" || markdownCodeBlockPlaceholderRe.MatchString(para) {
 			continue // skip empty or already-processed paragraphs
 		}
 		if looksLikeCodeBlock(trimmed) {
