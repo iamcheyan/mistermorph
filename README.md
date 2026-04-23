@@ -1,6 +1,8 @@
 # Mister Morph（个人维护版）
 
-这是 [quailyquaily/mistermorph](https://github.com/quailyquaily/mistermorph) 的个人 fork，基于上游最新代码，并加入了一些个人需要的功能和调整。
+这是 [quailyquaily/mistermorph](https://github.com/quailyquaily/mistermorph) 的个人 fork，基于上游最新代码，保留了个别上游尚未合并的功能。
+
+> **2025-04-19 更新**：已完成 upstream/master 全量合并（`34e887e`）。所有冲突一律以上游版本为准，上游已实现的功能（交互式 chat、workspace、plan/activity panels、agent loop limits 提升等）均已同步。本 fork 目前仅保留 Bedrock provider 等少量上游未有的功能。
 
 ---
 
@@ -8,27 +10,15 @@
 
 | 项目 | 上游原版 | 本 fork |
 |------|---------|---------|
-| 交互式对话 | ❌ | ✅ `chat` 命令，支持 REPL 交互 |
-| 模型切换 | ❌ | ✅ 运行时通过 `/model` 切换模型 |
-| Slash 命令 | ❌ | ✅ `/exit`, `/model`, `/memory`, `/remember`, `/help` 等 |
-| Bedrock 支持 | ❌ | ✅ AWS Bedrock 独立 provider（AWS CLI） |
-| Gemini OAuth | ❌ | ✅ Gemini CLI ACP 集成 |
-| OpenCode 集成 | ❌ | ✅ 支持 OpenCode 模型 |
-| 自动发现模型 | ❌ | ✅ 自动获取可用模型列表 |
-| 用户名显示 | ❌ | ✅ Prompt 中显示系统用户名 |
-| Plan 进度彩色输出 | ❌ | ✅ 彩色格式化 |
-| Markdown 语法高亮 | ❌ | ✅ 代码块语法高亮 + 行号 |
-| Tool 参数显示 | ❌ | ✅ 显示 tool 调用的 path/url/cmd 等参数 |
+| **Bedrock 支持** | ❌ | ✅ AWS Bedrock 独立 provider（AWS CLI 认证） |
+| ~~交互式对话~~ | ✅ | ✅ 已合并到上游 |
+| ~~模型切换~~ | ✅ | ✅ 已合并到上游 |
+| ~~Slash 命令~~ | ✅ | ✅ 已合并到上游 |
+| ~~Workspace 机制~~ | ✅ | ✅ 已合并到上游 |
+| ~~Plan/Activity panels~~ | ✅ | ✅ 已合并到上游 |
+| ~~Agent loop limits~~ | ✅ | ✅ 已合并到上游 |
 
-> 详细变更记录见 [PR #35](https://github.com/quailyquaily/mistermorph/pull/35) 及后续提交。
-
----
-
-## 当前状态
-
-- **默认分支 `main`**：同步上游最新代码 + 个人修改
-- **PR #35**：已合并到上游（squash 为 PR #36），lyricat 做了额外改进
-- **上游同步**：所有 upstream 改进已 cherry-pick 到本地 main
+> 历史功能如 `clifmt`（语法高亮）、`gemini_oauth`（Gemini CLI ACP）、`compact_mode`、`BuiltinAskUser` 等已在本次合并中移除，以上游实现为准。
 
 ---
 
@@ -37,8 +27,10 @@
 | 分支 | 用途 | 状态 |
 |------|------|------|
 | `main` | 个人维护版，GitHub 默认显示 | ✅ 活跃 |
+| `backup-main-20260419` | 合并前完整备份 | 🗄️ 保留 |
+| `pr/bedrock-aws-cli` | 给上游提交 Bedrock PR 的干净分支 | ✅ 已推送到 origin |
 
-> 历史分支 `pr-chat`、`backup-main-20260419`、`feat/bedrock-aws-cli` 已清理删除。
+> 给上游提交 PR 时，请从 `upstream/master` 新建干净分支（如 `pr/bedrock-aws-cli`），不要从个人 `main` 分支发 PR。
 
 ---
 
@@ -68,7 +60,7 @@ export MISTER_MORPH_LLM_API_KEY="your-api-key"
 # 单次任务
 mistermorph run --task "Hello!"
 
-# 交互式对话（本 fork 新增）
+# 交互式对话（upstream 已支持）
 mistermorph chat
 ```
 
@@ -76,7 +68,7 @@ mistermorph chat
 
 ## 交互式对话命令
 
-在 `chat` 模式下可用：
+在 `chat` 模式下可用（upstream 已实现）：
 
 | 命令 | 说明 |
 |------|------|
@@ -89,15 +81,13 @@ mistermorph chat
 | `/update` | 通过 AI 重新生成 AGENTS.md |
 | `/help` | 显示帮助 |
 
-> 注：`/forget` 命令已在 upstream 合并时移除，改为 `/reset` 仅清除历史，`/remember` 直接写入长期记忆。
-
 ---
 
 ## 开发相关
 
 ### 本地工作区
 
-`.local/` 目录存放个人开发笔记、日志和脚本：
+`.local/` 目录存放个人开发笔记、日志和脚本（不会向上游提交）：
 
 ```
 .local/
@@ -119,19 +109,42 @@ go test ./...
 # 同步上游更新
 git fetch upstream
 git log upstream/master --oneline -10  # 查看上游新提交
-# 然后手动 cherry-pick 需要的改进
+```
+
+### 合并上游流程
+
+```bash
+# 1. 创建备份
+git branch backup-main-$(date +%Y%m%d)
+
+# 2. 合并 upstream/master
+git merge upstream/master
+
+# 3. 冲突处理原则：一律以上游版本为准
+#    - 保留本地新增文件（如 providers/bedrock/）
+#    - 冲突文件使用 upstream 版本
+
+# 4. 验证
+go build ./... && go test ./...
+
+# 5. 推送
+git push origin main
 ```
 
 ---
 
 ## 注意事项
 
-1. **上游同步**：我们的 `main` 有大量 upstream 没有的功能（bedrock、gemini、clifmt 等），不能直接 `git merge upstream/master`，需要手动 cherry-pick。
+1. **上游同步**：`main` 分支目前仅比 upstream 多出 Bedrock provider 和少量本地文件，合并冲突时以上游为准即可。
 
-2. **故意保留的分歧**：
-   - `WithOnToolStart` 保持 3-param（显示 tool 参数），upstream 是 2-param
-   - `internal/clifmt` 语法高亮包，upstream 没有
-   - `providers/bedrock` 和 `providers/gemini`，upstream 没有
+2. **保留的本地文件**（无冲突，未清理）：
+   - `providers/bedrock/` — Bedrock provider（功能完整，已整理为 `pr/bedrock-aws-cli` 分支）
+   - `providers/gemini/` — Gemini OAuth provider 代码（flag 已移除，未启用）
+   - `internal/clifmt/` — clifmt 包（已无人调用，死代码）
+   - `internal/llmutil/acp_llm_client.go` — ACP LLM 适配器
+   - `internal/acpclient/client.go` — oauth-personal 认证方法
+   - `internal/channelruntime/slack/runtime_task.go` — ACP 事件路由
+   - `internal/channelruntime/telegram/runtime_task.go` — ACP 事件路由
 
 3. **PR 开发**：给上游提交 PR 时，从 `upstream/master` 新建干净分支，不要从个人 `main` 分支发 PR。
 
