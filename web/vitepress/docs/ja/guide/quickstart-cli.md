@@ -18,7 +18,7 @@ sudo bash /tmp/install.sh
 mistermorph install
 ```
 
-Mister Morph は必要なファイルを初期化します。デフォルトでは `~/.morph/` に配置され、設定ファイルは `~/.morph/config.yaml` です。
+Mister Morph は必要なファイルを初期化します。デフォルトでは state は `~/.morph/`、cache は `~/.cache/morph` に置かれ、設定ファイルは `~/.morph/config.yaml` です。
 
 初期化中には、LLM の設定、Agent 名、persona など、最小限の必須項目を対話形式で確認します。
 
@@ -55,7 +55,17 @@ mistermorph run --task "Hello"
 }
 ```
 
-## 4. デバッグスイッチ
+## 4. 対話 chat を始める
+
+```bash
+mistermorph chat --workspace .
+```
+
+`mistermorph chat` だけでもカレントディレクトリがデフォルトで `workspace_dir` として付与されます。プロジェクトディレクトリなしで始めたい場合は `--no-workspace` を使ってください。
+
+`workspace_dir`、`file_cache_dir`、`file_state_dir` の違いは [ファイルシステムのルート](/ja/guide/filesystem-roots) を参照してください。
+
+## 5. デバッグスイッチ
 
 ```bash
 mistermorph run --inspect-prompt --inspect-request --task "Hello"

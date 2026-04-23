@@ -23,11 +23,12 @@ func (r *localSubtaskRunner) RunSubtask(ctx context.Context, req SubtaskRequest)
 	taskID, runCtx, meta := PrepareSubtaskContext(ctx, req.Meta)
 	log := r.engine.log
 	EmitEvent(ctx, nil, Event{
-		Kind:    EventKindSubtaskStart,
-		TaskID:  taskID,
-		Mode:    localSubtaskMode(req),
-		Profile: string(NormalizeObserveProfile(string(req.ObserveProfile))),
-		Status:  "running",
+		Kind:       EventKindSubtaskStart,
+		ActivityID: taskID,
+		TaskID:     taskID,
+		Mode:       localSubtaskMode(req),
+		Profile:    string(NormalizeObserveProfile(string(req.ObserveProfile))),
+		Status:     "running",
 	})
 	if log != nil {
 		log.Info("subtask_start", "task_id", taskID, "mode", localSubtaskMode(req), "output_schema", strings.TrimSpace(req.OutputSchema))
@@ -51,6 +52,7 @@ func (r *localSubtaskRunner) RunSubtask(ctx context.Context, req SubtaskRequest)
 	if result != nil {
 		EmitEvent(ctx, nil, Event{
 			Kind:       EventKindSubtaskDone,
+			ActivityID: taskID,
 			TaskID:     taskID,
 			Status:     strings.TrimSpace(result.Status),
 			Summary:    strings.TrimSpace(result.Summary),

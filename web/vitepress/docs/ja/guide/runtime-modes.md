@@ -13,6 +13,14 @@ description: Mister Morph がサポートする実行モードを確認する。
 mistermorph run --task "..."
 ```
 
+## Chat CLI
+
+ターミナルで対話セッションを継続したい場合は、`chat` コマンドを使います。
+
+```bash
+mistermorph chat
+```
+
 ## Console
 
 機能の揃った Web UI を提供します。Agent と対話できるだけでなく、ほかの Mister Morph インスタンスを監視する用途にも使えます。

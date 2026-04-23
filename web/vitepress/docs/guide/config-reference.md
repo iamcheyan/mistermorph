@@ -242,6 +242,8 @@ Shell defaults are platform-specific:
 
 ## Loop Limits and File Storage
 
+For how runtime-provided `workspace_dir` relates to `file_cache_dir` and `file_state_dir`, see [Filesystem Roots](/guide/filesystem-roots).
+
 - `max_steps`
 - `parse_retries`
 - `max_token_budget`

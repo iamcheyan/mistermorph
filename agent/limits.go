@@ -3,7 +3,7 @@ package agent
 const (
 	DefaultMaxSteps        = 15
 	DefaultParseRetries    = 2
-	DefaultToolRepeatLimit = 3
+	DefaultToolRepeatLimit = 64
 )
 
 // Limits groups loop-control knobs so upper layers can pass agent limits

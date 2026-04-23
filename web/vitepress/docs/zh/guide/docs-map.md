@@ -27,6 +27,7 @@ description: 仓库中更完整设计文档的入口索引。
 - 参考
   - [Integration API](/zh/guide/integration-references)
   - [配置字段](/zh/guide/config-reference)
+  - [文件系统根目录](/zh/guide/filesystem-roots)
   - [环境变量](/zh/guide/env-vars-reference)
   - [命令行参数](/zh/guide/cli-flags)
 - 运维与治理

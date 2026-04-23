@@ -57,6 +57,27 @@ This command accepts an optional `profile-name` positional argument. Without one
 - `--timeout`: Overall timeout.
 - `--tool-repeat-limit`: Force final output when the same successful tool call repeats too many times.
 
+## `chat`
+
+- `--api-key`: API key override.
+- `--compact-mode`: Compact display mode for interactive chat output.
+- `--endpoint`: Provider base URL override.
+- `--llm-request-timeout`: Per-LLM HTTP request timeout.
+- `--max-steps`: Max tool-call steps.
+- `--max-token-budget`: Max cumulative token budget.
+- `--model`: Model override.
+- `--no-workspace`: Start chat without a workspace attachment.
+- `--parse-retries`: Max JSON parse retries.
+- `--profile`: Named LLM profile override.
+- `--provider`: Provider override.
+- `--skill`: Skill name or id to load. Repeatable.
+- `--skills-dir`: Skills root directory. Repeatable.
+- `--skills-enabled`: Enable configured skills loading.
+- `--timeout`: Overall timeout.
+- `--tool-repeat-limit`: Force final when the same successful tool call repeats this many times.
+- `--verbose`: Show info-level logs during chat.
+- `--workspace`: Attach a workspace directory for this chat session.
+
 ## `console serve`
 
 - `--allow-empty-password`: Allow console to run without `console.password` or `console.password_hash`.

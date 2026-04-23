@@ -24,7 +24,9 @@ go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 mistermorph install
 ```
 
-標準ワークスペースは `~/.morph/` です。
+デフォルトでは、state は `~/.morph/`、cache は `~/.cache/morph` に置かれます。
+
+`workspace_dir`、`file_cache_dir`、`file_state_dir` の違いは [ファイルシステムのルート](/ja/guide/filesystem-roots) を参照してください。
 
 ## 設定の優先順位
 

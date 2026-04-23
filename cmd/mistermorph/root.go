@@ -193,6 +193,7 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(newBenchmarkCmd())
+	cmd.AddCommand(newCreditsCmd())
 	cmd.AddCommand(skillscmd.New())
 	cmd.AddCommand(consolecmd.New())
 	cmd.AddCommand(newInstallCmd())

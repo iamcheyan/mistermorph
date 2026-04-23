@@ -39,7 +39,6 @@ func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate
 		return ""
 	}
 
-	// All steps completed and no new step started - return empty to revert spinner to default
 	if update.CompletedIndex >= 0 && update.CompletedIndex == total-1 && update.StartedIndex < 0 {
 		return ""
 	}
@@ -47,12 +46,10 @@ func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate
 	var b strings.Builder
 	b.WriteString("plan: ")
 
-	// Show completed step
 	if update.CompletedIndex >= 0 && update.CompletedStep != "" {
 		b.WriteString(fmt.Sprintf("✓ %s", update.CompletedStep))
 	}
 
-	// Show current step being worked on
 	if update.StartedIndex >= 0 && update.StartedStep != "" {
 		if update.CompletedIndex >= 0 {
 			b.WriteString(" → ")
@@ -60,7 +57,6 @@ func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate
 		b.WriteString(update.StartedStep)
 	}
 
-	// Add progress counter
 	if update.CompletedIndex >= 0 {
 		b.WriteString(fmt.Sprintf(" [%d/%d]", update.CompletedIndex+1, total))
 	} else if update.StartedIndex >= 0 {

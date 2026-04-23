@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/spf13/viper"
 )
 
@@ -189,7 +191,7 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 			ToolCalls:    2,
 			ParseRetries: 1,
 		},
-	})
+	}, nil)
 
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -229,6 +231,81 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 	}
 	if _, ok := payload.Metrics["TotalTokens"]; ok {
 		t.Fatalf("metrics unexpectedly contains camelCase key: %#v", payload.Metrics)
+	}
+}
+
+func TestBuildConsoleTaskResultIncludesPlan(t *testing.T) {
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{
+		Plan: &agent.Plan{
+			Steps: []agent.PlanStep{
+				{Step: "collect logs", Status: agent.PlanStatusCompleted},
+				{Step: "patch bug", Status: agent.PlanStatusInProgress},
+			},
+		},
+	}, nil)
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Plan *consolePlanProgress `json:"plan"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if payload.Plan == nil {
+		t.Fatal("payload.Plan = nil")
+	}
+	if len(payload.Plan.Steps) != 2 {
+		t.Fatalf("len(payload.Plan.Steps) = %d, want 2", len(payload.Plan.Steps))
+	}
+	if payload.Plan.Steps[1].Status != agent.PlanStatusInProgress {
+		t.Fatalf("payload.Plan.Steps[1].Status = %q, want %q", payload.Plan.Steps[1].Status, agent.PlanStatusInProgress)
+	}
+}
+
+func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{}, &consoleActivityProgress{
+		Current: &consoleActivityEntry{
+			ID:     "tool:1",
+			Kind:   "tool",
+			Name:   "web_search",
+			Status: "done",
+			Args: map[string]any{
+				"q": "alpha",
+			},
+		},
+		History: []consoleActivityEntry{
+			{
+				ID:     "tool:1",
+				Kind:   "tool",
+				Name:   "web_search",
+				Status: "done",
+			},
+		},
+	})
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Activity *consoleActivityProgress `json:"activity"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if payload.Activity == nil || payload.Activity.Current == nil {
+		t.Fatalf("payload.Activity = %#v, want current activity", payload.Activity)
+	}
+	if payload.Activity.Current.Name != "web_search" {
+		t.Fatalf("payload.Activity.Current.Name = %q, want web_search", payload.Activity.Current.Name)
+	}
+	if payload.Activity.Current.Args["q"] != "alpha" {
+		t.Fatalf("payload.Activity.Current.Args[q] = %#v, want alpha", payload.Activity.Current.Args["q"])
 	}
 }
 
@@ -452,5 +529,139 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 
 	if _, ok := rt.pendingJobs[job.TaskID]; ok {
 		t.Fatalf("pendingJobs[%q] still exists, want removed after enqueue", job.TaskID)
+	}
+}
+
+func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	workspaceRoot := t.TempDir()
+	attachmentsPath := filepath.Join(workspaceRoot, "workspace_attachments.json")
+	workspaceStore := workspace.NewStore(attachmentsPath)
+	if _, _, err := workspaceStore.Set(buildConsoleConversationKey(topic.ID), workspace.Attachment{WorkspaceDir: workspaceRoot}); err != nil {
+		t.Fatalf("workspaceStore.Set() error = %v", err)
+	}
+
+	generation := &consoleLocalRuntimeGeneration{reader: viper.New()}
+	rt := &consoleLocalRuntime{
+		store:          store,
+		workspaceStore: workspaceStore,
+	}
+
+	job, _, err := rt.acceptTask(
+		generation,
+		"hello",
+		"",
+		time.Minute,
+		topic.ID,
+		"",
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
+	)
+	if err != nil {
+		t.Fatalf("acceptTask() error = %v", err)
+	}
+	if job.WorkspaceDir != workspaceRoot {
+		t.Fatalf("job.WorkspaceDir = %q, want %q", job.WorkspaceDir, workspaceRoot)
+	}
+}
+
+func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	workspaceRoot := t.TempDir()
+	attachmentsPath := filepath.Join(workspaceRoot, "workspace_attachments.json")
+	workspaceStore := workspace.NewStore(attachmentsPath)
+	if _, _, err := workspaceStore.Set(buildConsoleConversationKey(topic.ID), workspace.Attachment{WorkspaceDir: workspaceRoot}); err != nil {
+		t.Fatalf("workspaceStore.Set() error = %v", err)
+	}
+
+	rt := &consoleLocalRuntime{
+		store:          store,
+		workspaceStore: workspaceStore,
+	}
+	if !rt.deleteTopic(topic.ID) {
+		t.Fatalf("deleteTopic(%q) = false, want true", topic.ID)
+	}
+	currentDir, err := workspace.LookupWorkspaceDir(workspaceStore, buildConsoleConversationKey(topic.ID))
+	if err != nil {
+		t.Fatalf("LookupWorkspaceDir() error = %v", err)
+	}
+	if currentDir != "" {
+		t.Fatalf("currentDir = %q, want empty after topic delete", currentDir)
+	}
+}
+
+func TestConsoleLocalRuntimeSubmitTaskHandlesWorkspaceCommand(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	workspaceRoot := t.TempDir()
+	attachmentsPath := filepath.Join(workspaceRoot, "workspace_attachments.json")
+	workspaceStore := workspace.NewStore(attachmentsPath)
+	reader := viper.New()
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	rt := &consoleLocalRuntime{
+		store:          store,
+		workspaceStore: workspaceStore,
+		generation:     generation,
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task:    "/workspace attach " + workspaceRoot,
+		TopicID: topic.ID,
+	})
+	if err != nil {
+		t.Fatalf("submitTask() error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+	if resp.TopicID != topic.ID {
+		t.Fatalf("resp.TopicID = %q, want %q", resp.TopicID, topic.ID)
+	}
+	currentDir, err := workspace.LookupWorkspaceDir(workspaceStore, buildConsoleConversationKey(topic.ID))
+	if err != nil {
+		t.Fatalf("LookupWorkspaceDir() error = %v", err)
+	}
+	if currentDir != workspaceRoot {
+		t.Fatalf("currentDir = %q, want %q", currentDir, workspaceRoot)
+	}
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	result, _ := task.Result.(map[string]any)
+	final, _ := result["final"].(map[string]any)
+	if got := strings.TrimSpace(fmt.Sprint(final["output"])); got != "workspace attached: "+workspaceRoot {
+		t.Fatalf("final.output = %q, want %q", got, "workspace attached: "+workspaceRoot)
 	}
 }

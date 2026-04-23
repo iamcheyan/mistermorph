@@ -108,6 +108,12 @@ The Linux updater tarball is not an `.AppImage` wrapped in another archive; it c
 That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
 The Windows release bundle now includes both `mistermorph-desktop.exe` and `mistermorph.exe`; keep them in the same directory after unzip.
 The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published desktop executable carries the app icon.
+The macOS packaging script signs the `.app` bundle in two modes:
+
+- with `CODESIGN_IDENTITY`: Developer ID signing, plus notarization if Apple notarization credentials are also present
+- without `CODESIGN_IDENTITY`: ad hoc signing for local builds or test-user distribution
+
+The ad hoc path is intentional for the current testing phase. Test users may still need to manually bypass Gatekeeper on first launch.
 
 If you want the same Windows executable icon in a local Windows build, run:
 

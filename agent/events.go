@@ -16,19 +16,21 @@ const (
 )
 
 type Event struct {
-	Kind       string `json:"kind"`
-	RunID      string `json:"run_id,omitempty"`
-	Step       int    `json:"step,omitempty"`
-	ToolName   string `json:"tool_name,omitempty"`
-	TaskID     string `json:"task_id,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Mode       string `json:"mode,omitempty"`
-	Profile    string `json:"profile,omitempty"`
-	Stream     string `json:"stream,omitempty"`
-	Text       string `json:"text,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	OutputKind string `json:"output_kind,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Kind       string         `json:"kind"`
+	RunID      string         `json:"run_id,omitempty"`
+	Step       int            `json:"step,omitempty"`
+	ActivityID string         `json:"activity_id,omitempty"`
+	ToolName   string         `json:"tool_name,omitempty"`
+	TaskID     string         `json:"task_id,omitempty"`
+	Status     string         `json:"status,omitempty"`
+	Mode       string         `json:"mode,omitempty"`
+	Profile    string         `json:"profile,omitempty"`
+	Stream     string         `json:"stream,omitempty"`
+	Text       string         `json:"text,omitempty"`
+	Summary    string         `json:"summary,omitempty"`
+	OutputKind string         `json:"output_kind,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	Args       map[string]any `json:"args,omitempty"`
 }
 
 type EventSink interface {

@@ -14,7 +14,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
-	"github.com/quailyquaily/mistermorph/internal/clifmt"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -32,6 +32,9 @@ func runREPL(sess *chatSession) error {
 		readline.PcItem("/init"),
 		readline.PcItem("/update"),
 		readline.PcItem("/model"),
+		readline.PcItem("/workspace"),
+		readline.PcItem("/workspace attach "),
+		readline.PcItem("/workspace detach"),
 		readline.PcItem("/help"),
 	)
 
@@ -50,7 +53,7 @@ func runREPL(sess *chatSession) error {
 	sess.setWriter(rl.Stdout())
 	writer := sess.currentWriter()
 
-	printChatSessionHeader(writer, strings.TrimSpace(sess.mainCfg.Model), sess.chatFileCacheDir)
+	printChatSessionHeader(writer, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
 
 	reg := chatcommands.NewRegistry()
 	history := make([]llm.Message, 0, 32)
@@ -99,6 +102,7 @@ func runREPL(sess *chatSession) error {
 
 		// Not a command — run an agent turn
 		turnCtx, turnCancel := context.WithCancel(context.Background())
+		turnCtx = pathroots.WithWorkspaceDir(turnCtx, sess.workspaceDir)
 		go func() {
 			<-time.After(sess.timeout)
 			turnCancel()
@@ -145,7 +149,6 @@ func runREPL(sess *chatSession) error {
 		}
 
 		output := formatChatOutput(final)
-		output = clifmt.RenderMarkdown(output)
 		if sess.compactMode {
 			_, _ = fmt.Fprintf(writer, "%s\n", output)
 		} else {

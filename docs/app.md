@@ -142,7 +142,7 @@ That backend is built with `CGO_ENABLED=0` on purpose. Keep it that way unless y
 
 ## Known Gaps
 
-- No notarization or codesign flow yet for the macOS DMG.
+- macOS DMG supports ad hoc signing for test distribution and Developer ID signing when release secrets are configured, but ad hoc builds still require testers to manually bypass Gatekeeper on first launch.
 - Windows ships as a zip bundle, not an installer.
 - No dedicated UI yet for backend startup failures.
 - The wrapper still reuses the CLI backend through child-process orchestration rather than an in-process console module.

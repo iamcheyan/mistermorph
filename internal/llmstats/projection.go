@@ -121,7 +121,7 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 	if rebuild {
 		mode = "rebuild"
 	}
-	logger.Info("llm_usage_projection_refreshed",
+	logger.Debug("llm_usage_projection_refreshed",
 		"mode", mode,
 		"duration_ms", time.Since(startedAt).Milliseconds(),
 		"journal_segments", len(segments),

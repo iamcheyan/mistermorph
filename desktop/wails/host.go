@@ -86,6 +86,7 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr)
 	_, _ = fmt.Fprintf(os.Stderr, "desktop host launching backend: %s %s\n", launcher.execPath, strings.Join(args, " "))
 	cmd := exec.Command(launcher.execPath, args...)
+	applyDesktopChildProcessAttrs(cmd)
 	cmd.Env = buildDesktopChildEnv(os.Environ())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

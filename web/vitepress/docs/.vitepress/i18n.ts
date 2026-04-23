@@ -178,6 +178,14 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
+        slug: 'filesystem-roots',
+        text: {
+          en: 'Filesystem Roots',
+          zh: '文件系统根目录',
+          ja: 'ファイルシステムのルート'
+        }
+      },
+      {
         slug: 'env-vars-reference',
         text: {
           en: 'Environment Variables',

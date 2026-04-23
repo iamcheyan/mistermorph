@@ -255,8 +255,8 @@ func TestWithFallbackFinal_NilIgnored(t *testing.T) {
 func TestEngineConfig_DefaultToolRepeatLimit(t *testing.T) {
 	client := newMockClient(finalResponse("ok"))
 	e := New(client, baseRegistry(), Config{}, DefaultPromptSpec())
-	if e.config.ToolRepeatLimit != 3 {
-		t.Fatalf("tool repeat limit = %d, want 3", e.config.ToolRepeatLimit)
+	if e.config.ToolRepeatLimit != 64 {
+		t.Fatalf("tool repeat limit = %d, want 64", e.config.ToolRepeatLimit)
 	}
 }
 

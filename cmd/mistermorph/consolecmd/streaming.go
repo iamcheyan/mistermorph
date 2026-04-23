@@ -17,12 +17,15 @@ import (
 const consoleStreamTicketTTL = 60 * time.Second
 
 type consoleStreamFrame struct {
-	TaskID string `json:"task_id"`
-	Seq    uint64 `json:"seq"`
-	Status string `json:"status,omitempty"`
-	Text   string `json:"text,omitempty"`
-	Error  string `json:"error,omitempty"`
-	Done   bool   `json:"done,omitempty"`
+	TaskID   string                   `json:"task_id"`
+	Seq      uint64                   `json:"seq"`
+	Status   string                   `json:"status,omitempty"`
+	Text     string                   `json:"text,omitempty"`
+	Error    string                   `json:"error,omitempty"`
+	Plan     *consolePlanProgress     `json:"plan,omitempty"`
+	Activity *consoleActivityProgress `json:"activity,omitempty"`
+	Preview  bool                     `json:"preview,omitempty"`
+	Done     bool                     `json:"done,omitempty"`
 }
 
 type consoleStreamHub struct {
@@ -44,6 +47,15 @@ func (h *consoleStreamHub) PublishSnapshot(taskID, text string) {
 		TaskID: strings.TrimSpace(taskID),
 		Status: "running",
 		Text:   text,
+	})
+}
+
+func (h *consoleStreamHub) PublishPreview(taskID, text string) {
+	h.publish(consoleStreamFrame{
+		TaskID:  strings.TrimSpace(taskID),
+		Status:  "running",
+		Text:    text,
+		Preview: true,
 	})
 }
 
@@ -70,6 +82,28 @@ func (h *consoleStreamHub) PublishStatus(taskID, status string) {
 	h.publish(consoleStreamFrame{
 		TaskID: strings.TrimSpace(taskID),
 		Status: strings.TrimSpace(status),
+	})
+}
+
+func (h *consoleStreamHub) PublishPlan(taskID string, plan *consolePlanProgress) {
+	if plan == nil {
+		return
+	}
+	h.publish(consoleStreamFrame{
+		TaskID: strings.TrimSpace(taskID),
+		Status: "running",
+		Plan:   plan,
+	})
+}
+
+func (h *consoleStreamHub) PublishActivity(taskID string, activity *consoleActivityProgress) {
+	if activity == nil {
+		return
+	}
+	h.publish(consoleStreamFrame{
+		TaskID:   strings.TrimSpace(taskID),
+		Status:   "running",
+		Activity: cloneConsoleActivityProgress(activity),
 	})
 }
 

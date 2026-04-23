@@ -186,5 +186,3 @@ func prepareTurnMemoryContext(memOrchestrator *memoryruntime.Orchestrator, subje
 		MaxItems:       20,
 	})
 }
-
-

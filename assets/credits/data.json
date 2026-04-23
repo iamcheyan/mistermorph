@@ -1,0 +1,198 @@
+{
+  "open_source": [
+    {
+      "id": "cobra",
+      "name": "Cobra",
+      "link": "https://github.com/spf13/cobra",
+      "license": "Apache-2.0",
+      "summary": "Builds the CLI command tree, flag parsing, and help output."
+    },
+    {
+      "id": "viper",
+      "name": "Viper",
+      "link": "https://github.com/spf13/viper",
+      "license": "MIT",
+      "summary": "Loads config files, environment variables, and runtime settings."
+    },
+    {
+      "id": "gorilla_websocket",
+      "name": "Gorilla WebSocket",
+      "link": "https://github.com/gorilla/websocket",
+      "license": "BSD-2-Clause",
+      "summary": "Handles WebSocket connections for channel runtimes such as Slack."
+    },
+    {
+      "id": "uniai",
+      "name": "UniAI",
+      "link": "https://github.com/quailyquaily/uniai",
+      "license": "Apache-2.0",
+      "summary": "Provides a shared client layer across multiple LLM providers."
+    },
+    {
+      "id": "goldmark",
+      "name": "Goldmark",
+      "link": "https://github.com/yuin/goldmark",
+      "license": "MIT",
+      "summary": "Converts Markdown into controlled HTML in agent-facing flows."
+    },
+    {
+      "id": "wails",
+      "name": "Wails",
+      "link": "https://github.com/wailsapp/wails",
+      "license": "MIT",
+      "summary": "Powers the desktop shell and application packaging path."
+    },
+    {
+      "id": "vue",
+      "name": "Vue",
+      "link": "https://github.com/vuejs/core/tree/main/packages/vue",
+      "license": "MIT",
+      "summary": "Drives the Console SPA component, state, and rendering model."
+    },
+    {
+      "id": "quail_ui",
+      "name": "Quail UI",
+      "link": "https://github.com/quailyquaily/quail-ui/",
+      "license": "Apache-2.0",
+      "summary": "Provides the Console component, styling, and icon system."
+    },
+    {
+      "id": "overtype",
+      "name": "OverType",
+      "link": "https://github.com/panphora/overtype",
+      "license": "MIT",
+      "summary": "Provides the Markdown editor used in the Console chat input."
+    },
+    {
+      "id": "unified",
+      "name": "unified",
+      "link": "https://github.com/unifiedjs/unified",
+      "license": "MIT",
+      "summary": "Runs the Markdown renderer processing pipeline."
+    },
+    {
+      "id": "remark_parse",
+      "name": "remark-parse",
+      "link": "https://github.com/remarkjs/remark/tree/main/packages/remark-parse",
+      "license": "MIT",
+      "summary": "Parses Markdown source text into a syntax tree."
+    },
+    {
+      "id": "remark_gfm",
+      "name": "remark-gfm",
+      "link": "https://github.com/remarkjs/remark-gfm",
+      "license": "MIT",
+      "summary": "Adds GFM features such as tables and task lists."
+    },
+    {
+      "id": "remark_math",
+      "name": "remark-math",
+      "link": "https://github.com/remarkjs/remark-math/tree/main/packages/remark-math",
+      "license": "MIT",
+      "summary": "Parses block and inline math syntax."
+    },
+    {
+      "id": "remark_rehype",
+      "name": "remark-rehype",
+      "link": "https://github.com/remarkjs/remark-rehype",
+      "license": "MIT",
+      "summary": "Converts the Markdown syntax tree into an HTML syntax tree."
+    },
+    {
+      "id": "rehype_raw",
+      "name": "rehype-raw",
+      "link": "https://github.com/rehypejs/rehype-raw",
+      "license": "MIT",
+      "summary": "Brings raw HTML inside Markdown into the same processing chain."
+    },
+    {
+      "id": "rehype_stringify",
+      "name": "rehype-stringify",
+      "link": "https://github.com/rehypejs/rehype/tree/main/packages/rehype-stringify",
+      "license": "MIT",
+      "summary": "Serializes the processed HTML syntax tree into final HTML."
+    },
+    {
+      "id": "rehype_katex",
+      "name": "rehype-katex",
+      "link": "https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex",
+      "license": "MIT",
+      "summary": "Turns math nodes into KaTeX HTML output."
+    },
+    {
+      "id": "dompurify",
+      "name": "DOMPurify",
+      "link": "https://github.com/cure53/DOMPurify",
+      "license": "MPL-2.0 OR Apache-2.0",
+      "summary": "Sanitizes final HTML before it is rendered."
+    },
+    {
+      "id": "mermaid",
+      "name": "Mermaid",
+      "link": "https://github.com/mermaid-js/mermaid",
+      "license": "MIT",
+      "summary": "Renders Mermaid diagram blocks in Markdown."
+    },
+    {
+      "id": "katex",
+      "name": "KaTeX",
+      "link": "https://github.com/KaTeX/KaTeX",
+      "license": "MIT",
+      "summary": "Renders mathematical formulas."
+    },
+    {
+      "id": "shiki",
+      "name": "Shiki",
+      "link": "https://github.com/shikijs/shiki",
+      "license": "MIT",
+      "summary": "Provides code syntax highlighting."
+    },
+    {
+      "id": "shiki_stream",
+      "name": "Shiki Stream",
+      "link": "https://github.com/antfu/shiki-stream",
+      "license": "MIT",
+      "summary": "Supports streamed syntax-highlighting token output."
+    },
+    {
+      "id": "viz_js",
+      "name": "Viz.js",
+      "link": "https://github.com/mdaines/viz-js",
+      "license": "MIT",
+      "summary": "Renders Graphviz and DOT diagrams."
+    },
+    {
+      "id": "antv_infographic",
+      "name": "AntV Infographic",
+      "link": "https://github.com/antvis/Infographic",
+      "license": "MIT",
+      "summary": "Renders infographic custom blocks."
+    }
+  ],
+  "contributors": [
+    {
+      "id": "lyricat",
+      "name": "Lyric Wai",
+      "link": "https://github.com/lyricat",
+      "summary": "Appears in the current Git history with 724 commits under Lyric and Lyric Wai."
+    },
+    {
+      "id": "yiplee",
+      "name": "yiplee",
+      "link": "https://github.com/yiplee",
+      "summary": "Appears in the current Git history with 37 commits."
+    },
+    {
+      "id": "iamcheyan",
+      "name": "CHEYAN",
+      "link": "https://github.com/iamcheyan",
+      "summary": "Appears in the current Git history with 11 commits under Cheyan and CHEYAN."
+    },
+    {
+      "id": "cw35",
+      "name": "cw35",
+      "link": "https://github.com/cw35",
+      "summary": "Appears in the current Git history with 2 commits."
+    }
+  ]
+}

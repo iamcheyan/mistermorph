@@ -96,6 +96,92 @@ func TestConsoleEventPreviewSinkPublishesBashTail(t *testing.T) {
 	}
 }
 
+func TestConsoleStreamHubPublishesPlanFrame(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-plan"
+
+	hub.PublishPlan(taskID, &consolePlanProgress{
+		Steps: []consolePlanStep{
+			{Step: "scan repo", Status: agent.PlanStatusCompleted},
+			{Step: "patch bug", Status: agent.PlanStatusInProgress},
+		},
+	})
+
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected plan frame")
+	}
+	if frame.Status != "running" {
+		t.Fatalf("frame.Status = %q, want %q", frame.Status, "running")
+	}
+	if frame.Plan == nil {
+		t.Fatal("frame.Plan = nil")
+	}
+	if len(frame.Plan.Steps) != 2 {
+		t.Fatalf("len(frame.Plan.Steps) = %d, want 2", len(frame.Plan.Steps))
+	}
+	if frame.Plan.Steps[1].Status != agent.PlanStatusInProgress {
+		t.Fatalf("frame.Plan.Steps[1].Status = %q, want %q", frame.Plan.Steps[1].Status, agent.PlanStatusInProgress)
+	}
+}
+
+func TestConsoleStreamHubPublishesActivityFrame(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-activity"
+
+	hub.PublishActivity(taskID, &consoleActivityProgress{
+		Current: &consoleActivityEntry{
+			ID:     "tool:1",
+			Kind:   "tool",
+			Name:   "web_search",
+			Status: "running",
+			Args: map[string]any{
+				"q": "alpha",
+			},
+		},
+		History: []consoleActivityEntry{
+			{
+				ID:     "tool:1",
+				Kind:   "tool",
+				Name:   "web_search",
+				Status: "running",
+			},
+		},
+	})
+
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected activity frame")
+	}
+	if frame.Activity == nil || frame.Activity.Current == nil {
+		t.Fatalf("frame.Activity = %#v, want current activity", frame.Activity)
+	}
+	if frame.Activity.Current.Name != "web_search" {
+		t.Fatalf("frame.Activity.Current.Name = %q, want web_search", frame.Activity.Current.Name)
+	}
+	if frame.Activity.Current.Args["q"] != "alpha" {
+		t.Fatalf("frame.Activity.Current.Args[q] = %#v, want alpha", frame.Activity.Current.Args["q"])
+	}
+}
+
+func TestConsoleStreamHubPublishesPreviewFrame(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-preview"
+
+	hub.PublishPreview(taskID, "[web_search] done")
+
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected preview frame")
+	}
+	if !frame.Preview {
+		t.Fatal("frame.Preview = false, want true")
+	}
+	if frame.Text != "[web_search] done" {
+		t.Fatalf("frame.Text = %q, want %q", frame.Text, "[web_search] done")
+	}
+}
+
 func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 	hub := newConsoleStreamHub()
 	sink := newConsoleEventPreviewSink(hub, "task-throttle", nil)

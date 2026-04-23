@@ -32,6 +32,7 @@ import {
   RepairView,
   RuntimeView,
   SetupView,
+  SettingsCreditsView,
   SettingsView,
   StatsView,
   StateFilesView,
@@ -60,6 +61,7 @@ const SETUP_FREE_PATHS = new Set([
   "/setup/done",
   "/setup/repair",
   "/settings",
+  "/settings/credits",
 ]);
 
 function selectedEndpointCanChat() {
@@ -101,6 +103,7 @@ const routes = [
   { path: "/memory", component: MemoryView },
   { path: "/files", component: StateFilesView },
   { path: "/contacts", component: ContactsView },
+  { path: "/settings/credits", component: SettingsCreditsView },
   { path: "/settings", component: SettingsView },
   { path: "/", component: RootRedirectView, meta: { shellless: true } },
 ];

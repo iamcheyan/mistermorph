@@ -176,3 +176,25 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions, de
 	}
 	return out
 }
+
+func toolDisplayArgsSummary(toolName string, params map[string]any, opts LogOptions) map[string]any {
+	if len(params) == 0 {
+		return nil
+	}
+
+	opts = normalizeLogOptions(opts)
+	opts.IncludeToolParams = true
+	if out := toolArgsSummary(toolName, params, opts, false); len(out) > 0 {
+		return out
+	}
+
+	maxStr := opts.MaxStringValueChars
+	if maxStr <= 0 || maxStr > 240 {
+		maxStr = 240
+	}
+	sanitized, _ := sanitizeValue(params, maxStr, opts.RedactKeys, "").(map[string]any)
+	if len(sanitized) == 0 {
+		return nil
+	}
+	return sanitized
+}

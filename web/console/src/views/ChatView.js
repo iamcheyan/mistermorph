@@ -6,12 +6,16 @@ import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
 import RawJsonDialog from "../components/RawJsonDialog";
+import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
+import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { endpointChannelLabel } from "../core/endpoints";
+import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
   buildConsoleStreamURL,
   createConsoleStreamTicket,
   currentLocale,
   endpointState,
+  formatBytes,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   safeJSON,
@@ -22,6 +26,12 @@ const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
 const HEARTBEAT_TOPIC_ID = "_heartbeat";
+const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
+const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
+const RECENT_WORKSPACE_DIRS_LIMIT = 32;
+const WORKSPACE_BROWSER_SOURCE_RECENT = "recent";
+const WORKSPACE_BROWSER_SOURCE_HOME = "home";
+const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
 const POLLING_ACTION_KEYS = [
   "chat_polling_action_ponder",
   "chat_polling_action_think",
@@ -54,8 +64,239 @@ function normalizeTopicID(raw) {
   return String(raw || "").trim();
 }
 
+function rememberTopicSelection(endpointRef, topicID) {
+  const normalizedTopicID = normalizeTopicID(topicID);
+  if (!normalizedTopicID || normalizedTopicID === HEARTBEAT_TOPIC_ID) {
+    return;
+  }
+  rememberLastTopicID(endpointRef, normalizedTopicID);
+}
+
+function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopicID, routeTopicID) {
+  if (!consoleTopicsEnabled || creatingTopic) {
+    return "";
+  }
+  const normalizedSelectedTopicID = normalizeTopicID(selectedTopicID);
+  if (normalizedSelectedTopicID) {
+    return normalizedSelectedTopicID;
+  }
+  return normalizeTopicID(routeTopicID);
+}
+
+function isWorkspaceCommandText(raw) {
+  return String(raw || "").trim().toLowerCase().startsWith("/workspace");
+}
+
 function isTerminalStatus(status) {
   return status === "done" || status === "failed" || status === "canceled";
+}
+
+function hasOwnTreePath(map, path) {
+  return Boolean(map) && Object.prototype.hasOwnProperty.call(map, path);
+}
+
+function normalizeTreeItems(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((item) => ({
+      name: String(item?.name || "").trim(),
+      path: String(item?.path || "").trim(),
+      is_dir: item?.is_dir === true,
+      has_children: item?.has_children === true,
+      size_bytes: Number.isFinite(Number(item?.size_bytes)) ? Math.trunc(Number(item.size_bytes)) : -1,
+    }))
+    .filter((item) => item.name && item.path);
+}
+
+function buildTreeRows(itemsByPath, expandedByPath, parentPath = "", depth = 0) {
+  const items = Array.isArray(itemsByPath?.[parentPath]) ? itemsByPath[parentPath] : [];
+  const rows = [];
+  for (const entry of items) {
+    const entryPath = String(entry?.path || "").trim();
+    const hasLoadedChildren = hasOwnTreePath(itemsByPath, entryPath);
+    const hasVisibleChildren = hasLoadedChildren && Array.isArray(itemsByPath?.[entryPath]) && itemsByPath[entryPath].length > 0;
+    const expandable = Boolean(entry?.is_dir) && (entry?.has_children || hasVisibleChildren);
+    const expanded = expandable && expandedByPath?.[entryPath] === true;
+    rows.push({
+      key: `${parentPath}:${entryPath}`,
+      depth,
+      entry,
+      expandable,
+      expanded,
+    });
+    if (expandable && expanded && hasLoadedChildren) {
+      rows.push(...buildTreeRows(itemsByPath, expandedByPath, entryPath, depth + 1));
+    }
+  }
+  return rows;
+}
+
+const WORKSPACE_TAB_ID = "workspace";
+
+function normalizeRecentWorkspaceDirs(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = new Set();
+  const items = [];
+  for (const item of raw) {
+    const path = String(item || "").trim();
+    if (!path || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+    items.push(path);
+    if (items.length >= RECENT_WORKSPACE_DIRS_LIMIT) {
+      break;
+    }
+  }
+  return items;
+}
+
+function loadRecentWorkspaceDirs() {
+  if (typeof localStorage === "undefined") {
+    return [];
+  }
+  try {
+    const raw = localStorage.getItem(RECENT_WORKSPACE_DIRS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    return normalizeRecentWorkspaceDirs(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentWorkspaceDirs(items) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  localStorage.setItem(
+    RECENT_WORKSPACE_DIRS_STORAGE_KEY,
+    JSON.stringify(normalizeRecentWorkspaceDirs(items))
+  );
+}
+
+function rememberRecentWorkspaceDir(items, dir) {
+  const path = String(dir || "").trim();
+  if (!path) {
+    return normalizeRecentWorkspaceDirs(items);
+  }
+  return normalizeRecentWorkspaceDirs([path, ...(Array.isArray(items) ? items : [])]);
+}
+
+function loadWorkspaceSidebarOpen() {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+  try {
+    return localStorage.getItem(WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveWorkspaceSidebarOpen(open) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  localStorage.setItem(
+    WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY,
+    open ? "true" : "false"
+  );
+}
+
+function workspaceBrowserSource(sourceID) {
+  const value = String(sourceID || "").trim();
+  if (value === WORKSPACE_BROWSER_SOURCE_RECENT) {
+    return {
+      id: WORKSPACE_BROWSER_SOURCE_RECENT,
+      kind: "recent",
+      path: "",
+      selection: "",
+    };
+  }
+  if (value === WORKSPACE_BROWSER_SOURCE_SYSTEM) {
+    return {
+      id: WORKSPACE_BROWSER_SOURCE_SYSTEM,
+      kind: "system",
+      path: "",
+      selection: "",
+    };
+  }
+  return {
+    id: WORKSPACE_BROWSER_SOURCE_HOME,
+    kind: "home",
+    path: "~",
+    selection: "",
+  };
+}
+
+function browserPathLabel(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return "";
+  }
+  const normalized = value.replace(/[\\/]+$/u, "");
+  if (!normalized) {
+    return value;
+  }
+  const parts = normalized.split(/[\\/]/u).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : value;
+}
+
+function splitWorkspaceDisplayPath(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: "",
+    };
+  }
+  if (/^[\\/]+$/u.test(value) || /^[A-Za-z]:[\\/]?$/u.test(value)) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  const normalized = value.replace(/[\\/]+$/u, "");
+  if (!normalized) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  const slashIndex = normalized.lastIndexOf("/");
+  const backslashIndex = normalized.lastIndexOf("\\");
+  const separatorIndex = Math.max(slashIndex, backslashIndex);
+  if (separatorIndex < 0) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: normalized,
+    };
+  }
+  const separator = normalized.charAt(separatorIndex);
+  const prefix = normalized.slice(0, separatorIndex);
+  const tail = normalized.slice(separatorIndex + 1);
+  if (!tail) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  return {
+    prefix,
+    separator,
+    tail,
+  };
 }
 
 function stringifyResult(result) {
@@ -154,6 +395,282 @@ function taskOutputText(task) {
   return "";
 }
 
+function normalizePlanStatus(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  switch (value) {
+    case "completed":
+    case "in_progress":
+    case "pending":
+      return value;
+    default:
+      return "pending";
+  }
+}
+
+function normalizePlan(raw) {
+  const steps = Array.isArray(raw?.steps)
+    ? raw.steps
+        .map((step) => ({
+          step: String(step?.step || "").trim(),
+          status: normalizePlanStatus(step?.status),
+        }))
+        .filter((step) => step.step)
+    : [];
+  if (steps.length === 0) {
+    return null;
+  }
+  return { steps };
+}
+
+function taskPlan(task) {
+  return normalizePlan(task?.result?.plan || task?.result?.final?.plan);
+}
+
+function normalizeActivityKind(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  switch (value) {
+    case "tool":
+    case "subtask":
+      return value;
+    default:
+      return "";
+  }
+}
+
+function normalizeActivityEntry(raw) {
+  const id = String(raw?.id || "").trim();
+  const kind = normalizeActivityKind(raw?.kind);
+  if (!id || !kind) {
+    return null;
+  }
+  const args =
+    raw?.args && typeof raw.args === "object" && !Array.isArray(raw.args)
+      ? Object.fromEntries(
+          Object.entries(raw.args)
+            .map(([key, value]) => [String(key || "").trim(), value])
+            .filter(([key]) => key)
+        )
+      : null;
+  return {
+    id,
+    kind,
+    name: String(raw?.name || "").trim(),
+    status: normalizeTaskStatus(raw?.status),
+    args: args && Object.keys(args).length > 0 ? args : null,
+    summary: String(raw?.summary || "").trim(),
+    error: String(raw?.error || "").trim(),
+    taskId: String(raw?.task_id || "").trim(),
+    mode: String(raw?.mode || "").trim(),
+    profile: String(raw?.profile || "").trim(),
+    outputKind: String(raw?.output_kind || "").trim(),
+  };
+}
+
+function normalizeActivity(raw) {
+  const history = Array.isArray(raw?.history)
+    ? raw.history.map((entry) => normalizeActivityEntry(entry)).filter(Boolean)
+    : [];
+  const current = normalizeActivityEntry(raw?.current) || history[history.length - 1] || null;
+  if (!current && history.length === 0) {
+    return null;
+  }
+  return {
+    current,
+    history,
+  };
+}
+
+function taskActivity(task) {
+  return normalizeActivity(task?.result?.activity);
+}
+
+function activityCurrentEntry(activity) {
+  if (!activity) {
+    return null;
+  }
+  return activity.current || activity.history[activity.history.length - 1] || null;
+}
+
+function activityHistoryEntries(activity) {
+  if (!Array.isArray(activity?.history) || activity.history.length <= 1) {
+    return [];
+  }
+  return activity.history.slice(0, -1).reverse();
+}
+
+function activityHistoryCount(activity) {
+  return activityHistoryEntries(activity).length;
+}
+
+function activityState(activity) {
+  return normalizeTaskStatus(activityCurrentEntry(activity)?.status);
+}
+
+function activityStateClass(activity) {
+  return `chat-activity-state is-${activityState(activity).replaceAll("_", "-")}`;
+}
+
+function activityEntryClass(entry) {
+  return `chat-activity-entry is-${normalizeTaskStatus(entry?.status).replaceAll("_", "-")}`;
+}
+
+function activityStatusLabel(entry, t) {
+  return t(`status_${normalizeTaskStatus(entry?.status)}`);
+}
+
+function activityKindLabel(entry, t) {
+  switch (normalizeActivityKind(entry?.kind)) {
+    case "tool":
+      return t("chat_activity_kind_tool");
+    case "subtask":
+      return t("chat_activity_kind_subtask");
+    default:
+      return "";
+  }
+}
+
+function activityEntryTitle(entry) {
+  const name = String(entry?.name || "").trim();
+  if (name) {
+    return name;
+  }
+  return normalizeActivityKind(entry?.kind) || "activity";
+}
+
+function activityParamValueText(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncateActivityParamValue(raw) {
+  const text = String(raw || "").trim();
+  if (text.length <= 120) {
+    return text;
+  }
+  return `${text.slice(0, 117)}...`;
+}
+
+function activityParams(entry) {
+  const items = [];
+  if (entry?.args && typeof entry.args === "object" && !Array.isArray(entry.args)) {
+    for (const key of Object.keys(entry.args).sort()) {
+      const value = truncateActivityParamValue(activityParamValueText(entry.args[key]));
+      if (!value) {
+        continue;
+      }
+      items.push({ key, value });
+    }
+  }
+  if (normalizeActivityKind(entry?.kind) === "subtask") {
+    const extras = [
+      ["task_id", entry?.taskId],
+      ["mode", entry?.mode],
+      ["profile", entry?.profile],
+      ["output", entry?.outputKind],
+    ];
+    for (const [key, rawValue] of extras) {
+      const value = truncateActivityParamValue(activityParamValueText(rawValue));
+      if (!value) {
+        continue;
+      }
+      items.push({ key, value });
+    }
+  }
+  return items;
+}
+
+function activityEntryNote(entry) {
+  const errorText = String(entry?.error || "").trim();
+  if (errorText) {
+    return errorText;
+  }
+  return String(entry?.summary || "").trim();
+}
+
+function activityHistoryToggleLabel(activity, expanded, t) {
+  if (expanded) {
+    return t("chat_activity_history_hide");
+  }
+  return t("chat_activity_history_show", {
+    count: activityHistoryCount(activity),
+  });
+}
+
+function planCompletedCount(plan) {
+  if (!Array.isArray(plan?.steps)) {
+    return 0;
+  }
+  return plan.steps.filter((step) => step.status === "completed").length;
+}
+
+function planTotalCount(plan) {
+  return Array.isArray(plan?.steps) ? plan.steps.length : 0;
+}
+
+function planState(plan) {
+  const total = planTotalCount(plan);
+  if (total === 0) {
+    return "pending";
+  }
+  const completed = planCompletedCount(plan);
+  if (completed >= total) {
+    return "completed";
+  }
+  if (plan.steps.some((step) => step.status === "in_progress" || step.status === "completed")) {
+    return "in_progress";
+  }
+  return "pending";
+}
+
+function planStateLabel(plan, t) {
+  switch (planState(plan)) {
+    case "completed":
+      return t("chat_plan_step_completed");
+    case "in_progress":
+      return t("chat_plan_step_in_progress");
+    default:
+      return t("chat_plan_step_pending");
+  }
+}
+
+function planSummaryText(plan, t) {
+  return t("chat_plan_summary", {
+    completed: planCompletedCount(plan),
+    total: planTotalCount(plan),
+  });
+}
+
+function planStepStatusLabel(step, t) {
+  switch (normalizePlanStatus(step?.status)) {
+    case "completed":
+      return t("chat_plan_step_completed");
+    case "in_progress":
+      return t("chat_plan_step_in_progress");
+    default:
+      return t("chat_plan_step_pending");
+  }
+}
+
+function planStepClass(step) {
+  return `chat-plan-step is-${normalizePlanStatus(step?.status).replaceAll("_", "-")}`;
+}
+
+function planStateClass(plan) {
+  return `chat-plan-state is-${planState(plan).replaceAll("_", "-")}`;
+}
+
 function stableHash(raw) {
   const text = String(raw || "");
   let hash = 2166136261;
@@ -204,6 +721,9 @@ function taskAgentText(task, t, options = {}) {
   if (isTerminalStatus(status)) {
     return t("chat_result_empty");
   }
+  if (taskPlan(task) || taskActivity(task)) {
+    return "";
+  }
   const pendingText = String(options.pendingText || "").trim();
   if (pendingText) {
     return pendingText;
@@ -236,6 +756,8 @@ function taskHistoryItems(task, t, options = {}) {
       agentName: options.agentName,
       pendingSeed: taskID,
     }),
+    plan: taskPlan(task),
+    activity: taskActivity(task),
     status: normalizeTaskStatus(task?.status),
     timeText: historyTimeLabel(task?.finished_at),
     taskId: taskID,
@@ -293,14 +815,38 @@ const ChatView = {
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
+    const workspaceDir = ref("");
+    const workspaceLoading = ref(false);
+    const workspaceSaving = ref(false);
+    const workspaceOpening = ref(false);
+    const workspaceError = ref("");
+    const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
+    const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
+    const workspaceTreeItems = ref({});
+    const workspaceTreeExpanded = ref({ "": true });
+    const workspaceTreeLoading = ref(false);
+    const workspaceTreeLoadingPath = ref("");
+    const workspaceTreeError = ref("");
+    const workspaceTreeSelectionPath = ref("");
+    const workspaceBrowserOpen = ref(false);
+    const workspaceBrowserItems = ref({});
+    const workspaceBrowserExpanded = ref({ "": true });
+    const workspaceBrowserLoading = ref(false);
+    const workspaceBrowserLoadingPath = ref("");
+    const workspaceBrowserError = ref("");
+    const workspaceBrowserSourceID = ref(WORKSPACE_BROWSER_SOURCE_HOME);
+    const workspaceBrowserRecentDirs = ref(loadRecentWorkspaceDirs());
+    const workspaceBrowserSelection = ref("");
     const pollTimers = new Set();
     const streamSockets = new Map();
     const composerField = ref(null);
+    const suppressDraftPersistence = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const rawRevealItemID = ref("");
     const rawRevealCount = ref(0);
     const heartbeatRevealCount = ref(0);
+    const activityExpandedState = ref({});
     const historyAutoStick = ref(true);
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
@@ -319,6 +865,15 @@ const ChatView = {
       return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
     });
     const submitEndpoint = computed(() => runtimeEndpointByRef(submitEndpointRef.value));
+    const composerDraftScope = computed(() => ({
+      endpointRef: String(submitEndpointRef.value || "").trim(),
+      topicID: composerDraftTopicID(
+        consoleTopicsEnabled.value,
+        creatingTopic.value,
+        selectedTopicID.value,
+        routeTopicID.value
+      ),
+    }));
     const activeAgentName = computed(() => {
       const submitName = String(submitEndpoint.value?.agent_name || "").trim();
       if (submitName) {
@@ -477,14 +1032,21 @@ const ChatView = {
       }
       return mobileTopicView.value === "chat";
     });
+    const desktopWorkspaceSidebarVisible = computed(
+      () => workspaceSidebarAvailable.value && !mobileMode.value && showChatPane.value && workspaceSidebarOpen.value
+    );
     const shellClass = computed(() => {
-      if (!consoleTopicsEnabled.value || !hasVisibleTopics.value) {
-        return "chat-shell";
+      const classes = ["chat-shell"];
+      if (consoleTopicsEnabled.value && hasVisibleTopics.value && !mobileTopicSplitEnabled.value) {
+        classes.push("has-sidebar");
       }
-      if (!mobileTopicSplitEnabled.value) {
-        return "chat-shell has-sidebar";
+      if (desktopWorkspaceSidebarVisible.value) {
+        classes.push("has-workspace-panel");
       }
-      return mobileTopicView.value === "topics" ? "chat-shell is-mobile-topics" : "chat-shell is-mobile-chat";
+      if (mobileTopicSplitEnabled.value) {
+        classes.push(mobileTopicView.value === "topics" ? "is-mobile-topics" : "is-mobile-chat");
+      }
+      return classes.join(" ");
     });
     const chatMainClass = computed(() => {
       const classes = ["chat-main"];
@@ -520,12 +1082,108 @@ const ChatView = {
       }
       return parts.join(" · ");
     });
+    const workspaceTopicID = computed(() => {
+      if (!consoleTopicsEnabled.value || creatingTopic.value) {
+        return "";
+      }
+      const topicID = normalizeTopicID(selectedTopicID.value);
+      if (!topicID || topicID === HEARTBEAT_TOPIC_ID) {
+        return "";
+      }
+      return topicID;
+    });
+    const workspaceSidebarAvailable = computed(() => Boolean(workspaceTopicID.value));
+    const workspaceReady = computed(() => Boolean(submitEndpointRef.value && workspaceTopicID.value));
+    const workspaceBusy = computed(() => workspaceLoading.value || workspaceSaving.value);
+    const workspaceHintText = computed(() => {
+      if (workspaceTopicID.value) {
+        return String(workspaceDir.value || "").trim() ? "" : t("chat_workspace_hint_empty");
+      }
+      if (creatingTopic.value) {
+        return t("chat_workspace_hint_needs_topic");
+      }
+      if (normalizeTopicID(selectedTopicID.value) === HEARTBEAT_TOPIC_ID) {
+        return t("chat_workspace_hint_system_topic");
+      }
+      return t("chat_workspace_hint_no_topic");
+    });
+    const workspaceAttachDisabled = computed(() => !workspaceReady.value || workspaceBusy.value);
+    const workspaceDetachDisabled = computed(
+      () => !workspaceReady.value || workspaceBusy.value || String(workspaceDir.value || "").trim() === ""
+    );
+    const workspaceDirDisplay = computed(() => splitWorkspaceDisplayPath(workspaceDir.value));
+    const workspacePanelTabs = computed(() => [
+      {
+        id: WORKSPACE_TAB_ID,
+        title: "",
+        icon: "QIconEcosystem",
+      },
+    ]);
+    const selectedWorkspacePanelTab = computed(
+      () => workspacePanelTabs.value.find((item) => item.id === workspaceSidebarTabID.value) || workspacePanelTabs.value[0]
+    );
+    const workspaceTreeRows = computed(() =>
+      buildTreeRows(workspaceTreeItems.value, workspaceTreeExpanded.value)
+    );
+    const workspaceSelectedTreeEntry = computed(() => {
+      const selectedPath = String(workspaceTreeSelectionPath.value || "").trim();
+      if (!selectedPath) {
+        return null;
+      }
+      const row = workspaceTreeRows.value.find(
+        (item) => String(item?.entry?.path || "").trim() === selectedPath
+      );
+      return row?.entry || null;
+    });
+    const workspaceBrowserRecentItems = computed(() =>
+      workspaceBrowserRecentDirs.value.map((path) => ({
+        path,
+        title: browserPathLabel(path),
+        meta: path,
+      }))
+    );
+    const workspaceBrowserCurrentSource = computed(() =>
+      workspaceBrowserSource(workspaceBrowserSourceID.value)
+    );
+    const workspaceBrowserRows = computed(() => {
+      if (workspaceBrowserCurrentSource.value.kind === "recent") {
+        return workspaceBrowserRecentItems.value.map((item) => ({
+          key: `recent:${item.path}`,
+          depth: 0,
+          entry: {
+            name: item.title,
+            path: item.path,
+            is_dir: true,
+            has_children: false,
+          },
+          expandable: false,
+          expanded: false,
+        }));
+      }
+      return buildTreeRows(
+        workspaceBrowserItems.value,
+        workspaceBrowserExpanded.value,
+        workspaceBrowserCurrentSource.value.path
+      );
+    });
+    const workspaceBrowserConfirmDisabled = computed(
+      () => !workspaceReady.value || workspaceSaving.value || String(workspaceBrowserSelection.value || "").trim() === ""
+    );
+    const workspaceSidebarToggleLabel = computed(() =>
+      workspaceSidebarOpen.value ? t("chat_workspace_sidebar_close") : t("chat_workspace_sidebar_open")
+    );
+    const workspaceBrowserEmptyText = computed(() =>
+      workspaceBrowserCurrentSource.value.kind === "recent"
+        ? t("chat_workspace_dialog_recent_empty")
+        : t("chat_workspace_dialog_empty")
+    );
     const chatPlaceholderHint = computed(() => {
       if (visibleTopics.value.length > 0) {
         return t("chat_placeholder_choose_topic");
       }
       return chatPlaceholderText.value;
     });
+    let workspaceRequestSeq = 0;
 
     function syncMobileTopicView(options = {}) {
       if (!mobileTopicSplitEnabled.value) {
@@ -581,6 +1239,25 @@ const ChatView = {
       return root.querySelector("textarea");
     }
 
+    function persistComposerDraft(scope = composerDraftScope.value, text = taskInput.value) {
+      const endpointRef = String(scope?.endpointRef || "").trim();
+      if (!endpointRef) {
+        return;
+      }
+      rememberChatDraft(endpointRef, normalizeTopicID(scope?.topicID), text);
+    }
+
+    function restoreComposerDraft(scope = composerDraftScope.value) {
+      const endpointRef = String(scope?.endpointRef || "").trim();
+      const nextText = endpointRef ? chatDraft(endpointRef, normalizeTopicID(scope?.topicID)) : "";
+      suppressDraftPersistence.value = true;
+      taskInput.value = nextText;
+      syncComposerHeight();
+      void nextTick(() => {
+        suppressDraftPersistence.value = false;
+      });
+    }
+
     function focusComposer() {
       if (chatReadonly.value || (mobileTopicSplitEnabled.value && !showChatPane.value)) {
         return;
@@ -596,6 +1273,442 @@ const ChatView = {
           textarea.setSelectionRange(length, length);
         });
       });
+    }
+
+    function insertComposerText(rawText) {
+      const insertText = String(rawText || "");
+      if (!insertText) {
+        return;
+      }
+      const current = String(taskInput.value || "");
+      const textarea = composerTextarea();
+      const active = typeof document !== "undefined" ? document.activeElement : null;
+      let start = current.length;
+      let end = current.length;
+      if (
+        textarea &&
+        active === textarea &&
+        typeof textarea.selectionStart === "number" &&
+        typeof textarea.selectionEnd === "number"
+      ) {
+        start = textarea.selectionStart;
+        end = textarea.selectionEnd;
+      }
+      taskInput.value = `${current.slice(0, start)}${insertText}${current.slice(end)}`;
+      void nextTick(() => {
+        const field = composerTextarea();
+        if (!field || field.disabled) {
+          return;
+        }
+        const nextOffset = start + insertText.length;
+        field.focus({ preventScroll: true });
+        field.setSelectionRange(nextOffset, nextOffset);
+      });
+    }
+
+    function setTreeItems(target, path, items) {
+      target.value = {
+        ...target.value,
+        [path]: normalizeTreeItems(items),
+      };
+    }
+
+    function setTreeExpanded(target, path, expanded) {
+      const nextValue = { ...target.value };
+      if (expanded) {
+        nextValue[path] = true;
+      } else {
+        delete nextValue[path];
+      }
+      target.value = nextValue;
+    }
+
+    function resetWorkspaceTreeState() {
+      workspaceTreeItems.value = {};
+      workspaceTreeExpanded.value = { "": true };
+      workspaceTreeLoading.value = false;
+      workspaceTreeLoadingPath.value = "";
+      workspaceTreeError.value = "";
+      workspaceTreeSelectionPath.value = "";
+    }
+
+    function resetWorkspaceBrowserState() {
+      workspaceBrowserItems.value = {};
+      workspaceBrowserExpanded.value = { "": true };
+      workspaceBrowserLoading.value = false;
+      workspaceBrowserLoadingPath.value = "";
+      workspaceBrowserError.value = "";
+      workspaceBrowserSelection.value = "";
+    }
+
+    function saveWorkspaceBrowserRecentDirs(items) {
+      const nextItems = normalizeRecentWorkspaceDirs(items);
+      workspaceBrowserRecentDirs.value = nextItems;
+      saveRecentWorkspaceDirs(nextItems);
+    }
+
+    function rememberWorkspaceBrowserRecentDir(dir) {
+      saveWorkspaceBrowserRecentDirs(
+        rememberRecentWorkspaceDir(workspaceBrowserRecentDirs.value, dir)
+      );
+    }
+
+    function resetWorkspaceState() {
+      workspaceRequestSeq += 1;
+      workspaceDir.value = "";
+      workspaceLoading.value = false;
+      workspaceSaving.value = false;
+      workspaceOpening.value = false;
+      workspaceError.value = "";
+      workspaceBrowserOpen.value = false;
+      workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
+      resetWorkspaceTreeState();
+      resetWorkspaceBrowserState();
+    }
+
+    function applyWorkspacePayload(data) {
+      const nextDir = String(data?.workspace_dir || "").trim();
+      workspaceDir.value = nextDir;
+      workspaceError.value = "";
+      resetWorkspaceTreeState();
+      resetWorkspaceBrowserState();
+      if (nextDir) {
+        workspaceBrowserSelection.value = nextDir;
+      }
+    }
+
+    async function refreshWorkspaceState() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const requestID = ++workspaceRequestSeq;
+
+      if (!endpointRef || !topicID) {
+        resetWorkspaceState();
+        return true;
+      }
+
+      workspaceLoading.value = true;
+      workspaceError.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(
+          endpointRef,
+          `/workspace?topic_id=${encodeURIComponent(topicID)}`
+        );
+        if (requestID !== workspaceRequestSeq) {
+          return false;
+        }
+        applyWorkspacePayload(data);
+        if (workspaceSidebarOpen.value && String(workspaceDir.value || "").trim()) {
+          await loadWorkspaceTree("", { force: true });
+        }
+        return true;
+      } catch (e) {
+        if (requestID !== workspaceRequestSeq) {
+          return false;
+        }
+        workspaceDir.value = "";
+        resetWorkspaceTreeState();
+        workspaceError.value = e?.message || t("msg_load_failed");
+        return false;
+      } finally {
+        if (requestID === workspaceRequestSeq) {
+          workspaceLoading.value = false;
+        }
+      }
+    }
+
+    function toggleWorkspaceSidebar() {
+      if (!workspaceSidebarAvailable.value) {
+        return;
+      }
+      workspaceSidebarOpen.value = !workspaceSidebarOpen.value;
+      if (workspaceSidebarOpen.value) {
+        workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
+        if (String(workspaceDir.value || "").trim() && !hasOwnTreePath(workspaceTreeItems.value, "")) {
+          void loadWorkspaceTree("", { force: true });
+        }
+      }
+    }
+
+    function onWorkspaceTabChange(detail) {
+      const nextID = String(detail?.tab?.id || "").trim();
+      workspaceSidebarTabID.value = nextID || WORKSPACE_TAB_ID;
+    }
+
+    function workspaceBrowserSourceItemClass(sourceID) {
+      const classes = ["workspace-sidebar-item", "chat-workspace-dialog-sidebar-item"];
+      if (String(sourceID || "").trim() === workspaceBrowserSourceID.value) {
+        classes.push("is-active");
+      }
+      return classes.join(" ");
+    }
+
+    async function loadWorkspaceTree(treePath = "", options = {}) {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const currentDir = String(workspaceDir.value || "").trim();
+      const path = String(treePath || "").trim();
+      if (!endpointRef || !topicID || !currentDir) {
+        resetWorkspaceTreeState();
+        return false;
+      }
+      if (!path && options.force === true) {
+        resetWorkspaceTreeState();
+      }
+      workspaceTreeLoading.value = true;
+      workspaceTreeLoadingPath.value = path;
+      try {
+        const query = new URLSearchParams();
+        query.set("topic_id", topicID);
+        if (path) {
+          query.set("path", path);
+        }
+        const data = await runtimeApiFetchForEndpoint(
+          endpointRef,
+          `/workspace/tree?${query.toString()}`
+        );
+        setTreeItems(workspaceTreeItems, path, data?.items);
+        if (path) {
+          setTreeExpanded(workspaceTreeExpanded, path, true);
+        }
+        workspaceTreeError.value = "";
+        return true;
+      } catch (e) {
+        workspaceTreeError.value = e?.message || t("msg_load_failed");
+        return false;
+      } finally {
+        if (workspaceTreeLoadingPath.value === path) {
+          workspaceTreeLoading.value = false;
+          workspaceTreeLoadingPath.value = "";
+        }
+      }
+    }
+
+    async function toggleWorkspaceTreeNode(entry) {
+      const path = String(entry?.path || "").trim();
+      if (!entry?.is_dir || !path) {
+        return;
+      }
+      if (workspaceTreeExpanded.value[path]) {
+        setTreeExpanded(workspaceTreeExpanded, path, false);
+        return;
+      }
+      if (!hasOwnTreePath(workspaceTreeItems.value, path)) {
+        const ok = await loadWorkspaceTree(path);
+        if (!ok) {
+          return;
+        }
+      }
+      setTreeExpanded(workspaceTreeExpanded, path, true);
+    }
+
+    function workspaceTreeEntryClass(row) {
+      const classes = ["chat-workspace-tree-entry", "is-actionable", "is-selectable"];
+      if (row?.entry?.is_dir) {
+        classes.push("is-dir");
+      }
+      if (String(row?.entry?.path || "").trim() === String(workspaceTreeSelectionPath.value || "").trim()) {
+        classes.push("is-selected");
+      }
+      return classes.join(" ");
+    }
+
+    async function selectWorkspaceTreeNode(row) {
+      const entry = row?.entry || row;
+      const path = String(entry?.path || "").trim();
+      if (!path) {
+        return;
+      }
+      workspaceTreeSelectionPath.value = path;
+      if (row?.expandable) {
+        await toggleWorkspaceTreeNode(entry);
+      }
+    }
+
+    function addWorkspaceSelectionToComposer() {
+      if (composerDisabled.value) {
+        return;
+      }
+      const path = String(workspaceSelectedTreeEntry.value?.path || "").trim();
+      if (!path) {
+        return;
+      }
+      insertComposerText(path);
+    }
+
+    async function openWorkspaceSelection() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const path = String(workspaceSelectedTreeEntry.value?.path || "").trim();
+      if (!endpointRef || !topicID || !path || workspaceOpening.value) {
+        return;
+      }
+      workspaceOpening.value = true;
+      workspaceError.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(endpointRef, "/workspace/open", {
+          method: "POST",
+          body: {
+            topic_id: topicID,
+            path,
+          },
+        });
+      } catch (e) {
+        workspaceError.value = e?.message || t("msg_load_failed");
+      } finally {
+        workspaceOpening.value = false;
+      }
+    }
+
+    async function openWorkspaceBrowser() {
+      if (workspaceAttachDisabled.value) {
+        return;
+      }
+      workspaceBrowserOpen.value = true;
+      workspaceBrowserError.value = "";
+      await activateWorkspaceBrowserSource(WORKSPACE_BROWSER_SOURCE_HOME);
+    }
+
+    function closeWorkspaceBrowser() {
+      workspaceBrowserOpen.value = false;
+      workspaceBrowserError.value = "";
+    }
+
+    async function activateWorkspaceBrowserSource(sourceID) {
+      const source = workspaceBrowserSource(sourceID);
+      workspaceBrowserSourceID.value = source.id;
+      resetWorkspaceBrowserState();
+      if (source.kind === "recent") {
+        workspaceBrowserError.value = "";
+        return true;
+      }
+      const ok = await loadWorkspaceBrowser(source.path);
+      if (ok) {
+        workspaceBrowserSelection.value = source.selection;
+      }
+      return ok;
+    }
+
+    async function loadWorkspaceBrowser(treePath = "") {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const path = String(treePath || "").trim();
+      if (!endpointRef) {
+        resetWorkspaceBrowserState();
+        return false;
+      }
+      workspaceBrowserLoading.value = true;
+      workspaceBrowserLoadingPath.value = path;
+      try {
+        const query = new URLSearchParams();
+        if (path) {
+          query.set("path", path);
+        }
+        const data = await runtimeApiFetchForEndpoint(
+          endpointRef,
+          query.toString() ? `/workspace/browse?${query.toString()}` : "/workspace/browse"
+        );
+        setTreeItems(workspaceBrowserItems, path, data?.items);
+        if (path) {
+          setTreeExpanded(workspaceBrowserExpanded, path, true);
+        }
+        workspaceBrowserError.value = "";
+        return true;
+      } catch (e) {
+        workspaceBrowserError.value = e?.message || t("msg_load_failed");
+        return false;
+      } finally {
+        if (workspaceBrowserLoadingPath.value === path) {
+          workspaceBrowserLoading.value = false;
+          workspaceBrowserLoadingPath.value = "";
+        }
+      }
+    }
+
+    async function toggleWorkspaceBrowserNode(entry) {
+      const path = String(entry?.path || "").trim();
+      if (!entry?.is_dir || !path) {
+        return;
+      }
+      if (workspaceBrowserExpanded.value[path]) {
+        setTreeExpanded(workspaceBrowserExpanded, path, false);
+        return;
+      }
+      if (!hasOwnTreePath(workspaceBrowserItems.value, path)) {
+        const ok = await loadWorkspaceBrowser(path);
+        if (!ok) {
+          return;
+        }
+      }
+      setTreeExpanded(workspaceBrowserExpanded, path, true);
+    }
+
+    async function selectWorkspaceBrowserNode(row) {
+      const entry = row?.entry || row;
+      if (!entry?.is_dir) {
+        return;
+      }
+      workspaceBrowserSelection.value = String(entry.path || "").trim();
+      if (!row?.expandable || workspaceBrowserCurrentSource.value.kind === "recent") {
+        return;
+      }
+      await toggleWorkspaceBrowserNode(entry);
+    }
+
+    async function attachWorkspace() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const nextDir = String(workspaceBrowserSelection.value || "").trim();
+      if (!endpointRef || !topicID || !nextDir || workspaceSaving.value) {
+        return;
+      }
+      workspaceSaving.value = true;
+      workspaceError.value = "";
+      workspaceBrowserError.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(endpointRef, "/workspace", {
+          method: "PUT",
+          body: {
+            topic_id: topicID,
+            workspace_dir: nextDir,
+          }
+        });
+        rememberWorkspaceBrowserRecentDir(String(data?.workspace_dir || nextDir || "").trim());
+        applyWorkspacePayload(data);
+        workspaceBrowserOpen.value = false;
+        if (workspaceSidebarOpen.value) {
+          await loadWorkspaceTree("", { force: true });
+        }
+      } catch (e) {
+        const message = e?.message || t("msg_save_failed");
+        workspaceError.value = message;
+        workspaceBrowserError.value = message;
+      } finally {
+        workspaceSaving.value = false;
+      }
+    }
+
+    async function detachWorkspace() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      if (!endpointRef || !topicID || workspaceDetachDisabled.value) {
+        return;
+      }
+      workspaceSaving.value = true;
+      workspaceError.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(
+          endpointRef,
+          `/workspace?topic_id=${encodeURIComponent(topicID)}`,
+          {
+            method: "DELETE",
+          }
+        );
+        applyWorkspacePayload(data);
+      } catch (e) {
+        workspaceError.value = e?.message || t("msg_save_failed");
+      } finally {
+        workspaceSaving.value = false;
+      }
     }
 
     function chatRoutePath(topicID = "") {
@@ -714,6 +1827,26 @@ const ChatView = {
       return String(item?.role || "").trim().toLowerCase() === "agent" && !historyItemRenderReady(item);
     }
 
+    function showHistoryAgentBubble(item) {
+      return String(item?.text || "") !== "";
+    }
+
+    function activityExpanded(itemID) {
+      const key = String(itemID || "").trim();
+      return key !== "" && activityExpandedState.value[key] === true;
+    }
+
+    function toggleActivityExpanded(itemID) {
+      const key = String(itemID || "").trim();
+      if (!key) {
+        return;
+      }
+      activityExpandedState.value = {
+        ...activityExpandedState.value,
+        [key]: !activityExpanded(key),
+      };
+    }
+
     function markHistoryItemRendered(itemID) {
       const key = String(itemID || "").trim();
       if (key && renderedHistoryItems.value[key] !== true) {
@@ -825,11 +1958,26 @@ const ChatView = {
         if (!frame || typeof frame !== "object") {
           return;
         }
+        const existingItem = chatHistoryItems.value.find((item) => item.id === historyID) || null;
+        const nextPlan = normalizePlan(frame.plan || existingItem?.plan);
+        const nextActivity = normalizeActivity(frame.activity || existingItem?.activity);
+        const nextStatus = normalizeTaskStatus(frame.status || existingItem?.status);
+        const pendingSeed = historyPendingSeed(existingItem, key);
+        const isPreview = frame.preview === true;
         const patch = {};
-        if (typeof frame.text === "string" && frame.text !== "") {
+        if (frame.plan && typeof frame.plan === "object") {
+          patch.plan = nextPlan;
+        }
+        if (frame.activity && typeof frame.activity === "object") {
+          patch.activity = nextActivity;
+        }
+        if (!isPreview && typeof frame.text === "string" && frame.text !== "") {
           patch.text = frame.text;
-        } else if (typeof frame.error === "string" && frame.error !== "") {
+        } else if (!isPreview && typeof frame.error === "string" && frame.error !== "") {
           patch.text = frame.error;
+        }
+        if ((isPreview || frame.plan || frame.activity) && (nextPlan || nextActivity) && !isTerminalStatus(nextStatus) && typeof patch.text !== "string") {
+          patch.text = "";
         }
         if (typeof frame.status === "string" && frame.status !== "") {
           patch.status = normalizeTaskStatus(frame.status);
@@ -948,6 +2096,8 @@ const ChatView = {
         id: newHistoryID(),
         role: String(partial?.role || "system"),
         text: String(partial?.text || ""),
+        plan: normalizePlan(partial?.plan),
+        activity: normalizeActivity(partial?.activity),
         status: String(partial?.status || ""),
         timeText: String(partial?.timeText || ""),
         taskId: String(partial?.taskId || ""),
@@ -1011,6 +2161,8 @@ const ChatView = {
         const existingItem = chatHistoryItems.value.find((item) => item.id === resolvedHistoryID) || null;
         const pendingSeed = historyPendingSeed(existingItem, taskID);
         patchAgentHistoryItem(taskID, historyID, {
+          plan: taskPlan(detail),
+          activity: taskActivity(detail),
           status,
           text: taskAgentText(detail, t, {
             agentName: activeAgentName.value,
@@ -1023,6 +2175,9 @@ const ChatView = {
         });
         if (isTerminalStatus(status)) {
           closeTaskStream(taskID);
+          if (consoleTopicsEnabled.value && isWorkspaceCommandText(detail?.task)) {
+            void refreshWorkspaceState();
+          }
           scrollHistoryToBottom();
         }
         if (!isTerminalStatus(status)) {
@@ -1045,6 +2200,7 @@ const ChatView = {
       selectedTopicID.value = "";
       creatingTopic.value = false;
       showSystemTopics.value = false;
+      resetWorkspaceState();
       syncMobileTopicView({ preferTopics: true });
     }
 
@@ -1066,6 +2222,7 @@ const ChatView = {
 
         if (preferredTopicID && items.some((topic) => normalizeTopicID(topic?.id) === preferredTopicID)) {
           selectedTopicID.value = preferredTopicID;
+          rememberTopicSelection(submitEndpointRef.value, preferredTopicID);
           creatingTopic.value = false;
           syncMobileTopicView({ preferChat: true });
           return true;
@@ -1076,6 +2233,7 @@ const ChatView = {
         }
         const currentID = normalizeTopicID(selectedTopicID.value);
         if (currentID && items.some((topic) => normalizeTopicID(topic?.id) === currentID)) {
+          rememberTopicSelection(submitEndpointRef.value, currentID);
           creatingTopic.value = false;
           syncMobileTopicView({ preferChat: true });
           return true;
@@ -1298,6 +2456,7 @@ const ChatView = {
       }
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
+      rememberTopicSelection(submitEndpointRef.value, normalized);
       syncMobileTopicView({ preferChat: true });
       void loadHistory().finally(() => {
         focusComposer();
@@ -1322,6 +2481,7 @@ const ChatView = {
       if (!task || sending.value) {
         return;
       }
+      const submittedDraftScope = composerDraftScope.value;
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
         err.value = submitBlockedMessage.value || t("msg_select_endpoint");
@@ -1337,6 +2497,7 @@ const ChatView = {
 
       sending.value = true;
       err.value = "";
+      suppressDraftPersistence.value = true;
       taskInput.value = "";
       if (consoleTopicsEnabled.value && !normalizeTopicID(selectedTopicID.value)) {
         creatingTopic.value = true;
@@ -1367,6 +2528,7 @@ const ChatView = {
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
         }
+        clearChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID);
         const existingAgentItem = chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
         patchHistoryItem(agentHistoryID, {
           taskId: taskID,
@@ -1383,6 +2545,7 @@ const ChatView = {
           }
           creatingTopic.value = false;
           selectedTopicID.value = topicID;
+          rememberTopicSelection(submitEndpointRef.value, topicID);
           await loadTopics({
             preferredTopicID: topicID,
             preserveSelection: true,
@@ -1396,12 +2559,15 @@ const ChatView = {
       } catch (e) {
         const message = e?.message || t("msg_load_failed");
         err.value = message;
+        rememberChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID, task);
+        taskInput.value = task;
         patchHistoryItem(agentHistoryID, {
           status: "failed",
           text: message,
           rawJSON: "",
         });
       } finally {
+        suppressDraftPersistence.value = false;
         sending.value = false;
         syncComposerHeight();
         focusComposer();
@@ -1421,6 +2587,7 @@ const ChatView = {
       syncComposerHeight();
     });
     onUnmounted(() => {
+      persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
       clearStreamSockets();
@@ -1441,6 +2608,21 @@ const ChatView = {
       }
     );
     watch(
+      () => [submitEndpointRef.value, workspaceTopicID.value, consoleTopicsEnabled.value],
+      () => {
+        void refreshWorkspaceState();
+      }
+    );
+    watch(
+      () => workspaceSidebarOpen.value,
+      (open) => {
+        saveWorkspaceSidebarOpen(open);
+        if (open && String(workspaceDir.value || "").trim() && !hasOwnTreePath(workspaceTreeItems.value, "")) {
+          void loadWorkspaceTree("", { force: true });
+        }
+      }
+    );
+    watch(
       () => routeTopicID.value,
       () => {
         void syncTopicFromRoute().finally(() => {
@@ -1456,7 +2638,20 @@ const ChatView = {
         }
       }
     );
+    watch(
+      () => composerDraftScope.value,
+      (nextScope, prevScope) => {
+        if (prevScope?.endpointRef) {
+          persistComposerDraft(prevScope);
+        }
+        restoreComposerDraft(nextScope);
+      },
+      { immediate: true }
+    );
     watch(taskInput, () => {
+      if (!suppressDraftPersistence.value) {
+        persistComposerDraft();
+      }
       syncComposerHeight();
     });
 
@@ -1472,6 +2667,39 @@ const ChatView = {
       taskInput,
       sending,
       err,
+      workspaceDir,
+      workspaceDirDisplay,
+      workspaceLoading,
+      workspaceSaving,
+      workspaceOpening,
+      workspaceBusy,
+      workspaceSidebarOpen,
+      workspaceSidebarTabID,
+      workspacePanelTabs,
+      selectedWorkspacePanelTab,
+      workspaceError,
+      workspaceReady,
+      workspaceHintText,
+      workspaceAttachDisabled,
+      workspaceDetachDisabled,
+      workspaceSidebarToggleLabel,
+      workspaceTreeLoading,
+      workspaceTreeLoadingPath,
+      workspaceTreeError,
+      workspaceTreeRows,
+      workspaceSelectedTreeEntry,
+      workspaceBrowserOpen,
+      workspaceBrowserLoading,
+      workspaceBrowserLoadingPath,
+      workspaceBrowserError,
+      workspaceBrowserRows,
+      workspaceBrowserRecentItems,
+      workspaceBrowserSelection,
+      workspaceBrowserEmptyText,
+      workspaceBrowserConfirmDisabled,
+      formatBytes,
+      workspaceTreeIcon,
+      workspaceTreeEntryClass,
       composerField,
       submitBlockedMessage,
       chatReadonly,
@@ -1485,7 +2713,9 @@ const ChatView = {
       composerDisabled,
       sendDisabled,
       composerPlaceholder,
+      displayAgentName,
       consoleTopicsEnabled,
+      mobileMode,
       mobileTopicSplitEnabled,
       mobileBarTitle,
       mobileShowBack,
@@ -1497,7 +2727,23 @@ const ChatView = {
       chatPlaceholderHint,
       showTopicSidebar,
       showChatPane,
+      workspaceSidebarAvailable,
+      desktopWorkspaceSidebarVisible,
       submitTask,
+      toggleWorkspaceSidebar,
+      onWorkspaceTabChange,
+      selectWorkspaceTreeNode,
+      addWorkspaceSelectionToComposer,
+      openWorkspaceSelection,
+      toggleWorkspaceTreeNode,
+      openWorkspaceBrowser,
+      closeWorkspaceBrowser,
+      activateWorkspaceBrowserSource,
+      workspaceBrowserSourceItemClass,
+      toggleWorkspaceBrowserNode,
+      selectWorkspaceBrowserNode,
+      attachWorkspace,
+      detachWorkspace,
       selectTopic,
       startNewTopic,
       showTopicsView,
@@ -1514,7 +2760,26 @@ const ChatView = {
       historyClass,
       historySurfaceClass,
       markHistoryItemRendered,
+      showHistoryAgentBubble,
       showHistorySkeleton,
+      activityCurrentEntry,
+      activityExpanded,
+      activityEntryClass,
+      activityEntryNote,
+      activityEntryTitle,
+      activityHistoryCount,
+      activityHistoryEntries,
+      activityHistoryToggleLabel,
+      activityKindLabel,
+      activityParams,
+      activityStateClass,
+      activityStatusLabel,
+      toggleActivityExpanded,
+      planSummaryText,
+      planStateLabel,
+      planStateClass,
+      planStepClass,
+      planStepStatusLabel,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -1599,9 +2864,21 @@ const ChatView = {
           </aside>
           <section v-if="showChatPane" :class="chatMainClass">
             <header v-if="consoleTopicsEnabled && !showChatPlaceholder" class="chat-desk-head">
-              <div class="chat-desk-copy">
-                <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
-                <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
+              <div class="chat-desk-head-main">
+                <div class="chat-desk-copy">
+                  <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
+                  <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
+                </div>
+                <div v-if="workspaceSidebarAvailable" class="chat-desk-tools">
+                  <QButton
+                    :class="workspaceSidebarOpen ? 'plain sm icon chat-workspace-toggle is-active' : 'plain sm icon chat-workspace-toggle'"
+                    :title="workspaceSidebarToggleLabel"
+                    :aria-label="workspaceSidebarToggleLabel"
+                    @click="toggleWorkspaceSidebar"
+                  >
+                    <QIconLayoutRight class="icon" />
+                  </QButton>
+                </div>
               </div>
             </header>
             <section v-if="showChatPlaceholder" class="chat-placeholder">
@@ -1648,22 +2925,117 @@ const ChatView = {
                   >
                     {{ item.timeText }}
                   </code>
-                  <div :class="historySurfaceClass(item)">
-                    <template v-if="item.role === 'agent'">
-                      <div v-if="showHistorySkeleton(item)" class="chat-history-skeleton" aria-hidden="true">
-                        <QSkeleton variant="text" width="92%" />
-                        <QSkeleton variant="text" width="100%" />
-                        <QSkeleton variant="text" width="68%" />
+                  <template v-if="item.role === 'agent'">
+                    <div class="chat-history-stack">
+                      <section v-if="item.plan" class="chat-plan-card">
+                        <header class="chat-plan-head">
+                          <div class="chat-plan-head-copy">
+                            <p class="ui-kicker chat-plan-kicker">{{ t("chat_plan_title") }}</p>
+                            <p class="chat-plan-meta">{{ planSummaryText(item.plan, t) }}</p>
+                          </div>
+                          <span :class="planStateClass(item.plan)">{{ planStateLabel(item.plan, t) }}</span>
+                        </header>
+                        <ol class="chat-plan-list">
+                          <li
+                            v-for="(step, stepIndex) in item.plan.steps"
+                            :key="item.id + ':plan:' + stepIndex"
+                            :class="planStepClass(step)"
+                          >
+                            <span class="chat-plan-step-dot" aria-hidden="true"></span>
+                            <div class="chat-plan-step-copy">
+                              <p class="chat-plan-step-text">{{ step.step }}</p>
+                              <p class="chat-plan-step-status">{{ planStepStatusLabel(step, t) }}</p>
+                            </div>
+                          </li>
+                        </ol>
+                      </section>
+                      <section v-if="item.activity" class="chat-activity-card">
+                        <header class="chat-activity-head">
+                          <div class="chat-activity-head-copy">
+                            <p class="ui-kicker chat-activity-kicker">{{ t("chat_activity_title") }}</p>
+                          </div>
+                          <span :class="activityStateClass(item.activity)">{{ activityStatusLabel(activityCurrentEntry(item.activity), t) }}</span>
+                        </header>
+                        <div
+                          v-if="activityCurrentEntry(item.activity)"
+                          :class="activityEntryClass(activityCurrentEntry(item.activity))"
+                        >
+                          <span class="chat-activity-dot" aria-hidden="true"></span>
+                          <div class="chat-activity-copy">
+                            <div class="chat-activity-line">
+                              <span class="chat-activity-kind">{{ activityKindLabel(activityCurrentEntry(item.activity), t) }}</span>
+                              <span class="chat-activity-name">{{ activityEntryTitle(activityCurrentEntry(item.activity)) }}</span>
+                            </div>
+                            <div v-if="activityParams(activityCurrentEntry(item.activity)).length > 0" class="chat-activity-params">
+                              <span
+                                v-for="(param, paramIndex) in activityParams(activityCurrentEntry(item.activity))"
+                                :key="item.id + ':activity:param:' + paramIndex"
+                                class="chat-activity-param"
+                              >
+                                <span class="chat-activity-param-key">{{ param.key }}</span>
+                                <span class="chat-activity-param-value">{{ param.value }}</span>
+                              </span>
+                            </div>
+                            <p v-if="activityEntryNote(activityCurrentEntry(item.activity))" class="chat-activity-note">
+                              {{ activityEntryNote(activityCurrentEntry(item.activity)) }}
+                            </p>
+                          </div>
+                        </div>
+                        <div v-if="activityHistoryCount(item.activity) > 0" class="chat-activity-history">
+                          <button
+                            type="button"
+                            class="chat-activity-toggle"
+                            @click="toggleActivityExpanded(item.id)"
+                          >
+                            {{ activityHistoryToggleLabel(item.activity, activityExpanded(item.id), t) }}
+                          </button>
+                          <ol v-if="activityExpanded(item.id)" class="chat-activity-list">
+                            <li
+                              v-for="(entry, historyIndex) in activityHistoryEntries(item.activity)"
+                              :key="item.id + ':activity:history:' + historyIndex"
+                              :class="activityEntryClass(entry)"
+                            >
+                              <span class="chat-activity-dot" aria-hidden="true"></span>
+                              <div class="chat-activity-copy">
+                                <div class="chat-activity-line">
+                                  <span class="chat-activity-kind">{{ activityKindLabel(entry, t) }}</span>
+                                  <span class="chat-activity-name">{{ activityEntryTitle(entry) }}</span>
+                                  <span class="chat-activity-history-status">{{ activityStatusLabel(entry, t) }}</span>
+                                </div>
+                                <div v-if="activityParams(entry).length > 0" class="chat-activity-params">
+                                  <span
+                                    v-for="(param, paramIndex) in activityParams(entry)"
+                                    :key="item.id + ':activity:history:param:' + historyIndex + ':' + paramIndex"
+                                    class="chat-activity-param"
+                                  >
+                                    <span class="chat-activity-param-key">{{ param.key }}</span>
+                                    <span class="chat-activity-param-value">{{ param.value }}</span>
+                                  </span>
+                                </div>
+                                <p v-if="activityEntryNote(entry)" class="chat-activity-note">{{ activityEntryNote(entry) }}</p>
+                              </div>
+                            </li>
+                          </ol>
+                        </div>
+                      </section>
+                      <div v-if="showHistoryAgentBubble(item)" :class="historySurfaceClass(item)">
+                        <div v-if="showHistorySkeleton(item)" class="chat-history-skeleton" aria-hidden="true">
+                          <QSkeleton variant="text" width="92%" />
+                          <QSkeleton variant="text" width="100%" />
+                          <QSkeleton variant="text" width="68%" />
+                        </div>
+                        <MarkdownContent
+                          :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
+                          :source="item.text"
+                          format="auto"
+                          theme="blueprint"
+                          @rendered="markHistoryItemRendered(item.id)"
+                        />
                       </div>
-                      <MarkdownContent
-                        :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
-                        :source="item.text"
-                        format="auto"
-                        theme="blueprint"
-                        @rendered="markHistoryItemRendered(item.id)"
-                      />
-                    </template>
-                    <div v-else class="chat-history-body">{{ item.text }}</div>
+                    </div>
+                  </template>
+                  <div v-else :class="historySurfaceClass(item)">
+                    <div class="chat-history-body">{{ item.text }}</div>
                   </div>
                 </article>
                 <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
@@ -1694,7 +3066,503 @@ const ChatView = {
               </QTextarea>
             </div>
           </section>
+          <aside
+            v-if="desktopWorkspaceSidebarVisible"
+            class="chat-workspace-sidebar workspace-sidebar-section"
+            :aria-label="t('chat_workspace_label')"
+          >
+            <div class="chat-workspace-sidebar-shell">
+              <QTabs
+                class="chat-workspace-tabs"
+                :tabs="workspacePanelTabs"
+                :modelValue="selectedWorkspacePanelTab"
+                variant="plain"
+                @change="onWorkspaceTabChange"
+              />
+
+              <div class="chat-workspace-pane ui-track-panel">
+                <template v-if="workspaceReady">
+                  <template v-if="workspaceDir">
+                    <header class="chat-workspace-toolbar">
+                      <div class="chat-workspace-pane-copy">
+                        <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
+                        <code class="chat-workspace-pane-path" :title="workspaceDir">
+                          <span
+                            v-if="workspaceDirDisplay.prefix"
+                            class="chat-workspace-pane-path-prefix"
+                          >
+                            {{ workspaceDirDisplay.prefix }}
+                          </span>
+                          <span
+                            v-if="workspaceDirDisplay.separator"
+                            class="chat-workspace-pane-path-separator"
+                            aria-hidden="true"
+                          >
+                            {{ workspaceDirDisplay.separator }}
+                          </span>
+                          <span class="chat-workspace-pane-path-tail">{{ workspaceDirDisplay.tail }}</span>
+                        </code>
+                        <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
+                      </div>
+
+                      <div class="chat-workspace-toolbar-actions">
+                        <QButton
+                          class="plain xs icon"
+                          :title="t('chat_workspace_action_attach')"
+                          :aria-label="t('chat_workspace_action_attach')"
+                          :disabled="workspaceAttachDisabled"
+                          @click="openWorkspaceBrowser"
+                        >
+                          <QIconPlus class="icon" />
+                        </QButton>
+                        <QButton
+                          class="plain xs icon"
+                          :title="t('chat_workspace_action_detach')"
+                          :aria-label="t('chat_workspace_action_detach')"
+                          :disabled="workspaceDetachDisabled"
+                          :loading="workspaceSaving"
+                          @click="detachWorkspace"
+                        >
+                          <QIconTrash class="icon" />
+                        </QButton>
+                      </div>
+                    </header>
+
+                    <QFence
+                      v-if="workspaceError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="workspaceError"
+                    />
+
+                    <QFence
+                      v-if="workspaceTreeError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="workspaceTreeError"
+                    />
+
+                    <div class="chat-workspace-tree-shell">
+                      <p
+                        v-if="workspaceTreeLoading && workspaceTreeRows.length === 0"
+                        class="chat-workspace-tree-status"
+                      >
+                        {{ t("chat_workspace_tree_loading") }}
+                      </p>
+                      <div v-else-if="workspaceTreeRows.length > 0" class="chat-workspace-tree-list">
+                        <div
+                          v-for="row in workspaceTreeRows"
+                          :key="'workspace:' + row.key"
+                          class="chat-workspace-tree-row"
+                          :style="{ '--tree-depth': row.depth }"
+                        >
+                          <button
+                            type="button"
+                            :class="workspaceTreeEntryClass(row)"
+                            :title="row.entry.path"
+                            @click="selectWorkspaceTreeNode(row)"
+                          >
+                            <span class="chat-workspace-tree-kind" aria-hidden="true">
+                              <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
+                            </span>
+                            <span class="chat-workspace-tree-name">{{ row.entry.name }}</span>
+                          </button>
+                        </div>
+                      </div>
+                      <p v-else class="chat-workspace-tree-status">{{ t("chat_workspace_tree_empty") }}</p>
+                    </div>
+
+                    <footer v-if="workspaceSelectedTreeEntry" class="chat-workspace-status">
+                      <div class="chat-workspace-status-head">
+                        <p class="chat-workspace-status-title">{{ workspaceSelectedTreeEntry.name }}</p>
+                        <span class="chat-workspace-status-kind ui-kicker">
+                          {{
+                            workspaceSelectedTreeEntry.is_dir
+                              ? t("chat_workspace_kind_dir")
+                              : t("chat_workspace_kind_file")
+                          }}
+                        </span>
+                      </div>
+
+                      <dl class="chat-workspace-status-grid">
+                        <div class="chat-workspace-status-row">
+                          <dt class="chat-workspace-status-term">{{ t("audit_size") }}</dt>
+                          <dd class="chat-workspace-status-value">
+                            {{ formatBytes(workspaceSelectedTreeEntry.size_bytes) }}
+                          </dd>
+                        </div>
+                        <div class="chat-workspace-status-row">
+                          <dt class="chat-workspace-status-term">{{ t("audit_action") }}</dt>
+                          <dd class="chat-workspace-status-actions">
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_insert')"
+                              :aria-label="t('chat_workspace_action_insert')"
+                              :disabled="composerDisabled"
+                              @click="addWorkspaceSelectionToComposer"
+                            >
+                              <QIconPlus class="icon" />
+                            </QButton>
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_open')"
+                              :aria-label="t('chat_workspace_action_open')"
+                              :loading="workspaceOpening"
+                              @click="openWorkspaceSelection"
+                            >
+                              <QIconLinkExternal class="icon" />
+                            </QButton>
+                          </dd>
+                        </div>
+                      </dl>
+                    </footer>
+                  </template>
+
+                  <template v-else>
+                    <QFence
+                      v-if="workspaceError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="workspaceError"
+                    />
+
+                    <div class="chat-workspace-empty-state">
+                      <div class="chat-workspace-empty-lead">
+                        <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
+                      </div>
+                      <div class="chat-workspace-empty-actions">
+                        <QButton
+                          class="primary sm"
+                          :disabled="workspaceAttachDisabled"
+                          @click="openWorkspaceBrowser"
+                        >
+                          {{ t("chat_workspace_action_attach") }}
+                        </QButton>
+                      </div>
+                    </div>
+                  </template>
+                </template>
+
+                <div v-else class="chat-workspace-empty-state is-disabled">
+                  <div class="chat-workspace-empty-lead">
+                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </section>
+        <QDrawer
+          :modelValue="mobileMode && workspaceSidebarAvailable && workspaceSidebarOpen"
+          placement="right"
+          size="min(88vw, 360px)"
+          :closable="false"
+          :showMask="true"
+          :maskClosable="true"
+          :lockScroll="true"
+          @update:modelValue="!$event && toggleWorkspaceSidebar()"
+          @close="workspaceSidebarOpen = false"
+        >
+          <div class="chat-workspace-sidebar-shell chat-workspace-sidebar-shell-mobile">
+            <QTabs
+              class="chat-workspace-tabs"
+              :tabs="workspacePanelTabs"
+              :modelValue="selectedWorkspacePanelTab"
+              variant="plain"
+              @change="onWorkspaceTabChange"
+            />
+
+            <div class="chat-workspace-pane ui-track-panel">
+              <template v-if="workspaceReady">
+                <template v-if="workspaceDir">
+                  <header class="chat-workspace-toolbar">
+                    <div class="chat-workspace-pane-copy">
+                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
+                      <code class="chat-workspace-pane-path" :title="workspaceDir">
+                        <span
+                          v-if="workspaceDirDisplay.prefix"
+                          class="chat-workspace-pane-path-prefix"
+                        >
+                          {{ workspaceDirDisplay.prefix }}
+                        </span>
+                        <span
+                          v-if="workspaceDirDisplay.separator"
+                          class="chat-workspace-pane-path-separator"
+                          aria-hidden="true"
+                        >
+                          {{ workspaceDirDisplay.separator }}
+                        </span>
+                        <span class="chat-workspace-pane-path-tail">{{ workspaceDirDisplay.tail }}</span>
+                      </code>
+                      <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
+                    </div>
+
+                    <div class="chat-workspace-toolbar-actions">
+                      <QButton
+                        class="plain xs icon"
+                        :title="t('chat_workspace_action_attach')"
+                        :aria-label="t('chat_workspace_action_attach')"
+                        :disabled="workspaceAttachDisabled"
+                        @click="openWorkspaceBrowser"
+                      >
+                        <QIconPlus class="icon" />
+                      </QButton>
+                      <QButton
+                        class="plain xs icon"
+                        :title="t('chat_workspace_action_detach')"
+                        :aria-label="t('chat_workspace_action_detach')"
+                        :disabled="workspaceDetachDisabled"
+                        :loading="workspaceSaving"
+                        @click="detachWorkspace"
+                      >
+                        <QIconTrash class="icon" />
+                      </QButton>
+                    </div>
+                  </header>
+
+                  <QFence
+                    v-if="workspaceError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="workspaceError"
+                  />
+
+                  <QFence
+                    v-if="workspaceTreeError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="workspaceTreeError"
+                  />
+
+                  <div class="chat-workspace-tree-shell">
+                    <p
+                      v-if="workspaceTreeLoading && workspaceTreeRows.length === 0"
+                      class="chat-workspace-tree-status"
+                    >
+                      {{ t("chat_workspace_tree_loading") }}
+                    </p>
+                    <div v-else-if="workspaceTreeRows.length > 0" class="chat-workspace-tree-list">
+                      <div
+                        v-for="row in workspaceTreeRows"
+                        :key="'workspace-mobile:' + row.key"
+                        class="chat-workspace-tree-row"
+                        :style="{ '--tree-depth': row.depth }"
+                      >
+                        <button
+                          type="button"
+                          :class="workspaceTreeEntryClass(row)"
+                          :title="row.entry.path"
+                          @click="selectWorkspaceTreeNode(row)"
+                        >
+                          <span class="chat-workspace-tree-kind" aria-hidden="true">
+                            <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
+                          </span>
+                          <span class="chat-workspace-tree-name">{{ row.entry.name }}</span>
+                        </button>
+                      </div>
+                    </div>
+                    <p v-else class="chat-workspace-tree-status">{{ t("chat_workspace_tree_empty") }}</p>
+                  </div>
+
+                  <footer v-if="workspaceSelectedTreeEntry" class="chat-workspace-status">
+                    <div class="chat-workspace-status-head">
+                      <p class="chat-workspace-status-title">{{ workspaceSelectedTreeEntry.name }}</p>
+                      <span class="chat-workspace-status-kind ui-kicker">
+                        {{
+                          workspaceSelectedTreeEntry.is_dir
+                            ? t("chat_workspace_kind_dir")
+                            : t("chat_workspace_kind_file")
+                        }}
+                      </span>
+                    </div>
+
+                    <dl class="chat-workspace-status-grid">
+                      <div class="chat-workspace-status-row">
+                        <dt class="chat-workspace-status-term">{{ t("audit_size") }}</dt>
+                        <dd class="chat-workspace-status-value">
+                          {{ formatBytes(workspaceSelectedTreeEntry.size_bytes) }}
+                        </dd>
+                      </div>
+                      <div class="chat-workspace-status-row">
+                        <dt class="chat-workspace-status-term">{{ t("audit_action") }}</dt>
+                        <dd class="chat-workspace-status-actions">
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_insert')"
+                            :aria-label="t('chat_workspace_action_insert')"
+                            :disabled="composerDisabled"
+                            @click="addWorkspaceSelectionToComposer"
+                          >
+                            <QIconPlus class="icon" />
+                          </QButton>
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_open')"
+                            :aria-label="t('chat_workspace_action_open')"
+                            :loading="workspaceOpening"
+                            @click="openWorkspaceSelection"
+                          >
+                            <QIconLinkExternal class="icon" />
+                          </QButton>
+                        </dd>
+                      </div>
+                    </dl>
+                  </footer>
+                </template>
+
+                <template v-else>
+                  <QFence
+                    v-if="workspaceError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="workspaceError"
+                  />
+
+                  <div class="chat-workspace-empty-state">
+                    <div class="chat-workspace-empty-lead">
+                      <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
+                    </div>
+                    <div class="chat-workspace-empty-actions">
+                      <QButton
+                        class="primary sm"
+                        :disabled="workspaceAttachDisabled"
+                        @click="openWorkspaceBrowser"
+                      >
+                        {{ t("chat_workspace_action_attach") }}
+                      </QButton>
+                    </div>
+                  </div>
+                </template>
+              </template>
+
+              <div v-else class="chat-workspace-empty-state is-disabled">
+                <div class="chat-workspace-empty-lead">
+                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                  <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </QDrawer>
+        <QDialog
+          :modelValue="workspaceBrowserOpen"
+          width="720px"
+          @update:modelValue="!$event && closeWorkspaceBrowser()"
+          @close="closeWorkspaceBrowser"
+        >
+          <template #header>
+            <header class="chat-workspace-dialog-head">
+              <h3 class="chat-workspace-dialog-title">{{ t("chat_workspace_dialog_title") }}</h3>
+            </header>
+          </template>
+
+          <section class="chat-workspace-dialog">
+            <QFence
+              v-if="workspaceBrowserError"
+              class="chat-workspace-pane-fence"
+              type="danger"
+              icon="QIconCloseCircle"
+              :text="workspaceBrowserError"
+            />
+
+            <div class="chat-workspace-dialog-shell">
+              <aside class="chat-workspace-dialog-sidebar workspace-sidebar-section">
+                <section class="chat-workspace-dialog-sidebar-group">
+                  <p class="chat-workspace-dialog-sidebar-title ui-kicker">{{ t("chat_workspace_dialog_places") }}</p>
+                  <div class="chat-workspace-dialog-sidebar-list workspace-sidebar-list">
+                    <button
+                      type="button"
+                      :class="workspaceBrowserSourceItemClass('recent')"
+                      @click="activateWorkspaceBrowserSource('recent')"
+                    >
+                      <span class="workspace-sidebar-item-copy">
+                        <span class="workspace-sidebar-item-title">{{ t("chat_workspace_dialog_recent") }}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      :class="workspaceBrowserSourceItemClass('home')"
+                      @click="activateWorkspaceBrowserSource('home')"
+                    >
+                      <span class="workspace-sidebar-item-copy">
+                        <span class="workspace-sidebar-item-title">{{ t("chat_workspace_dialog_home") }}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      :class="workspaceBrowserSourceItemClass('system')"
+                      @click="activateWorkspaceBrowserSource('system')"
+                    >
+                      <span class="workspace-sidebar-item-copy">
+                        <span class="workspace-sidebar-item-title">{{ t("chat_workspace_dialog_system") }}</span>
+                      </span>
+                    </button>
+                  </div>
+                </section>
+              </aside>
+
+              <div class="chat-workspace-dialog-main">
+                <div class="chat-workspace-browser-shell">
+                  <p
+                    v-if="workspaceBrowserLoading && workspaceBrowserRows.length === 0"
+                    class="chat-workspace-tree-status"
+                  >
+                    {{ t("chat_workspace_dialog_loading") }}
+                  </p>
+                  <div v-else-if="workspaceBrowserRows.length > 0" class="chat-workspace-tree-list is-browser">
+                    <div
+                      v-for="row in workspaceBrowserRows"
+                      :key="'browser:' + row.key"
+                      class="chat-workspace-tree-row"
+                      :style="{ '--tree-depth': row.depth }"
+                    >
+                      <button
+                      type="button"
+                      :class="workspaceBrowserSelection === row.entry.path
+                          ? 'chat-workspace-tree-entry is-selectable is-selected is-actionable'
+                          : 'chat-workspace-tree-entry is-selectable is-actionable'"
+                        :disabled="!row.entry.is_dir"
+                        :title="row.entry.path"
+                        @click="selectWorkspaceBrowserNode(row)"
+                      >
+                        <span class="chat-workspace-tree-kind" aria-hidden="true">
+                          <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
+                        </span>
+                        <span class="chat-workspace-tree-name">{{ row.entry.name }}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <p v-else class="chat-workspace-tree-status">{{ workspaceBrowserEmptyText }}</p>
+                </div>
+              </div>
+
+              <div class="chat-workspace-dialog-actions">
+                <QButton
+                  class="plain sm"
+                  :disabled="workspaceSaving"
+                  @click="closeWorkspaceBrowser"
+                >
+                  {{ t("action_cancel") }}
+                </QButton>
+                <QButton
+                  class="primary sm"
+                  :loading="workspaceSaving"
+                  :disabled="workspaceBrowserConfirmDisabled"
+                  @click="attachWorkspace"
+                >
+                  {{ t("chat_workspace_action_attach") }}
+                </QButton>
+              </div>
+            </div>
+          </section>
+        </QDialog>
         <RawJsonDialog
           :open="rawDialogOpen"
           :json="rawDialogJSON"

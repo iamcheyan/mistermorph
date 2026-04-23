@@ -5,6 +5,8 @@
   --stats-muted: color-mix(in srgb, var(--text-1) 70%, var(--accent-1) 30%);
   --stats-line: color-mix(in srgb, var(--line) 74%, var(--accent-1) 26%);
   --stats-line-soft: color-mix(in srgb, var(--line-soft) 72%, var(--accent-1) 28%);
+  --stats-cost-up: color-mix(in srgb, var(--danger) 76%, var(--text-0) 24%);
+  --stats-cost-down: color-mix(in srgb, var(--ok) 72%, var(--text-0) 28%);
   display: grid;
   gap: clamp(20px, 2.6vw, 34px);
   padding-bottom: 24px;
@@ -566,7 +568,7 @@
 }
 
 .stats-model-ledger-value-cell {
-  min-width: 126px;
+  min-width: 132px;
   font-family: var(--q-card-title-font-family);
   font-size: 1rem;
   font-weight: 600;
@@ -580,6 +582,14 @@
 .stats-model-ledger-value-cell-unavailable {
   color: var(--stats-muted);
   font-weight: 500;
+}
+
+.stats-model-ledger-value-cell-cost-up {
+  color: var(--stats-cost-up);
+}
+
+.stats-model-ledger-value-cell-cost-down {
+  color: var(--stats-cost-down);
 }
 
 .stats-empty {

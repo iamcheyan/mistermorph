@@ -125,7 +125,6 @@ const RuntimeView = {
       health: "ok",
       mode: "",
       agent_name: "",
-      submit_enabled: false,
       poke_enabled: false,
       heartbeat_running: false,
       instance_id: "",
@@ -203,12 +202,6 @@ const RuntimeView = {
     const routeRows = computed(() => [
       { key: "provider", label: t("stat_llm_provider"), value: stringValue(overview.llm_provider) },
       { key: "model", label: t("stat_llm_model"), value: stringValue(overview.llm_model) },
-      {
-        key: "submit",
-        label: t("runtime_field_submit"),
-        value: overview.submit_enabled ? t("runtime_submit_ready") : t("runtime_submit_blocked"),
-        tone: overview.submit_enabled ? "success" : "warning",
-      },
     ]);
     const channelRows = computed(() => [
       {
@@ -244,7 +237,6 @@ const RuntimeView = {
         overview.health = data.health || "ok";
         overview.mode = data.mode || "";
         overview.agent_name = data.agent_name || "";
-        overview.submit_enabled = toBool(data.submit_enabled, false);
         overview.poke_enabled = toBool(data.poke_enabled, false);
         overview.heartbeat_running = toBool(data.heartbeat_running, false);
         overview.instance_id = data.instance_id || "";
@@ -345,9 +337,6 @@ const RuntimeView = {
             <div class="runtime-hero-status">
               <div class="runtime-hero-badges">
                 <QBadge :type="healthBadgeType(overview.health)" size="sm">{{ overview.health || "ok" }}</QBadge>
-                <QBadge :type="overview.submit_enabled ? 'success' : 'warning'" size="sm">
-                  {{ overview.submit_enabled ? t("runtime_submit_ready") : t("runtime_submit_blocked") }}
-                </QBadge>
               </div>
             </div>
           </div>

@@ -27,6 +27,7 @@ description: Where to find deeper design and runtime documents in the repo.
 - References
   - [Integration API](/guide/integration-references)
   - [Config Fields](/guide/config-reference)
+  - [Filesystem Roots](/guide/filesystem-roots)
   - [Environment Variables](/guide/env-vars-reference)
   - [CLI Flags](/guide/cli-flags)
 - Operations & Governance

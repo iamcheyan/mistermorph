@@ -14,7 +14,7 @@
 user_agent: "mistermorph/1.0 (+https://github.com/quailyquaily)"
 
 llm:
-  # LLM provider name. Supported: openai|openai_resp|openai_custom|deepseek|xai|gemini|gemini_oauth|azure|anthropic|bedrock|susanoo|cloudflare.
+  # LLM provider name. Supported: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
   provider: openai
   # Default model used by the main agent loop.
   model: "gpt-5.4"
@@ -347,14 +347,6 @@ acp:
   #   cwd: "."
   #   read_roots: ["."]
   #   write_roots: ["."]
-  # - name: "gemini"
-  #   # Gemini CLI already speaks ACP directly.
-  #   command: "gemini"
-  #   args: ["--acp"]
-  #   env: {}
-  #   cwd: "."
-  #   read_roots: ["."]
-  #   write_roots: ["."]
 
 # Markdown-based memory
 memory:
@@ -409,13 +401,6 @@ skills:
   # Empty means load all discovered skills.
   # Unknown entries are ignored.
   load: [] # e.g. [] | ["skill-creator", "my-skill-id"]
-
-# CLI interactive mode settings.
-cli:
-  # Compact display mode: omit user/assistant name prefixes.
-  # When true, prompts show ">" instead of "username>" and
-  # assistant output has no name prefix.
-  compact_mode: false
 
 # Shared runtime server settings.
 server:
@@ -593,13 +578,13 @@ heartbeat:
 
 # Agent loop limits.
 # - max_steps: maximum tool-call steps in the ReAct loop.
-max_steps: 15
+max_steps: 64
 # - parse_retries: how many times to ask the model to retry if it emits invalid JSON.
 parse_retries: 2
 # - max_token_budget: stop the loop once cumulative tokens exceed this (0 disables).
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
-tool_repeat_limit: 3
+tool_repeat_limit: 64
 # Overall run timeout.
 timeout: "10m"
 

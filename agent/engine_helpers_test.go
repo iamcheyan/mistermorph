@@ -73,3 +73,33 @@ func TestToolArgsSummary_URLFetchDetailsOnlyInDebug(t *testing.T) {
 		t.Fatalf("api_key should be redacted, got %#v", body["api_key"])
 	}
 }
+
+func TestToolDisplayArgsSummary_BashIncludesCommand(t *testing.T) {
+	opts := DefaultLogOptions()
+	got := toolDisplayArgsSummary("bash", map[string]any{
+		"cmd": "printf 'ok'\n",
+	}, opts)
+	if got == nil {
+		t.Fatal("summary = nil, want command")
+	}
+	if got["cmd"] != "printf 'ok'" {
+		t.Fatalf("cmd = %#v, want %#v", got["cmd"], "printf 'ok'")
+	}
+}
+
+func TestToolDisplayArgsSummary_FallbackSanitizesUnknownTool(t *testing.T) {
+	opts := DefaultLogOptions()
+	got := toolDisplayArgsSummary("custom_tool", map[string]any{
+		"api_key": "secret",
+		"query":   "alpha",
+	}, opts)
+	if got == nil {
+		t.Fatal("summary = nil, want sanitized params")
+	}
+	if got["api_key"] != "[redacted]" {
+		t.Fatalf("api_key = %#v, want redacted", got["api_key"])
+	}
+	if got["query"] != "alpha" {
+		t.Fatalf("query = %#v, want alpha", got["query"])
+	}
+}

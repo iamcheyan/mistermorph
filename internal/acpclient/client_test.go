@@ -337,6 +337,7 @@ func TestRunPrompt_TerminalRoundTrip(t *testing.T) {
 			"command":   testTerminalEchoCommand(),
 			"args":      testTerminalEchoArgs(),
 			"env": []map[string]any{
+				{"name": "MISTERMORPH_TEST_HELPER_TERMINAL_ECHO", "value": "1"},
 				{"name": "MM_TERM_TEST", "value": "hello-from-terminal"},
 			},
 			"cwd":             dir,
@@ -400,6 +401,9 @@ func TestRunPrompt_TerminalRoundTrip(t *testing.T) {
 				},
 			},
 		})
+		// Let the client readLoop process the terminal notifications before the
+		// prompt response closes the fake server side of the pipe.
+		time.Sleep(10 * time.Millisecond)
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 	})
 	if err != nil {
@@ -867,21 +871,19 @@ func intFromAny(value any) int {
 }
 
 func testTerminalEchoCommand() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "cmd"
-	default:
-		return "sh"
-	}
+	return os.Args[0]
 }
 
 func testTerminalEchoArgs() []string {
-	switch runtime.GOOS {
-	case "windows":
-		return []string{"/C", "echo %MM_TERM_TEST%"}
-	default:
-		return []string{"-lc", `printf '%s\n' "$MM_TERM_TEST"`}
+	return []string{"-test.run=TestHelperProcessTerminalEcho", "--"}
+}
+
+func TestHelperProcessTerminalEcho(t *testing.T) {
+	if os.Getenv("MISTERMORPH_TEST_HELPER_TERMINAL_ECHO") != "1" {
+		return
 	}
+	_, _ = io.WriteString(os.Stdout, os.Getenv("MM_TERM_TEST")+"\n")
+	os.Exit(0)
 }
 
 func minInt(a int, b int) int {

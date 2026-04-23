@@ -13,6 +13,14 @@ description: 看看 Mister Morph 支持的运行模式。
 mistermorph run --task "..."
 ```
 
+## Chat CLI
+
+如果你想在终端里保持一个持续的交互式会话，可以使用 `chat` 命令。
+
+```bash
+mistermorph chat
+```
+
 ## Console
 
 提供一个功能完备的 Web UI。除了可以跟 Agent 进行交互以外，还可以用来监控不同的其他 Mister Morph 实例。

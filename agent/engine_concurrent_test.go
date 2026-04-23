@@ -419,7 +419,7 @@ func TestOnToolStart_CalledBeforeExecution(t *testing.T) {
 
 	var startedTools []string
 	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
-		WithOnToolStart(func(_ *Context, toolName string, _ map[string]any) {
+		WithOnToolStart(func(_ *Context, toolName string) {
 			startedTools = append(startedTools, toolName)
 		}),
 	)
@@ -457,7 +457,7 @@ func TestOnToolStart_NotCalledForSkippedTools(t *testing.T) {
 
 	var startCount int
 	e := New(client, reg, Config{MaxSteps: 5, ToolRepeatLimit: 10}, DefaultPromptSpec(),
-		WithOnToolStart(func(_ *Context, toolName string, _ map[string]any) {
+		WithOnToolStart(func(_ *Context, toolName string) {
 			startCount++
 		}),
 	)

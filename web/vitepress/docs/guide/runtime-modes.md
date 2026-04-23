@@ -13,6 +13,14 @@ If you only need to call Mister Morph from the command line for a single task, u
 mistermorph run --task "..."
 ```
 
+## Chat CLI
+
+If you want to keep an interactive session open in the terminal, use the `chat` command.
+
+```bash
+mistermorph chat
+```
+
 ## Console
 
 This provides a full Web UI. Besides interacting with the agent directly, you can also use it to monitor other Mister Morph instances.
