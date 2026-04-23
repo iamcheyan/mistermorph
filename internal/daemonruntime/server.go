@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -106,6 +107,10 @@ const (
 	auditMinLineLimit     int64 = 1
 	auditMaxLineLimit     int64 = 500
 	auditMaxCursorLines   int64 = 200 * 1000
+	logDefaultLineLimit   int64 = 300
+	logMinLineLimit       int64 = 1
+	logMaxLineLimit       int64 = 1000
+	logMaxCursorLines     int64 = 1000 * 1000
 	contactsMaxPageSize   int64 = 2000
 	contactsMaxOffset     int64 = 200 * 1000
 )
@@ -113,6 +118,7 @@ const (
 var (
 	memoryDayPattern      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	memoryFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.md$`)
+	logFilenamePattern    = regexp.MustCompile(`^mistermorph-\d{4}-\d{2}-\d{2}\.jsonl$`)
 )
 
 type auditFileItem struct {
@@ -136,6 +142,20 @@ type auditLogChunk struct {
 	From        int64    `json:"from"`
 	To          int64    `json:"to"`
 	HasOlder    bool     `json:"has_older"`
+	Lines       []string `json:"lines"`
+}
+
+type logChunk struct {
+	File        string   `json:"file,omitempty"`
+	Exists      bool     `json:"exists"`
+	SizeBytes   int64    `json:"size_bytes"`
+	ModTime     string   `json:"mod_time,omitempty"`
+	Limit       int64    `json:"limit"`
+	TotalLines  int64    `json:"total_lines"`
+	From        int64    `json:"from"`
+	To          int64    `json:"to"`
+	HasOlder    bool     `json:"has_older"`
+	OlderCursor string   `json:"older_cursor,omitempty"`
 	Lines       []string `json:"lines"`
 }
 
@@ -727,6 +747,33 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		_ = json.NewEncoder(w).Encode(chunk)
 	})
 
+	mux.HandleFunc("/logs/latest", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), logDefaultLineLimit, logMinLineLimit, logMaxLineLimit)
+		if err != nil {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		chunk, err := readLatestLogChunk(resolveRuntimeLogDir(), strings.TrimSpace(r.URL.Query().Get("cursor")), limit)
+		if err != nil {
+			if badRequest, ok := badRequestMessage(err); ok {
+				http.Error(w, badRequest, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(chunk)
+	})
+
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(r, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -1290,6 +1337,14 @@ func resolveGuardAuditPath(stateDir string) string {
 	}
 	guardDir := pathutil.ResolveStateChildDir(stateDir, strings.TrimSpace(viper.GetString("guard.dir_name")), "guard")
 	return filepath.Join(guardDir, "audit", "guard_audit.jsonl")
+}
+
+func resolveRuntimeLogDir() string {
+	configured := strings.TrimSpace(viper.GetString("logging.file.dir"))
+	if configured != "" {
+		return pathutil.ExpandHomePath(configured)
+	}
+	return filepath.Clean(filepath.Join(pathutil.ResolveStateDir(viper.GetString("file_state_dir")), "logs"))
 }
 
 func describeFile(name, p string) map[string]any {
@@ -2009,6 +2064,259 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	}
 	chunk.Lines = lines
 	return chunk, nil
+}
+
+type logCursor struct {
+	File   string `json:"file"`
+	Before int64  `json:"before"`
+}
+
+type logFileRef struct {
+	Name string
+	Path string
+	Date time.Time
+}
+
+func readLatestLogChunk(dirPath string, cursorRaw string, limit int64) (logChunk, error) {
+	chunk := logChunk{
+		Limit: limit,
+		Lines: []string{},
+	}
+	dirPath = strings.TrimSpace(dirPath)
+	if dirPath == "" {
+		return chunk, fmt.Errorf("log directory is not configured")
+	}
+	if limit <= 0 {
+		limit = logDefaultLineLimit
+		chunk.Limit = limit
+	}
+
+	files, err := listLogFiles(dirPath)
+	if err != nil {
+		return chunk, err
+	}
+	if len(files) == 0 {
+		return chunk, nil
+	}
+
+	targetIndex := 0
+	before := int64(0)
+	if cursorRaw != "" {
+		cursor, err := decodeLogCursor(cursorRaw)
+		if err != nil {
+			return chunk, BadRequest("invalid cursor")
+		}
+		targetIndex = -1
+		for i, item := range files {
+			if item.Name == cursor.File {
+				targetIndex = i
+				break
+			}
+		}
+		if targetIndex < 0 {
+			return chunk, BadRequest("invalid cursor")
+		}
+		before = cursor.Before
+		if before < 0 || before > logMaxCursorLines {
+			return chunk, BadRequest("invalid cursor")
+		}
+	} else {
+		today := "mistermorph-" + time.Now().Local().Format("2006-01-02") + ".jsonl"
+		for i, item := range files {
+			if item.Name == today {
+				targetIndex = i
+				break
+			}
+		}
+	}
+
+	for i := targetIndex; i < len(files); i++ {
+		item := files[i]
+		page, err := readLogFilePage(item.Path, before, limit)
+		if err != nil {
+			return chunk, err
+		}
+		page.File = item.Name
+		chunk = page
+		if len(chunk.Lines) > 0 || i == len(files)-1 {
+			if !chunk.HasOlder && i < len(files)-1 {
+				chunk.HasOlder = true
+				chunk.OlderCursor = encodeLogCursor(logCursor{File: files[i+1].Name})
+			}
+			return chunk, nil
+		}
+		before = 0
+	}
+	return chunk, nil
+}
+
+func listLogFiles(dirPath string) ([]logFileRef, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []logFileRef{}, nil
+		}
+		return nil, err
+	}
+	files := make([]logFileRef, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if !logFilenamePattern.MatchString(name) {
+			continue
+		}
+		date, err := time.ParseInLocation("2006-01-02", strings.TrimSuffix(strings.TrimPrefix(name, "mistermorph-"), ".jsonl"), time.Local)
+		if err != nil {
+			continue
+		}
+		files = append(files, logFileRef{
+			Name: name,
+			Path: filepath.Join(dirPath, name),
+			Date: date,
+		})
+	}
+	sort.SliceStable(files, func(i, j int) bool {
+		if !files[i].Date.Equal(files[j].Date) {
+			return files[i].Date.After(files[j].Date)
+		}
+		return files[i].Name > files[j].Name
+	})
+	return files, nil
+}
+
+func readLogFilePage(filePath string, before int64, limit int64) (logChunk, error) {
+	chunk := logChunk{
+		Exists: false,
+		Limit:  limit,
+		Lines:  []string{},
+	}
+	if before < 0 {
+		before = 0
+	}
+	if limit <= 0 {
+		limit = logDefaultLineLimit
+		chunk.Limit = limit
+	}
+	need := before + limit
+	if need < limit || need > logMaxCursorLines+logMaxLineLimit {
+		need = logMaxCursorLines + logMaxLineLimit
+	}
+
+	fd, err := os.Open(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return chunk, nil
+		}
+		return chunk, err
+	}
+	defer fd.Close()
+
+	fi, err := fd.Stat()
+	if err != nil {
+		return chunk, err
+	}
+	if fi.IsDir() {
+		return chunk, fmt.Errorf("log path is a directory")
+	}
+	chunk.Exists = true
+	chunk.SizeBytes = fi.Size()
+	chunk.ModTime = fi.ModTime().UTC().Format(time.RFC3339)
+	if fi.Size() <= 0 {
+		return chunk, nil
+	}
+
+	scanner := bufio.NewScanner(fd)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	tail := make([]string, int(need))
+	var total int64
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			continue
+		}
+		tail[int(total%need)] = line
+		total++
+	}
+	if err := scanner.Err(); err != nil {
+		return chunk, err
+	}
+	chunk.TotalLines = total
+	if total <= 0 {
+		return chunk, nil
+	}
+	if before > total {
+		before = total
+	}
+	end := total - before
+	if end < 0 {
+		end = 0
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+	pageCount := end - start
+	chunk.From = 0
+	chunk.To = 0
+	if pageCount <= 0 {
+		return chunk, nil
+	}
+
+	tailCount := total
+	if tailCount > need {
+		tailCount = need
+	}
+	tailStart := total - tailCount
+	localStart := start - tailStart
+	localEnd := end - tailStart
+	lines := make([]string, 0, int(pageCount))
+	for i := localStart; i < localEnd; i++ {
+		idx := (tailStart + i) % need
+		if idx < 0 {
+			idx += need
+		}
+		lines = append(lines, tail[int(idx)])
+	}
+	chunk.Lines = lines
+	chunk.From = start + 1
+	chunk.To = end
+	if start > 0 {
+		chunk.HasOlder = true
+		chunk.OlderCursor = encodeLogCursor(logCursor{
+			File:   filepath.Base(filePath),
+			Before: before + pageCount,
+		})
+	}
+	return chunk, nil
+}
+
+func encodeLogCursor(cursor logCursor) string {
+	if strings.TrimSpace(cursor.File) == "" {
+		return ""
+	}
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeLogCursor(raw string) (logCursor, error) {
+	var cursor logCursor
+	data, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil {
+		return cursor, err
+	}
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return cursor, err
+	}
+	cursor.File = strings.TrimSpace(filepath.Base(cursor.File))
+	if cursor.File == "." || cursor.File == "" || !logFilenamePattern.MatchString(cursor.File) {
+		return cursor, fmt.Errorf("invalid cursor file")
+	}
+	return cursor, nil
 }
 
 func IsContextDeadline(ctx context.Context, err error) bool {

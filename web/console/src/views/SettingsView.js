@@ -1516,6 +1516,10 @@ const SettingsView = {
       router.push("/settings/credits");
     }
 
+    function openLogsPage() {
+      router.push("/logs");
+    }
+
     function selectSection(id) {
       selectedSectionID.value = String(id || "").trim();
       if (isMobile.value) {
@@ -1667,6 +1671,7 @@ const SettingsView = {
       sectionClass,
       showIndexView,
       openCreditsPage,
+      openLogsPage,
       apiBasePickerOpen,
       modelPickerOpen,
       modelPickerLoading,
@@ -2404,6 +2409,16 @@ const SettingsView = {
                     <p class="settings-card-note">{{ t("settings_language_hint") }}</p>
                   </div>
                   <QLanguageSelector class="settings-console-control" :lang="lang" :presist="true" @change="onLanguageChange" />
+                </div>
+                <div class="settings-console-row">
+                  <div class="settings-card-copy">
+                    <h4 class="settings-card-title">{{ t("settings_logs_title") }}</h4>
+                    <p class="settings-card-note">{{ t("settings_logs_hint") }}</p>
+                  </div>
+                  <QButton class="outlined settings-console-control settings-console-action" @click="openLogsPage">
+                    <QIconCode class="icon settings-console-action-icon" />
+                    {{ t("settings_logs_open") }}
+                  </QButton>
                 </div>
                 <div class="settings-console-row settings-console-row-end">
                   <div class="settings-card-copy">
