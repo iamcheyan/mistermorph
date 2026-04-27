@@ -1,6 +1,7 @@
 package uniai
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -228,6 +229,80 @@ func TestToLLMUsageMapsCacheAndCost(t *testing.T) {
 	}
 }
 
+type testRawJSON string
+
+func (r testRawJSON) RawJSON() string {
+	return string(r)
+}
+
+func TestEnrichUsageFromOpenAICompatibleRawReadsCacheCreation(t *testing.T) {
+	usage := llm.Usage{
+		InputTokens:  2648,
+		OutputTokens: 38,
+		TotalTokens:  2686,
+	}
+	raw := testRawJSON(`{
+		"usage": {
+			"prompt_tokens": 2648,
+			"completion_tokens": 38,
+			"total_tokens": 2686,
+			"prompt_tokens_details": {
+				"cached_tokens": 2390,
+				"cache_read_input_tokens": 2390,
+				"cache_creation_input_tokens": 255
+			}
+		}
+	}`)
+
+	got, changed := enrichUsageFromOpenAICompatibleRaw(usage, raw)
+	if !changed {
+		t.Fatalf("changed = false, want true")
+	}
+	if got.Cache.CachedInputTokens != 2390 {
+		t.Fatalf("cached_input_tokens = %d, want 2390", got.Cache.CachedInputTokens)
+	}
+	if got.Cache.CacheCreationInputTokens != 255 {
+		t.Fatalf("cache_creation_input_tokens = %d, want 255", got.Cache.CacheCreationInputTokens)
+	}
+}
+
+func TestRecalculateUsageCostIncludesCacheCreation(t *testing.T) {
+	cachedInputRate := 0.30
+	cacheCreationRate := 3.75
+	pricing := &uniaiapi.PricingCatalog{Chat: []uniaiapi.ChatPricingRule{
+		{
+			Model:                                 "claude-sonnet-4-6",
+			InputUSDPerMillion:                    3.0,
+			OutputUSDPerMillion:                   15.0,
+			CachedInputUSDPerMillion:              &cachedInputRate,
+			CacheCreationInputUSDPerMillion:       &cacheCreationRate,
+			CacheCreationInputDetailUSDPerMillion: nil,
+		},
+	}}
+	usage := llm.Usage{
+		InputTokens:  2648,
+		OutputTokens: 38,
+		TotalTokens:  2686,
+		Cache: llm.UsageCache{
+			CachedInputTokens:        2390,
+			CacheCreationInputTokens: 255,
+		},
+		Cost: &llm.UsageCost{Total: 999},
+	}
+
+	got := recalculateUsageCost(usage, pricing, "", "anthropic/claude-sonnet-4-6")
+	if got.Cost == nil {
+		t.Fatalf("cost = nil")
+	}
+	wantTotal := 0.00225225
+	if math.Abs(got.Cost.Total-wantTotal) > 0.000000001 {
+		t.Fatalf("total cost = %.10f, want %.10f", got.Cost.Total, wantTotal)
+	}
+	if got.Cost.CacheCreationInput <= 0 {
+		t.Fatalf("cache creation cost = %.10f, want > 0", got.Cost.CacheCreationInput)
+	}
+}
+
 func TestBuildChatOptionsDisablesOnStreamForGeminiProvider(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
@@ -363,8 +438,8 @@ func TestBuildChatOptionsMapsPromptCacheOptionsForOpenAIResp(t *testing.T) {
 	if got := built.Options.OpenAI["prompt_cache_key"]; got == "" || got == nil {
 		t.Fatalf("prompt_cache_key = %#v, want non-empty derived key", got)
 	}
-	if got := built.Options.OpenAI["prompt_cache_retention"]; got != "in-memory" {
-		t.Fatalf("prompt_cache_retention = %#v, want in-memory", got)
+	if got := built.Options.OpenAI["prompt_cache_retention"]; got != "in_memory" {
+		t.Fatalf("prompt_cache_retention = %#v, want in_memory", got)
 	}
 	if got := built.Options.OpenAI["response_format"]; got != "json_object" {
 		t.Fatalf("response_format = %#v, want json_object", got)

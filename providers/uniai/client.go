@@ -48,6 +48,7 @@ type Config struct {
 type Client struct {
 	provider           string
 	model              string
+	pricing            *uniaiapi.PricingCatalog
 	requestTimeout     time.Duration
 	temperature        *float64
 	reasoningEffort    string
@@ -59,6 +60,10 @@ type Client struct {
 
 func New(cfg Config) *Client {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	pricing := cfg.Pricing
+	if pricing == nil {
+		pricing = uniaiapi.DefaultPricingCatalog()
+	}
 
 	openAIBase := normalizeOpenAIBase(cfg.Endpoint)
 	openAIKey := strings.TrimSpace(cfg.APIKey)
@@ -79,7 +84,6 @@ func New(cfg Config) *Client {
 		OpenAIAPIBase:       openAIBase,
 		OpenAIModel:         strings.TrimSpace(cfg.Model),
 		ChatHeaders:         cloneStringMap(cfg.Headers),
-		Pricing:             cfg.Pricing,
 		AzureOpenAIAPIKey:   strings.TrimSpace(azureAPIKey),
 		AzureOpenAIEndpoint: strings.TrimSpace(azureEndpoint),
 		AzureOpenAIModel:    strings.TrimSpace(azureDeployment),
@@ -94,6 +98,7 @@ func New(cfg Config) *Client {
 		CloudflareAPIBase:   strings.TrimSpace(cfg.CloudflareAPIBase),
 		GeminiAPIKey:        strings.TrimSpace(geminiKey),
 		GeminiAPIBase:       strings.TrimSpace(geminiBase),
+		Pricing:             pricing,
 
 		Debug: cfg.Debug,
 	}
@@ -101,6 +106,7 @@ func New(cfg Config) *Client {
 	return &Client{
 		provider:           provider,
 		model:              strings.TrimSpace(cfg.Model),
+		pricing:            pricing,
 		requestTimeout:     cfg.RequestTimeout,
 		temperature:        cloneFloat64(cfg.Temperature),
 		reasoningEffort:    strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort)),
@@ -141,6 +147,10 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 
 	toolCalls := toLLMToolCalls(resp.ToolCalls)
 	model := firstNonEmpty(req.Model, c.model)
+	usage := toLLMUsage(resp.Usage)
+	if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, resp.Raw); changed {
+		usage = recalculateUsageCost(enriched, c.pricing, req.InferenceProvider, model)
+	}
 	if shouldEnsureGeminiThoughtSignature(c.provider, model) {
 		toolCalls = ensureGeminiToolCallThoughtSignatures(toolCalls)
 	}
@@ -149,7 +159,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		Text:      resp.Text,
 		Parts:     toLLMParts(resp.Parts),
 		ToolCalls: toolCalls,
-		Usage:     toLLMUsage(resp.Usage),
+		Usage:     usage,
 		Duration:  time.Since(start),
 	}, nil
 }
@@ -360,6 +370,126 @@ func toLLMUsageCost(cost *uniaichat.UsageCost) *llm.UsageCost {
 		Output:             cost.Output,
 		Total:              cost.Total,
 	}
+}
+
+type rawJSONProvider interface {
+	RawJSON() string
+}
+
+func enrichUsageFromOpenAICompatibleRaw(usage llm.Usage, raw any) (llm.Usage, bool) {
+	rawJSON := rawJSONFromOpenAICompatibleRaw(raw)
+	if strings.TrimSpace(rawJSON) == "" {
+		return usage, false
+	}
+
+	var payload struct {
+		Usage struct {
+			CachedTokens             *int           `json:"cached_tokens"`
+			CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+			CacheCreation            map[string]int `json:"cache_creation"`
+			PromptTokensDetails      struct {
+				CachedTokens             *int           `json:"cached_tokens"`
+				CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+				CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+				CacheCreation            map[string]int `json:"cache_creation"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(rawJSON), &payload); err != nil {
+		return usage, false
+	}
+
+	changed := false
+	if cached := firstPositiveInt(
+		payload.Usage.PromptTokensDetails.CacheReadInputTokens,
+		payload.Usage.PromptTokensDetails.CachedTokens,
+		payload.Usage.CacheReadInputTokens,
+		payload.Usage.CachedTokens,
+	); cached > 0 && usage.Cache.CachedInputTokens != cached {
+		usage.Cache.CachedInputTokens = cached
+		changed = true
+	}
+	if created := firstPositiveInt(
+		payload.Usage.PromptTokensDetails.CacheCreationInputTokens,
+		payload.Usage.CacheCreationInputTokens,
+	); created > 0 && usage.Cache.CacheCreationInputTokens != created {
+		usage.Cache.CacheCreationInputTokens = created
+		changed = true
+	}
+	var detailChanged bool
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.Usage.PromptTokensDetails.CacheCreation)
+	changed = changed || detailChanged
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.Usage.CacheCreation)
+	changed = changed || detailChanged
+	return usage, changed
+}
+
+func rawJSONFromOpenAICompatibleRaw(raw any) string {
+	if raw == nil {
+		return ""
+	}
+	if v, ok := raw.(rawJSONProvider); ok {
+		return strings.TrimSpace(v.RawJSON())
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func firstPositiveInt(values ...*int) int {
+	for _, value := range values {
+		if value != nil && *value > 0 {
+			return *value
+		}
+	}
+	return 0
+}
+
+func mergePositiveCacheDetails(dst map[string]int, src map[string]int) (map[string]int, bool) {
+	if len(src) == 0 {
+		return dst, false
+	}
+	changed := false
+	for key, value := range src {
+		key = strings.TrimSpace(key)
+		if key == "" || value <= 0 {
+			continue
+		}
+		if dst == nil {
+			dst = map[string]int{}
+		}
+		if dst[key] != value {
+			dst[key] = value
+			changed = true
+		}
+	}
+	return dst, changed
+}
+
+func recalculateUsageCost(usage llm.Usage, pricing *uniaiapi.PricingCatalog, inferenceProvider, model string) llm.Usage {
+	if pricing == nil {
+		usage.Cost = nil
+		return usage
+	}
+	cost, ok := pricing.EstimateChatCostWithInferenceProvider(strings.TrimSpace(inferenceProvider), strings.TrimSpace(model), uniaiapi.Usage{
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.TotalTokens,
+		Cache: uniaiapi.UsageCache{
+			CachedInputTokens:        usage.Cache.CachedInputTokens,
+			CacheCreationInputTokens: usage.Cache.CacheCreationInputTokens,
+			Details:                  cloneIntMap(usage.Cache.Details),
+		},
+	})
+	if !ok {
+		usage.Cost = nil
+		return usage
+	}
+	usage.Cost = toLLMUsageCost(cost)
+	return usage
 }
 
 func cloneIntMap(in map[string]int) map[string]int {
@@ -624,7 +754,7 @@ func normalizePromptCacheRetention(rawTTL string) string {
 	}
 	switch strings.ToLower(rawTTL) {
 	case "short":
-		return "in-memory"
+		return "in_memory"
 	case "long":
 		return "24h"
 	}
@@ -633,7 +763,7 @@ func normalizePromptCacheRetention(rawTTL string) string {
 		return ""
 	}
 	if d <= 5*time.Minute {
-		return "in-memory"
+		return "in_memory"
 	}
 	return "24h"
 }
