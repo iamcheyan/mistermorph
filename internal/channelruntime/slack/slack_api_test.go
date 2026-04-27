@@ -237,6 +237,100 @@ func TestSlackAPIAddReaction(t *testing.T) {
 	})
 }
 
+func TestSlackAPIPostMessageWithResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat.postMessage" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/chat.postMessage")
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+			t.Fatalf("authorization = %q", got)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if got := strings.TrimSpace(payload["channel"].(string)); got != "C123" {
+			t.Fatalf("channel = %q, want %q", got, "C123")
+		}
+		if got := strings.TrimSpace(payload["text"].(string)); got != "working..." {
+			t.Fatalf("text = %q, want %q", got, "working...")
+		}
+		if got := strings.TrimSpace(payload["thread_ts"].(string)); got != "1739667600.000100" {
+			t.Fatalf("thread_ts = %q, want %q", got, "1739667600.000100")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"channel": "C123",
+			"ts":      "1739667601.000200",
+		})
+	}))
+	defer server.Close()
+
+	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	ref, err := api.postMessageWithResult(context.Background(), "C123", "working...", "1739667600.000100")
+	if err != nil {
+		t.Fatalf("postMessageWithResult() error = %v", err)
+	}
+	if ref.ChannelID != "C123" {
+		t.Fatalf("channel_id = %q, want C123", ref.ChannelID)
+	}
+	if ref.MessageTS != "1739667601.000200" {
+		t.Fatalf("message_ts = %q, want 1739667601.000200", ref.MessageTS)
+	}
+}
+
+func TestSlackAPIUpdateMessage(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/chat.update" {
+				t.Fatalf("path = %q, want %q", r.URL.Path, "/chat.update")
+			}
+			if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+				t.Fatalf("authorization = %q", got)
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if got := strings.TrimSpace(payload["channel"].(string)); got != "C123" {
+				t.Fatalf("channel = %q, want %q", got, "C123")
+			}
+			if got := strings.TrimSpace(payload["ts"].(string)); got != "1739667601.000200" {
+				t.Fatalf("ts = %q, want %q", got, "1739667601.000200")
+			}
+			if got := strings.TrimSpace(payload["text"].(string)); got != "done" {
+				t.Fatalf("text = %q, want %q", got, "done")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		if err := api.updateMessage(context.Background(), "C123", "1739667601.000200", "done"); err != nil {
+			t.Fatalf("updateMessage() error = %v", err)
+		}
+	})
+
+	t.Run("slack error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "message_not_found",
+			})
+		}))
+		defer server.Close()
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		err := api.updateMessage(context.Background(), "C123", "1739667601.000200", "done")
+		if err == nil {
+			t.Fatalf("expected error")
+		}
+		if !strings.Contains(err.Error(), "message_not_found") {
+			t.Fatalf("error = %v, want message_not_found", err)
+		}
+	})
+}
+
 func TestSlackAPIUploadFile(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		var gotFileContent string

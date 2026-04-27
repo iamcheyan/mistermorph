@@ -301,6 +301,8 @@ type slackReactionResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type slackMessageRef = slackclient.MessageRef
+
 type slackGetUploadURLExternalResponse struct {
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
@@ -358,6 +360,22 @@ func (api *slackAPI) connectSocket(ctx context.Context) (*websocket.Conn, error)
 func (api *slackAPI) postMessage(ctx context.Context, channelID, text, threadTS string) error {
 	client := slackclient.New(api.http, api.baseURL, api.botToken)
 	return client.PostMessage(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) postMessageWithResult(ctx context.Context, channelID, text, threadTS string) (slackMessageRef, error) {
+	if api == nil {
+		return slackMessageRef{}, fmt.Errorf("slack api is not initialized")
+	}
+	client := slackclient.New(api.http, api.baseURL, api.botToken)
+	return client.PostMessageWithResult(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) updateMessage(ctx context.Context, channelID, messageTS, text string) error {
+	if api == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	client := slackclient.New(api.http, api.baseURL, api.botToken)
+	return client.UpdateMessage(ctx, channelID, messageTS, text)
 }
 
 func (api *slackAPI) addReaction(ctx context.Context, channelID, messageTS, emoji string) error {

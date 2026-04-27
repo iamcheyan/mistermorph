@@ -433,6 +433,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				h = nil
 			}
 			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			workingMessage := startSlackWorkingMessage(workerCtx, logger, api, job)
 			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
 			final, _, loadedSkills, reaction, runErr := runSlackTask(
 				runCtx,
@@ -480,6 +481,21 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				})
 				errorText := "error: " + displayErr
 				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
+				if updated, updateErr := workingMessage.Update(workerCtx, errorText); updated {
+					if updateErr == nil {
+						callSlackDirectOutboundHook(workerCtx, logger, hooks, job, errorText, errorCorrelationID)
+						return
+					}
+					logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+						Stage:           ErrorStagePublishErrorReply,
+						ConversationKey: job.ConversationKey,
+						TeamID:          job.TeamID,
+						ChannelID:       job.ChannelID,
+						MessageTS:       job.MessageTS,
+						Err:             updateErr,
+					})
+				}
 				_, err := publishSlackBusOutbound(
 					workerCtx,
 					inprocBus,
@@ -510,24 +526,55 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					return
 				}
 				outCorrelationID := fmt.Sprintf("slack:message:%s:%s", job.ChannelID, job.MessageTS)
-				_, err := publishSlackBusOutbound(
-					workerCtx,
-					inprocBus,
-					job.TeamID,
-					job.ChannelID,
-					outText,
-					job.ThreadTS,
-					outCorrelationID,
-				)
-				if err != nil {
-					logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+				deliveredByUpdate := false
+				if updated, updateErr := workingMessage.Update(workerCtx, outText); updated {
+					if updateErr == nil {
+						callSlackDirectOutboundHook(workerCtx, logger, hooks, job, outText, outCorrelationID)
+						deliveredByUpdate = true
+					} else {
+						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+							Stage:           ErrorStagePublishOutbound,
+							ConversationKey: job.ConversationKey,
+							TeamID:          job.TeamID,
+							ChannelID:       job.ChannelID,
+							MessageTS:       job.MessageTS,
+							Err:             updateErr,
+						})
+					}
+				}
+				if !deliveredByUpdate {
+					_, err := publishSlackBusOutbound(
+						workerCtx,
+						inprocBus,
+						job.TeamID,
+						job.ChannelID,
+						outText,
+						job.ThreadTS,
+						outCorrelationID,
+					)
+					if err != nil {
+						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+							Stage:           ErrorStagePublishOutbound,
+							ConversationKey: job.ConversationKey,
+							TeamID:          job.TeamID,
+							ChannelID:       job.ChannelID,
+							MessageTS:       job.MessageTS,
+							Err:             err,
+						})
+					}
+				}
+			} else if workerCtx.Err() == nil {
+				if updated, updateErr := workingMessage.Update(workerCtx, slackDoneMessageText); updated && updateErr != nil {
+					logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 						Stage:           ErrorStagePublishOutbound,
 						ConversationKey: job.ConversationKey,
 						TeamID:          job.TeamID,
 						ChannelID:       job.ChannelID,
 						MessageTS:       job.MessageTS,
-						Err:             err,
+						Err:             updateErr,
 					})
 				}
 			}
