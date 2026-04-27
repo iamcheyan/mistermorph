@@ -26,6 +26,7 @@ type ProfileConfig struct {
 	Model              string            `mapstructure:"model"`
 	Headers            map[string]string `mapstructure:"headers"`
 	CacheTTL           string            `mapstructure:"cache_ttl"`
+	CacheKeyPrefix     string            `mapstructure:"cache_key_prefix"`
 	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
 	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode"`
 	TemperatureRaw     string            `mapstructure:"temperature"`
@@ -298,6 +299,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
+	cfg.CacheKeyPrefix = strings.TrimSpace(cfg.CacheKeyPrefix)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
 	cfg.ToolsEmulationMode = strings.TrimSpace(cfg.ToolsEmulationMode)
 	cfg.TemperatureRaw = strings.TrimSpace(cfg.TemperatureRaw)
@@ -392,6 +394,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.Model, override.Model)
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.CacheTTL, override.CacheTTL)
+	applyStringOverride(&out.CacheKeyPrefix, override.CacheKeyPrefix)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
 	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
 	applyStringOverride(&out.TemperatureRaw, override.TemperatureRaw)

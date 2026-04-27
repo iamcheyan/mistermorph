@@ -26,6 +26,7 @@ type RuntimeValues struct {
 	Model              string `config:"llm.model"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
+	CacheKeyPrefix     string `config:"llm.cache_key_prefix"`
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
 	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
@@ -56,6 +57,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Model:              strings.TrimSpace(r.GetString("llm.model")),
 		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
 		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		CacheKeyPrefix:     strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
 		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
 		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
 		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
@@ -172,6 +174,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
 			CacheTTL:           strings.TrimSpace(values.CacheTTL),
+			CacheKeyPrefix:     strings.TrimSpace(values.CacheKeyPrefix),
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
 			ReasoningEffort:    reasoningEffort,

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type Config struct {
 	ReasoningEffort string
 	ReasoningBudget *int
 	CacheTTL        string
+	CacheKeyPrefix  string
 
 	ToolsEmulationMode  string
 	AzureAPIKey         string
@@ -54,6 +56,7 @@ type Client struct {
 	reasoningEffort    string
 	reasoningBudget    *int
 	cacheTTL           string
+	cacheKeyPrefix     string
 	toolsEmulationMode uniaiapi.ToolsEmulationMode
 	client             *uniaiapi.Client
 }
@@ -112,6 +115,7 @@ func New(cfg Config) *Client {
 		reasoningEffort:    strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort)),
 		reasoningBudget:    cloneInt(cfg.ReasoningBudget),
 		cacheTTL:           strings.TrimSpace(cfg.CacheTTL),
+		cacheKeyPrefix:     strings.TrimSpace(cfg.CacheKeyPrefix),
 		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
 		client:             uniaiapi.New(uCfg),
 	}
@@ -124,13 +128,13 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
 	}
-	opts := buildChatOptions(req, c.provider, c.model, c.cacheTTL, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+	opts := buildChatOptions(req, c.provider, c.model, c.cacheTTL, c.cacheKeyPrefix, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
 		c.emitChatError(req.DebugFn, err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, c.model, c.cacheTTL, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+		opts = buildChatOptions(req, c.provider, c.model, c.cacheTTL, c.cacheKeyPrefix, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
 			c.emitChatError(req.DebugFn, err, false, 2)
@@ -168,7 +172,7 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, cacheKeyPrefix string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
 	req = adaptRequestForProvider(req, provider)
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
@@ -261,7 +265,7 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
-	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, req, openAIOptions, azureOptions)
+	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, cacheKeyPrefix, req, openAIOptions, azureOptions)
 	if forceJSON && len(req.Tools) == 0 {
 		openAIOptions["response_format"] = "json_object"
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
@@ -294,6 +298,9 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 			}
 			if ev.Usage != nil {
 				usage := toLLMUsage(*ev.Usage)
+				if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, streamEventRaw(ev)); changed {
+					usage = enriched
+				}
 				streamEvent.Usage = &usage
 			}
 			return req.OnStream(streamEvent)
@@ -376,67 +383,151 @@ type rawJSONProvider interface {
 	RawJSON() string
 }
 
+type openAICompatibleUsagePayload struct {
+	CachedTokens             *int           `json:"cached_tokens"`
+	CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+	CacheCreation            map[string]int `json:"cache_creation"`
+	PromptTokensDetails      struct {
+		CachedTokens             *int           `json:"cached_tokens"`
+		CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+		CacheCreation            map[string]int `json:"cache_creation"`
+	} `json:"prompt_tokens_details"`
+}
+
 func enrichUsageFromOpenAICompatibleRaw(usage llm.Usage, raw any) (llm.Usage, bool) {
-	rawJSON := rawJSONFromOpenAICompatibleRaw(raw)
-	if strings.TrimSpace(rawJSON) == "" {
-		return usage, false
+	changed := false
+	for _, rawJSON := range rawJSONCandidatesFromOpenAICompatibleRaw(raw) {
+		payload, ok := parseOpenAICompatibleUsagePayload(rawJSON)
+		if !ok {
+			continue
+		}
+		var payloadChanged bool
+		usage, payloadChanged = applyOpenAICompatibleUsagePayload(usage, payload)
+		changed = changed || payloadChanged
 	}
+	return usage, changed
+}
 
-	var payload struct {
-		Usage struct {
-			CachedTokens             *int           `json:"cached_tokens"`
-			CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
-			CacheCreation            map[string]int `json:"cache_creation"`
-			PromptTokensDetails      struct {
-				CachedTokens             *int           `json:"cached_tokens"`
-				CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
-				CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
-				CacheCreation            map[string]int `json:"cache_creation"`
-			} `json:"prompt_tokens_details"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal([]byte(rawJSON), &payload); err != nil {
-		return usage, false
-	}
-
+func applyOpenAICompatibleUsagePayload(usage llm.Usage, payload openAICompatibleUsagePayload) (llm.Usage, bool) {
 	changed := false
 	if cached := firstPositiveInt(
-		payload.Usage.PromptTokensDetails.CacheReadInputTokens,
-		payload.Usage.PromptTokensDetails.CachedTokens,
-		payload.Usage.CacheReadInputTokens,
-		payload.Usage.CachedTokens,
+		payload.PromptTokensDetails.CacheReadInputTokens,
+		payload.PromptTokensDetails.CachedTokens,
+		payload.CacheReadInputTokens,
+		payload.CachedTokens,
 	); cached > 0 && usage.Cache.CachedInputTokens != cached {
 		usage.Cache.CachedInputTokens = cached
 		changed = true
 	}
 	if created := firstPositiveInt(
-		payload.Usage.PromptTokensDetails.CacheCreationInputTokens,
-		payload.Usage.CacheCreationInputTokens,
+		payload.PromptTokensDetails.CacheCreationInputTokens,
+		payload.CacheCreationInputTokens,
 	); created > 0 && usage.Cache.CacheCreationInputTokens != created {
 		usage.Cache.CacheCreationInputTokens = created
 		changed = true
 	}
 	var detailChanged bool
-	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.Usage.PromptTokensDetails.CacheCreation)
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.PromptTokensDetails.CacheCreation)
 	changed = changed || detailChanged
-	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.Usage.CacheCreation)
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.CacheCreation)
 	changed = changed || detailChanged
 	return usage, changed
 }
 
-func rawJSONFromOpenAICompatibleRaw(raw any) string {
+func parseOpenAICompatibleUsagePayload(rawJSON string) (openAICompatibleUsagePayload, bool) {
+	rawJSON = strings.TrimSpace(rawJSON)
+	if rawJSON == "" {
+		return openAICompatibleUsagePayload{}, false
+	}
+	var response struct {
+		Usage openAICompatibleUsagePayload `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(rawJSON), &response); err == nil && response.Usage.hasCacheUsage() {
+		return response.Usage, true
+	}
+	var usage openAICompatibleUsagePayload
+	if err := json.Unmarshal([]byte(rawJSON), &usage); err != nil || !usage.hasCacheUsage() {
+		return openAICompatibleUsagePayload{}, false
+	}
+	return usage, true
+}
+
+func (p openAICompatibleUsagePayload) hasCacheUsage() bool {
+	return p.CachedTokens != nil ||
+		p.CacheReadInputTokens != nil ||
+		p.CacheCreationInputTokens != nil ||
+		len(p.CacheCreation) > 0 ||
+		p.PromptTokensDetails.CachedTokens != nil ||
+		p.PromptTokensDetails.CacheReadInputTokens != nil ||
+		p.PromptTokensDetails.CacheCreationInputTokens != nil ||
+		len(p.PromptTokensDetails.CacheCreation) > 0
+}
+
+func rawJSONCandidatesFromOpenAICompatibleRaw(raw any) []string {
 	if raw == nil {
-		return ""
+		return nil
 	}
+	var out []string
+	out = append(out, rawJSONCandidatesFromSequence(raw)...)
 	if v, ok := raw.(rawJSONProvider); ok {
-		return strings.TrimSpace(v.RawJSON())
+		if rawJSON := strings.TrimSpace(v.RawJSON()); rawJSON != "" {
+			out = append(out, rawJSON)
+		}
 	}
-	b, err := json.Marshal(raw)
-	if err != nil {
-		return ""
+	if len(out) == 0 {
+		b, err := json.Marshal(raw)
+		if err == nil {
+			if rawJSON := strings.TrimSpace(string(b)); rawJSON != "" {
+				out = append(out, rawJSON)
+			}
+		}
 	}
-	return strings.TrimSpace(string(b))
+	return out
+}
+
+func rawJSONCandidatesFromSequence(raw any) []string {
+	v := reflect.ValueOf(raw)
+	for v.IsValid() && v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) {
+		return nil
+	}
+	if v.Type().Elem().Kind() == reflect.Uint8 {
+		return nil
+	}
+	out := make([]string, 0, v.Len())
+	for i := v.Len() - 1; i >= 0; i-- {
+		elem := v.Index(i)
+		if !elem.CanInterface() {
+			continue
+		}
+		out = append(out, rawJSONCandidatesFromOpenAICompatibleRaw(elem.Interface())...)
+	}
+	return out
+}
+
+func streamEventRaw(event any) any {
+	v := reflect.ValueOf(event)
+	for v.IsValid() && v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() || v.Kind() != reflect.Struct {
+		return nil
+	}
+	field := v.FieldByName("Raw")
+	if !field.IsValid() || !field.CanInterface() {
+		return nil
+	}
+	return field.Interface()
 }
 
 func firstPositiveInt(values ...*int) int {
@@ -584,9 +675,9 @@ func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools b
 	return out
 }
 
-func applyPromptCacheOptions(provider, model, cacheTTL string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
+func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
 	retention := promptCacheRetentionForProvider(provider, cacheTTL)
-	key := derivedPromptCacheKey(provider, model, req)
+	key := derivedPromptCacheKey(provider, model, cacheKeyPrefix, req)
 	if key == "" && retention == "" {
 		return
 	}
@@ -794,12 +885,13 @@ func explicitCacheTTLForProvider(provider, rawTTL string) string {
 	return "1h"
 }
 
-func derivedPromptCacheKey(provider, model string, req llm.Request) string {
+func derivedPromptCacheKey(provider, model, cacheKeyPrefix string, req llm.Request) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openai", "openai_resp", "azure":
 	default:
 		return ""
 	}
+	cacheKeyPrefix = strings.TrimSpace(cacheKeyPrefix)
 
 	stable := promptCacheStablePayload{
 		Model: strings.TrimSpace(model),
@@ -826,14 +918,18 @@ func derivedPromptCacheKey(provider, model string, req llm.Request) string {
 		})
 	}
 	if len(stable.Messages) == 0 && len(stable.Tools) == 0 {
-		return ""
+		return cacheKeyPrefix
 	}
 	data, err := json.Marshal(stable)
 	if err != nil {
 		return ""
 	}
 	sum := sha256.Sum256(data)
-	return "mm-" + base64.RawURLEncoding.EncodeToString(sum[:12])
+	key := "mm-" + base64.RawURLEncoding.EncodeToString(sum[:12])
+	if cacheKeyPrefix == "" {
+		return key
+	}
+	return cacheKeyPrefix + "-" + key
 }
 
 type promptCacheStablePayload struct {
