@@ -1,6 +1,9 @@
 package uniai
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -8,6 +11,60 @@ import (
 	uniaiapi "github.com/quailyquaily/uniai"
 	uniaichat "github.com/quailyquaily/uniai/chat"
 )
+
+func TestResolveBedrockCredentialsFromProfile(t *testing.T) {
+	dir := t.TempDir()
+	credsPath := filepath.Join(dir, "credentials")
+	configPath := filepath.Join(dir, "config")
+	if err := os.WriteFile(credsPath, []byte(`[common-api-dev]
+aws_access_key_id = test-access
+aws_secret_access_key = test-secret
+aws_session_token = test-session
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(credentials) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[profile common-api-dev]
+region = ap-northeast-1
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credsPath)
+	t.Setenv("AWS_CONFIG_FILE", configPath)
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+
+	cfg := Config{AwsProfile: "common-api-dev"}
+	if err := ResolveBedrockCredentials(context.Background(), &cfg); err != nil {
+		t.Fatalf("ResolveBedrockCredentials() error = %v", err)
+	}
+	if cfg.AwsKey != "test-access" {
+		t.Fatalf("AwsKey = %q, want test-access", cfg.AwsKey)
+	}
+	if cfg.AwsSecret != "test-secret" {
+		t.Fatalf("AwsSecret = %q, want test-secret", cfg.AwsSecret)
+	}
+	if cfg.AwsSessionToken != "test-session" {
+		t.Fatalf("AwsSessionToken = %q, want test-session", cfg.AwsSessionToken)
+	}
+	if cfg.AwsRegion != "ap-northeast-1" {
+		t.Fatalf("AwsRegion = %q, want ap-northeast-1", cfg.AwsRegion)
+	}
+}
+
+func TestNewPassesAwsSessionTokenToUniaiClient(t *testing.T) {
+	client := New(Config{
+		Provider:           "bedrock",
+		AwsKey:             "test-access",
+		AwsSecret:          "test-secret",
+		AwsSessionToken:    "test-session",
+		AwsRegion:          "ap-northeast-1",
+		AwsBedrockModelArn: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+	})
+
+	cfgField := reflect.ValueOf(client.client).Elem().FieldByName("cfg")
+	if got := cfgField.FieldByName("AwsSessionToken").String(); got != "test-session" {
+		t.Fatalf("AwsSessionToken = %q, want test-session", got)
+	}
+}
 
 func TestBuildChatOptionsReplaceMessages(t *testing.T) {
 	req := llm.Request{

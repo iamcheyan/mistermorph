@@ -1,0 +1,440 @@
+package cloudflare
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/quailyquaily/uniai/chat"
+)
+
+func TestBuildPayloadMapsResponsesToolsForGptOss(t *testing.T) {
+	strict := true
+	temp := 0.2
+	req := &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.User("What's the weather in Tokyo?"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+		},
+		Tools: []chat.Tool{
+			{
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:                 "get_weather",
+					Description:          "Get weather",
+					ParametersJSONSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+					Strict:               &strict,
+				},
+			},
+		},
+		ToolChoice: func() *chat.ToolChoice {
+			c := chat.ToolChoiceFunction("get_weather")
+			return &c
+		}(),
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+
+	if _, ok := payload["input"]; !ok {
+		t.Fatalf("expected input to be set for gpt-oss")
+	}
+	tools, ok := payload["tools"].([]map[string]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected one mapped tool, got %#v", payload["tools"])
+	}
+	if tools[0]["type"] != "function" {
+		t.Fatalf("expected responses tool type=function, got %#v", tools[0]["type"])
+	}
+	if tools[0]["name"] != "get_weather" {
+		t.Fatalf("unexpected tool name: %#v", tools[0]["name"])
+	}
+	if tools[0]["strict"] != true {
+		t.Fatalf("expected strict=true")
+	}
+	if _, ok := tools[0]["parameters"].(map[string]any); !ok {
+		t.Fatalf("expected parameters schema map")
+	}
+
+	choice, ok := payload["tool_choice"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function tool_choice map, got %#v", payload["tool_choice"])
+	}
+	if choice["type"] != "function" || choice["name"] != "get_weather" {
+		t.Fatalf("unexpected tool_choice: %#v", choice)
+	}
+}
+
+func TestBuildPayloadMapsTypedToolsAndToolMessagesForKimi(t *testing.T) {
+	strict := true
+	req := &chat.Request{
+		Model: "@cf/moonshotai/kimi-k2.5",
+		Messages: []chat.Message{
+			chat.User("weather?"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "get_weather",
+							Arguments: `{"city":"Tokyo"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", `{"temperature_c":18}`),
+		},
+		Tools: []chat.Tool{
+			{
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:                 "get_weather",
+					Description:          "Get weather",
+					ParametersJSONSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+					Strict:               &strict,
+				},
+			},
+		},
+		ToolChoice: func() *chat.ToolChoice {
+			c := chat.ToolChoiceFunction("get_weather")
+			return &c
+		}(),
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+
+	if _, ok := payload["messages"]; !ok {
+		t.Fatalf("expected messages to be set for non gpt-oss")
+	}
+	choice, ok := payload["tool_choice"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function tool_choice object for kimi, got %#v", payload["tool_choice"])
+	}
+	if choice["type"] != "function" {
+		t.Fatalf("unexpected tool_choice type: %#v", choice["type"])
+	}
+	choiceFn, ok := choice["function"].(map[string]any)
+	if !ok || choiceFn["name"] != "get_weather" {
+		t.Fatalf("unexpected tool_choice function payload: %#v", choice["function"])
+	}
+
+	tools, ok := payload["tools"].([]map[string]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected one mapped tool, got %#v", payload["tools"])
+	}
+	if tools[0]["type"] != "function" {
+		t.Fatalf("expected typed tool mapping, got %#v", tools[0]["type"])
+	}
+	fnTool, ok := tools[0]["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested function payload, got %#v", tools[0]["function"])
+	}
+	if fnTool["name"] != "get_weather" {
+		t.Fatalf("unexpected tool name: %#v", fnTool["name"])
+	}
+	if fnTool["description"] != "Get weather" {
+		t.Fatalf("unexpected tool description: %#v", fnTool["description"])
+	}
+	if fnTool["strict"] != true {
+		t.Fatalf("expected strict=true in nested function payload")
+	}
+	if _, ok := fnTool["parameters"].(map[string]any); !ok {
+		t.Fatalf("expected parameters schema map, got %#v", fnTool["parameters"])
+	}
+
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 3 {
+		t.Fatalf("expected 3 mapped messages, got %#v", payload["messages"])
+	}
+
+	assistantCalls, ok := messages[1]["tool_calls"].([]map[string]any)
+	if !ok || len(assistantCalls) != 1 {
+		t.Fatalf("expected one assistant tool_call, got %#v", messages[1]["tool_calls"])
+	}
+	call := assistantCalls[0]
+	if call["id"] != "call_1" || call["type"] != "function" {
+		t.Fatalf("unexpected assistant tool_call metadata: %#v", call)
+	}
+	fn, ok := call["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function payload in assistant tool_call")
+	}
+	if fn["name"] != "get_weather" {
+		t.Fatalf("unexpected assistant tool-call function: %#v", fn)
+	}
+
+	if messages[2]["role"] != chat.RoleTool {
+		t.Fatalf("expected role=tool on third message, got %#v", messages[2]["role"])
+	}
+	if messages[2]["tool_call_id"] != "call_1" {
+		t.Fatalf("expected tool_call_id=call_1, got %#v", messages[2]["tool_call_id"])
+	}
+}
+
+func TestBuildPayloadMapsResponsesInputToolRoundtrip(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.User("weather?"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "get_weather",
+							Arguments: `{"city":"Tokyo"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", `{"temperature_c":18}`),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+
+	input, ok := payload["input"].([]any)
+	if !ok || len(input) != 3 {
+		t.Fatalf("expected 3 responses input items, got %#v", payload["input"])
+	}
+
+	toolCall, ok := input[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responses function_call item")
+	}
+	if toolCall["type"] != "function_call" || toolCall["name"] != "get_weather" || toolCall["call_id"] != "call_1" {
+		t.Fatalf("unexpected responses function_call item: %#v", toolCall)
+	}
+
+	toolOutput, ok := input[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responses function_call_output item")
+	}
+	if toolOutput["type"] != "function_call_output" || toolOutput["call_id"] != "call_1" {
+		t.Fatalf("unexpected responses function_call_output item: %#v", toolOutput)
+	}
+}
+
+func TestParseToolCallsSupportsTraditionalAndResponsesShapes(t *testing.T) {
+	calls := parseToolCalls([]any{
+		map[string]any{
+			"name": "get_weather",
+			"arguments": map[string]any{
+				"city": "Tokyo",
+			},
+		},
+	})
+	if len(calls) != 1 {
+		t.Fatalf("expected one traditional tool call, got %d", len(calls))
+	}
+	if calls[0].Type != "function" || calls[0].Function.Name != "get_weather" {
+		t.Fatalf("unexpected traditional call: %#v", calls[0])
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(calls[0].Function.Arguments), &args); err != nil {
+		t.Fatalf("invalid traditional call args json: %v", err)
+	}
+	if args["city"] != "Tokyo" {
+		t.Fatalf("unexpected traditional call args: %#v", args)
+	}
+
+	outCalls := extractToolCalls(map[string]any{
+		"output": []any{
+			map[string]any{
+				"type":    "function_call",
+				"call_id": "call_123",
+				"name":    "get_weather",
+				"arguments": map[string]any{
+					"city": "Tokyo",
+				},
+			},
+		},
+	})
+	if len(outCalls) != 1 {
+		t.Fatalf("expected one output tool call, got %d", len(outCalls))
+	}
+	if outCalls[0].ID != "call_123" || outCalls[0].Function.Name != "get_weather" {
+		t.Fatalf("unexpected output call: %#v", outCalls[0])
+	}
+}
+
+func TestBuildPayloadAcceptsTextParts(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/meta/llama-4-scout",
+		Messages: []chat.Message{
+			chat.UserParts(chat.TextPart("hello from parts")),
+		},
+	}
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one message, got %#v", payload["messages"])
+	}
+	if messages[0]["content"] != "hello from parts" {
+		t.Fatalf("unexpected content: %#v", messages[0]["content"])
+	}
+}
+
+func TestBuildPayloadMapsUserImageURLPartForKimi(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/moonshotai/kimi-k2.5",
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageURLPart("https://example.com/a.png"),
+			),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one mapped message, got %#v", payload["messages"])
+	}
+	content, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("expected multimodal content array, got %#v", messages[0]["content"])
+	}
+	if content[0]["type"] != "text" || content[0]["text"] != "describe this" {
+		t.Fatalf("unexpected text content part: %#v", content[0])
+	}
+	image, ok := content[1]["image_url"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image_url object, got %#v", content[1]["image_url"])
+	}
+	if content[1]["type"] != "image_url" || image["url"] != "https://example.com/a.png" {
+		t.Fatalf("unexpected image content part: %#v", content[1])
+	}
+}
+
+func TestBuildPayloadMapsUserImageBase64PartForKimi(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/moonshotai/kimi-k2.5",
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageBase64Part("image/jpeg", "QUJD"),
+			),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one mapped message, got %#v", payload["messages"])
+	}
+	content, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("expected multimodal content array, got %#v", messages[0]["content"])
+	}
+	image, ok := content[1]["image_url"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image_url object, got %#v", content[1]["image_url"])
+	}
+	if content[1]["type"] != "image_url" || image["url"] != "data:image/jpeg;base64,QUJD" {
+		t.Fatalf("unexpected image content part: %#v", content[1])
+	}
+}
+
+func TestBuildPayloadRejectsImagePartForGptOssResponsesPath(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.UserParts(chat.ImageURLPart("https://example.com/a.png")),
+		},
+	}
+	_, err := buildPayload(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected unsupported part error")
+	}
+}
+
+func TestChatAppliesCustomHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/client/v4/accounts/account-id/ai/run/@cf/openai/gpt-oss-120b" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Test-Header"); got != "test-value" {
+			t.Fatalf("expected custom header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result": map[string]any{
+				"response": "ok",
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		AccountID: "account-id",
+		APIToken:  "token",
+		APIBase:   server.URL,
+		Headers: map[string]string{
+			"X-Test-Header": "test-value",
+		},
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}
+
+func TestExtractUsageReadsCachedInputTokens(t *testing.T) {
+	usage := extractUsage(map[string]any{
+		"usage": map[string]any{
+			"prompt_tokens": 20,
+			"total_tokens":  25,
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 12,
+			},
+		},
+	})
+	if usage == nil {
+		t.Fatal("expected usage")
+	}
+	if usage.Cache.CachedInputTokens != 12 {
+		t.Fatalf("unexpected cache usage: %#v", usage.Cache)
+	}
+}

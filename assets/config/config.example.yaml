@@ -56,6 +56,8 @@ llm:
   bedrock:
     aws_key: "${AWS_ACCESS_KEY_ID}"
     aws_secret: "${AWS_SECRET_ACCESS_KEY}"
+    aws_session_token: "${AWS_SESSION_TOKEN}" # optional, useful for temporary credentials
+    aws_profile: "" # optional AWS profile resolved through the AWS shared config/credentials chain
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.

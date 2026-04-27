@@ -36,6 +36,8 @@ type Config struct {
 	AzureDeployment     string
 	AwsKey              string
 	AwsSecret           string
+	AwsSessionToken     string
+	AwsProfile          string
 	AwsRegion           string
 	AwsBedrockModelArn  string
 	CloudflareAccountID string
@@ -87,6 +89,7 @@ func New(cfg Config) *Client {
 		AnthropicModel:      strings.TrimSpace(anthropicModel),
 		AwsKey:              strings.TrimSpace(cfg.AwsKey),
 		AwsSecret:           strings.TrimSpace(cfg.AwsSecret),
+		AwsSessionToken:     strings.TrimSpace(cfg.AwsSessionToken),
 		AwsRegion:           strings.TrimSpace(cfg.AwsRegion),
 		AwsBedrockModelArn:  strings.TrimSpace(cfg.AwsBedrockModelArn),
 		CloudflareAccountID: strings.TrimSpace(cfg.CloudflareAccountID),
