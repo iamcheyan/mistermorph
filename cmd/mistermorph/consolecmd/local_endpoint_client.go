@@ -52,7 +52,7 @@ func (c *inProcessRuntimeEndpointClient) currentAuthToken() string {
 }
 
 func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEndpointHealth, error) {
-	status, raw, err := c.roundTrip(ctx, http.MethodGet, "/health", nil, false)
+	status, _, raw, err := c.roundTrip(ctx, http.MethodGet, "/health", nil, false)
 	if err != nil {
 		return runtimeEndpointHealth{}, err
 	}
@@ -77,13 +77,36 @@ func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endp
 	if !strings.HasPrefix(endpointPath, "/") {
 		endpointPath = "/" + endpointPath
 	}
-	return c.roundTrip(ctx, method, endpointPath, body, true)
+	status, _, raw, err := c.roundTrip(ctx, method, endpointPath, body, true)
+	return status, raw, err
 }
 
-func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, target string, body []byte, includeAuth bool) (int, []byte, error) {
+func (c *inProcessRuntimeEndpointClient) Download(ctx context.Context, endpointPath string) (runtimeEndpointDownload, error) {
+	if err := c.ready(); err != nil {
+		return runtimeEndpointDownload{}, err
+	}
+	endpointPath = strings.TrimSpace(endpointPath)
+	if endpointPath == "" {
+		endpointPath = "/"
+	}
+	if !strings.HasPrefix(endpointPath, "/") {
+		endpointPath = "/" + endpointPath
+	}
+	status, header, raw, err := c.roundTrip(ctx, http.MethodGet, endpointPath, nil, true)
+	if err != nil {
+		return runtimeEndpointDownload{}, err
+	}
+	return runtimeEndpointDownload{
+		Status: status,
+		Header: header,
+		Body:   io.NopCloser(bytes.NewReader(raw)),
+	}, nil
+}
+
+func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, target string, body []byte, includeAuth bool) (int, http.Header, []byte, error) {
 	handler, err := c.currentHandler()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -94,7 +117,7 @@ func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, 
 	}
 	req, err := http.NewRequestWithContext(ctx, strings.TrimSpace(method), target, bodyReader)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if includeAuth {
 		req.Header.Set("Authorization", "Bearer "+c.currentAuthToken())
@@ -105,7 +128,7 @@ func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, 
 
 	rec := newBufferedResponseWriter()
 	handler.ServeHTTP(rec, req)
-	return rec.StatusCode(), rec.Body(), nil
+	return rec.StatusCode(), rec.Header().Clone(), rec.Body(), nil
 }
 
 type bufferedResponseWriter struct {

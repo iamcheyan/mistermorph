@@ -16,6 +16,7 @@ import {
   currentLocale,
   endpointState,
   formatBytes,
+  runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   safeJSON,
@@ -297,6 +298,23 @@ function splitWorkspaceDisplayPath(path) {
     separator,
     tail,
   };
+}
+
+function workspaceDownloadFilename(entry) {
+  const name = String(entry?.name || "").trim().replace(/[\\/]+/gu, "_");
+  return name || "download";
+}
+
+function triggerBrowserDownload(blob, filename) {
+  const objectURL = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectURL;
+  link.download = String(filename || "").trim() || "download";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 0);
 }
 
 function stringifyResult(result) {
@@ -819,6 +837,7 @@ const ChatView = {
     const workspaceLoading = ref(false);
     const workspaceSaving = ref(false);
     const workspaceOpening = ref(false);
+    const workspaceDownloading = ref(false);
     const workspaceError = ref("");
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
     const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
@@ -1359,6 +1378,7 @@ const ChatView = {
       workspaceLoading.value = false;
       workspaceSaving.value = false;
       workspaceOpening.value = false;
+      workspaceDownloading.value = false;
       workspaceError.value = "";
       workspaceBrowserOpen.value = false;
       workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
@@ -1557,6 +1577,30 @@ const ChatView = {
         workspaceError.value = e?.message || t("msg_load_failed");
       } finally {
         workspaceOpening.value = false;
+      }
+    }
+
+    async function downloadWorkspaceSelection() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const entry = workspaceSelectedTreeEntry.value;
+      const path = String(entry?.path || "").trim();
+      if (!endpointRef || !topicID || !path || entry?.is_dir || workspaceDownloading.value) {
+        return;
+      }
+      workspaceDownloading.value = true;
+      workspaceError.value = "";
+      try {
+        const query = new URLSearchParams();
+        query.set("dir_name", "workspace_dir");
+        query.set("topic_id", topicID);
+        query.set("path", path);
+        const blob = await runtimeApiDownloadForEndpoint(endpointRef, `/files/download?${query.toString()}`);
+        triggerBrowserDownload(blob, workspaceDownloadFilename(entry));
+      } catch (e) {
+        workspaceError.value = e?.message || t("msg_load_failed");
+      } finally {
+        workspaceDownloading.value = false;
       }
     }
 
@@ -2672,6 +2716,7 @@ const ChatView = {
       workspaceLoading,
       workspaceSaving,
       workspaceOpening,
+      workspaceDownloading,
       workspaceBusy,
       workspaceSidebarOpen,
       workspaceSidebarTabID,
@@ -2735,6 +2780,7 @@ const ChatView = {
       selectWorkspaceTreeNode,
       addWorkspaceSelectionToComposer,
       openWorkspaceSelection,
+      downloadWorkspaceSelection,
       toggleWorkspaceTreeNode,
       openWorkspaceBrowser,
       closeWorkspaceBrowser,
@@ -3214,6 +3260,16 @@ const ChatView = {
                             >
                               <QIconLinkExternal class="icon" />
                             </QButton>
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_download')"
+                              :aria-label="t('chat_workspace_action_download')"
+                              :disabled="workspaceSelectedTreeEntry.is_dir"
+                              :loading="workspaceDownloading"
+                              @click="downloadWorkspaceSelection"
+                            >
+                              <QIconDownloadCloud class="icon" />
+                            </QButton>
                           </dd>
                         </div>
                       </dl>
@@ -3409,6 +3465,16 @@ const ChatView = {
                             @click="openWorkspaceSelection"
                           >
                             <QIconLinkExternal class="icon" />
+                          </QButton>
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_download')"
+                            :aria-label="t('chat_workspace_action_download')"
+                            :disabled="workspaceSelectedTreeEntry.is_dir"
+                            :loading="workspaceDownloading"
+                            @click="downloadWorkspaceSelection"
+                          >
+                            <QIconDownloadCloud class="icon" />
                           </QButton>
                         </dd>
                       </div>

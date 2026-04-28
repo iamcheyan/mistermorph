@@ -51,6 +51,31 @@ async function apiFetch(pathname, options = {}) {
   return parsed;
 }
 
+async function apiFetchBlob(pathname, options = {}) {
+  const method = options.method || "GET";
+  const headers = { ...(options.headers || {}) };
+  if (!options.noAuth && authState.token) {
+    headers.Authorization = `Bearer ${authState.token}`;
+  }
+
+  const resp = await fetch(`${API_BASE}${pathname}`, {
+    method,
+    headers,
+    cache: "no-store",
+  });
+  if (!resp.ok) {
+    const raw = await resp.text();
+    const parsed = raw ? safeJSON(raw, { error: raw }) : {};
+    if (resp.status === 401 && !options.noAuth) {
+      clearAuth();
+    }
+    const err = new Error(parsed.error || `HTTP ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return resp.blob();
+}
+
 async function fetchConsoleAuthConfig() {
   return apiFetch("/auth/config", { noAuth: true });
 }
@@ -141,6 +166,26 @@ async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
   q.set("endpoint", endpointRef);
   q.set("uri", normalizedURI);
   return apiFetch(`/proxy?${q.toString()}`, options);
+}
+
+async function runtimeApiDownloadForEndpoint(endpointRef, pathname, options = {}) {
+  endpointRef = String(endpointRef || "").trim();
+  if (!endpointRef) {
+    const err = new Error(translate("msg_select_endpoint"));
+    err.status = 400;
+    throw err;
+  }
+  const uri = String(pathname || "").trim();
+  if (!uri) {
+    const err = new Error("missing uri");
+    err.status = 400;
+    throw err;
+  }
+  const normalizedURI = uri.startsWith("/") ? uri : `/${uri}`;
+  const q = new URLSearchParams();
+  q.set("endpoint", endpointRef);
+  q.set("uri", normalizedURI);
+  return apiFetchBlob(`/proxy/download?${q.toString()}`, options);
 }
 
 async function runtimeApiFetch(pathname, options = {}) {
@@ -304,6 +349,7 @@ export {
   ensureEndpointSelection,
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
+  runtimeApiDownloadForEndpoint,
   runtimeApiFetchFirstForEndpoints,
   createConsoleStreamTicket,
   buildConsoleStreamURL,
