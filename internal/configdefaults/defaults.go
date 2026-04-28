@@ -179,6 +179,8 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	v.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
 	v.SetDefault("tools.bash.injected_env_vars", []string{})
+	v.SetDefault("tools.bash.rewrite.enabled", false)
+	v.SetDefault("tools.bash.rewrite.binary", "")
 
 	v.SetDefault("tools.powershell.timeout", 30*time.Second)
 	v.SetDefault("tools.powershell.max_output_bytes", 256*1024)
