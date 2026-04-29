@@ -777,10 +777,12 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		ToolsEmulationMode: toolsEmulationMode,
 		ReasoningEffortRaw: reasoningEffort,
 		Bedrock: struct {
-			AWSKey    string `mapstructure:"aws_key"`
-			AWSSecret string `mapstructure:"aws_secret"`
-			Region    string `mapstructure:"region"`
-			ModelARN  string `mapstructure:"model_arn"`
+			AWSKey          string `mapstructure:"aws_key"`
+			AWSSecret       string `mapstructure:"aws_secret"`
+			AWSSessionToken string `mapstructure:"aws_session_token"`
+			AWSProfile      string `mapstructure:"aws_profile"`
+			Region          string `mapstructure:"region"`
+			ModelARN        string `mapstructure:"model_arn"`
 		}{
 			AWSKey:    bedrockAWSKey,
 			AWSSecret: bedrockAWSSecret,

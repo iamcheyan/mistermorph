@@ -17,7 +17,6 @@ import (
 	uniaichat "github.com/quailyquaily/uniai/chat"
 )
 
-
 type Config struct {
 	Provider string
 	Endpoint string
