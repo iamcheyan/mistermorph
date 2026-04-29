@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
@@ -182,7 +183,16 @@ func isMarkdownHeader(line string) bool {
 }
 
 func visibleWidth(s string) int {
-	return len(stripANSI(s))
+	stripped := stripANSI(s)
+	width := 0
+	for _, r := range stripped {
+		if r == '\t' {
+			width += 8 - (width % 8)
+		} else {
+			width += runewidth.RuneWidth(r)
+		}
+	}
+	return width
 }
 
 func stripANSI(s string) string {

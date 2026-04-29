@@ -388,6 +388,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					}
 				}
 			}
+			if e.onToolCallStart != nil {
+				for i := range items {
+					if !items[i].skip {
+						e.onToolCallStart(st.agentCtx, items[i].tc)
+					}
+				}
+			}
 
 			// --- Phase 2: concurrent execution ---
 			execCtx := ctx
@@ -477,6 +484,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 
 				if item.err == nil && e.onToolSuccess != nil {
 					e.onToolSuccess(st.agentCtx, tc.Name)
+				}
+				if e.onToolCallDone != nil {
+					e.onToolCallDone(st.agentCtx, tc, item.observation, item.err)
 				}
 
 				if item.err == nil && st.agentCtx.Plan != nil && tc.Name != "plan_create" {

@@ -1,0 +1,5 @@
+Hello, world!
+这是第一个测试文件。
+它包含多行文本。
+
+Testing line count and character count.

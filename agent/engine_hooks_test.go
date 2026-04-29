@@ -986,3 +986,134 @@ func TestParamsBuilder_PassedToAllCalls(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// Tests for OnToolCallStart / OnToolCallDone callbacks
+// ============================================================
+
+func TestWithOnToolCallStart_SetsField(t *testing.T) {
+	fn := func(ctx *Context, tc ToolCall) {}
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(), WithOnToolCallStart(fn))
+	if e.onToolCallStart == nil {
+		t.Fatal("expected onToolCallStart to be set")
+	}
+}
+
+func TestWithOnToolCallStart_NilIgnored(t *testing.T) {
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(), WithOnToolCallStart(nil))
+	if e.onToolCallStart != nil {
+		t.Fatal("expected onToolCallStart to remain nil for nil input")
+	}
+}
+
+func TestWithOnToolCallDone_SetsField(t *testing.T) {
+	fn := func(ctx *Context, tc ToolCall, observation string, err error) {}
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(), WithOnToolCallDone(fn))
+	if e.onToolCallDone == nil {
+		t.Fatal("expected onToolCallDone to be set")
+	}
+}
+
+func TestWithOnToolCallDone_NilIgnored(t *testing.T) {
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec(), WithOnToolCallDone(nil))
+	if e.onToolCallDone != nil {
+		t.Fatal("expected onToolCallDone to remain nil for nil input")
+	}
+}
+
+func TestOnToolCallStart_CalledBeforeExecution(t *testing.T) {
+	reg := baseRegistry()
+	reg.Register(&mockTool{name: "write", result: "written"})
+
+	var calledName string
+	var calledParams map[string]any
+	client := newMockClient(
+		toolCallResponse("write"),
+		finalResponse("done"),
+	)
+
+	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
+		WithOnToolCallStart(func(ctx *Context, tc ToolCall) {
+			calledName = tc.Name
+			calledParams = tc.Params
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calledName != "write" {
+		t.Errorf("expected onToolCallStart called with 'write', got %q", calledName)
+	}
+	if calledParams == nil {
+		t.Error("expected onToolCallStart to receive non-nil Params")
+	}
+}
+
+func TestOnToolCallDone_CalledAfterSuccess(t *testing.T) {
+	reg := baseRegistry()
+	reg.Register(&mockTool{name: "search", result: "found"})
+
+	var calledName string
+	var calledObs string
+	var calledErr error
+	client := newMockClient(
+		toolCallResponse("search"),
+		finalResponse("done"),
+	)
+
+	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
+		WithOnToolCallDone(func(ctx *Context, tc ToolCall, observation string, err error) {
+			calledName = tc.Name
+			calledObs = observation
+			calledErr = err
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calledName != "search" {
+		t.Errorf("expected onToolCallDone called with 'search', got %q", calledName)
+	}
+	if calledObs != "found" {
+		t.Errorf("expected observation='found', got %q", calledObs)
+	}
+	if calledErr != nil {
+		t.Errorf("expected err=nil, got %v", calledErr)
+	}
+}
+
+func TestOnToolCallDone_CalledWithError(t *testing.T) {
+	reg := baseRegistry()
+	reg.Register(&mockTool{name: "fail", result: "", err: fmt.Errorf("boom")})
+
+	var calledErr error
+	client := newMockClient(
+		toolCallResponse("fail"),
+		finalResponse("done"),
+	)
+
+	e := New(client, reg, baseCfg(), DefaultPromptSpec(),
+		WithOnToolCallDone(func(ctx *Context, tc ToolCall, observation string, err error) {
+			calledErr = err
+		}),
+	)
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calledErr == nil {
+		t.Fatal("expected onToolCallDone to receive error, got nil")
+	}
+	if calledErr.Error() != "boom" {
+		t.Errorf("expected error='boom', got %v", calledErr)
+	}
+}

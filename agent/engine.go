@@ -81,6 +81,22 @@ func WithOnToolSuccess(fn func(*Context, string)) Option {
 	}
 }
 
+func WithOnToolCallStart(fn func(*Context, ToolCall)) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.onToolCallStart = fn
+		}
+	}
+}
+
+func WithOnToolCallDone(fn func(*Context, ToolCall, string, error)) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.onToolCallDone = fn
+		}
+	}
+}
+
 func WithPlanStepUpdate(fn func(*Context, PlanStepUpdate)) Option {
 	return func(e *Engine) {
 		if fn != nil {
@@ -168,6 +184,8 @@ type Engine struct {
 	paramsBuilder    func(opts RunOptions) map[string]any
 	onToolStart      func(ctx *Context, toolName string)
 	onToolSuccess    func(ctx *Context, toolName string)
+	onToolCallStart  func(ctx *Context, tc ToolCall)
+	onToolCallDone   func(ctx *Context, tc ToolCall, observation string, err error)
 	onPlanStepUpdate func(ctx *Context, update PlanStepUpdate)
 	fallbackFinal    func() *Final
 
