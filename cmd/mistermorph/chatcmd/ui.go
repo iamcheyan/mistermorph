@@ -107,7 +107,7 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 				lastLinesMu.Unlock()
 
 				clearSeq := buildClearSeq(prevLines)
-				_, _ = fmt.Fprintf(writer, "%s\033[36m%s\033[0m \033[90m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
+				_, _ = fmt.Fprintf(writer, "%s\033[92m%s\033[0m \033[33m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
 				i++
 			case <-done:
 				return
@@ -138,15 +138,15 @@ func printChatSessionHeader(writer io.Writer, compact bool, model string, worksp
 		_, _ = fmt.Fprint(writer, chatBanner)
 	}
 	if model != "" {
-		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
+		_, _ = fmt.Fprintf(writer, "\033[38;5;242mmodel=%s\033[0m\n", model)
 	}
 	if workspaceDir != "" {
-		_, _ = fmt.Fprintf(writer, "workspace_dir=%s\n", workspaceDir)
+		_, _ = fmt.Fprintf(writer, "\033[38;5;242mworkspace_dir=%s\033[0m\n", workspaceDir)
 	}
 	if fileCacheDir != "" {
-		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)
+		_, _ = fmt.Fprintf(writer, "\033[38;5;242mfile_cache_dir=%s\033[0m\n", fileCacheDir)
 	}
 	if !compact {
-		_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+		_, _ = fmt.Fprintln(writer, "\033[33mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
 	}
 }

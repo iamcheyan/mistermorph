@@ -44,6 +44,12 @@ func runREPL(sess *chatSession) error {
 		AutoComplete: autoComplete,
 		Stdout:       sess.cmd.OutOrStdout(),
 		Stderr:       sess.cmd.OutOrStderr(),
+		FuncFilterInputRune: func(r rune) (rune, bool) {
+			if r == '\n' {
+				return ' ', true
+			}
+			return r, true
+		},
 	})
 	if err != nil {
 		return err
@@ -152,7 +158,7 @@ func runREPL(sess *chatSession) error {
 		if sess.compactMode {
 			_, _ = fmt.Fprintf(writer, "%s\n", output)
 		} else {
-			_, _ = fmt.Fprintf(writer, "\033[48;5;208m\033[30m %s> \033[0m %s\n", sess.agentName, output)
+			_, _ = fmt.Fprintf(writer, "\033[43m\033[30m %s> \033[0m %s\n", sess.agentName, output)
 		}
 
 		history = append(history,
