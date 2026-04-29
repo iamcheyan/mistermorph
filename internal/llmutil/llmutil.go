@@ -27,6 +27,7 @@ type RuntimeValues struct {
 	Model              string `config:"llm.model"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
+	CacheKeyPrefix     string `config:"llm.cache_key_prefix"`
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
 	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
@@ -38,10 +39,12 @@ type RuntimeValues struct {
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
-	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
-	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
-	BedrockAWSRegion    string `config:"llm.bedrock.region"`
-	BedrockModelARN     string `config:"llm.bedrock.model_arn"`
+	BedrockAWSKey          string `config:"llm.bedrock.aws_key"`
+	BedrockAWSSecret       string `config:"llm.bedrock.aws_secret"`
+	BedrockAWSSessionToken string `config:"llm.bedrock.aws_session_token"`
+	BedrockAWSProfile      string `config:"llm.bedrock.aws_profile"`
+	BedrockAWSRegion       string `config:"llm.bedrock.region"`
+	BedrockModelARN        string `config:"llm.bedrock.model_arn"`
 	CloudflareAccountID string `config:"llm.cloudflare.account_id"`
 	CloudflareAPIToken  string `config:"llm.cloudflare.api_token"`
 }
@@ -57,6 +60,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Model:              strings.TrimSpace(r.GetString("llm.model")),
 		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
 		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		CacheKeyPrefix:     strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
 		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
 		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
 		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
@@ -67,10 +71,12 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		ConfigPath:         strings.TrimSpace(r.GetString("config")),
 		Profiles:           loadLLMProfilesFromReader(r),
 		Routes:             loadLLMRoutesFromReader(r),
-		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:       firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSSessionToken: strings.TrimSpace(r.GetString("llm.bedrock.aws_session_token")),
+		BedrockAWSProfile:      strings.TrimSpace(r.GetString("llm.bedrock.aws_profile")),
+		BedrockAWSRegion:       firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:        firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
 		CloudflareAccountID: firstNonEmpty(
 			r.GetString("llm.cloudflare.account_id"),
 		),
@@ -163,24 +169,8 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 		uniaiProviderName = "openai"
 	}
 	switch provider {
-	case "bedrock":
-		return bedrockProvider.New(bedrockProvider.Config{
-			Model:          firstNonEmpty(strings.TrimSpace(cfg.Model), firstNonEmpty(values.BedrockModelARN)),
-			Region:         firstNonEmpty(values.BedrockAWSRegion),
-			AccessKey:      firstNonEmpty(values.BedrockAWSKey),
-			SecretKey:      firstNonEmpty(values.BedrockAWSSecret),
-			AWSProfile:     "",
-			ReadTimeout:    cfg.RequestTimeout,
-			ConnectTimeout: 0,
-		}), nil
-	case "gemini_oauth":
-		c, err := newGeminiOAuthACPLLMClient(strings.TrimSpace(cfg.Model))
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
-	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "susanoo", "cloudflare":
-		c := uniaiProvider.New(uniaiProvider.Config{
+	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
@@ -189,6 +179,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
 			CacheTTL:           strings.TrimSpace(values.CacheTTL),
+			CacheKeyPrefix:     strings.TrimSpace(values.CacheKeyPrefix),
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
 			ReasoningEffort:    reasoningEffort,
@@ -196,10 +187,12 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			AzureAPIKey:        strings.TrimSpace(cfg.APIKey),
 			AzureEndpoint:      strings.TrimSpace(cfg.Endpoint),
 			AzureDeployment:    strings.TrimSpace(cfg.Model),
-			AwsKey:             firstNonEmpty(values.BedrockAWSKey),
-			AwsSecret:          firstNonEmpty(values.BedrockAWSSecret),
-			AwsRegion:          firstNonEmpty(values.BedrockAWSRegion),
-			AwsBedrockModelArn: firstNonEmpty(values.BedrockModelARN),
+			AwsKey:              firstNonEmpty(values.BedrockAWSKey),
+			AwsSecret:           firstNonEmpty(values.BedrockAWSSecret),
+			AwsSessionToken:     firstNonEmpty(values.BedrockAWSSessionToken),
+			AwsProfile:          firstNonEmpty(values.BedrockAWSProfile),
+			AwsRegion:           firstNonEmpty(values.BedrockAWSRegion),
+			AwsBedrockModelArn:  firstNonEmpty(values.BedrockModelARN),
 			CloudflareAccountID: firstNonEmpty(
 				values.CloudflareAccountID,
 			),
@@ -209,6 +202,9 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			),
 			CloudflareAPIBase: strings.TrimSpace(cfg.Endpoint),
 		})
+		if err != nil {
+			return nil, err
+		}
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

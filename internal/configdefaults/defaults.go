@@ -18,6 +18,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("llm.model", "")
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.cache_ttl", "short")
+	v.SetDefault("llm.cache_key_prefix", "")
 	v.SetDefault("llm.request_timeout", 90*time.Second)
 	v.SetDefault("llm.tools_emulation_mode", "off")
 	v.SetDefault("llm.cloudflare.account_id", "")
@@ -38,6 +39,8 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("file_cache.max_files", 1000)
 	v.SetDefault("file_cache.max_total_bytes", int64(512*1024*1024))
 	v.SetDefault("user_agent", "mistermorph/1.0 (+https://github.com/quailyquaily)")
+	v.SetDefault("logging.file.dir", "")
+	v.SetDefault("logging.file.max_age", 7*24*time.Hour)
 
 	v.SetDefault("skills.enabled", true)
 	v.SetDefault("skills.dir_name", "skills")
@@ -176,6 +179,8 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	v.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
 	v.SetDefault("tools.bash.injected_env_vars", []string{})
+	v.SetDefault("tools.bash.rewrite.enabled", false)
+	v.SetDefault("tools.bash.rewrite.binary", "")
 
 	v.SetDefault("tools.powershell.timeout", 30*time.Second)
 	v.SetDefault("tools.powershell.max_output_bytes", 256*1024)

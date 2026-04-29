@@ -475,6 +475,16 @@
   min-width: 180px;
 }
 
+.settings-console-action {
+  gap: 7px;
+  justify-content: center;
+}
+
+.settings-console-action-icon {
+  width: 13px;
+  height: 13px;
+}
+
 @media (max-width: 920px) {
   .settings-workbench {
     grid-template-columns: 1fr;
