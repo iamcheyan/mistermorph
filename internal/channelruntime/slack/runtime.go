@@ -474,6 +474,21 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				fileCacheDir,
 				taskRuntimeOpts,
 				planUpdateHook,
+				func(ctx context.Context, text, correlationID string) error {
+					if ctx == nil {
+						ctx = context.Background()
+					}
+					_, err := publishSlackBusOutbound(
+						ctx,
+						inprocBus,
+						job.TeamID,
+						job.ChannelID,
+						text,
+						job.ThreadTS,
+						correlationID,
+					)
+					return err
+				},
 			)
 			cancel()
 

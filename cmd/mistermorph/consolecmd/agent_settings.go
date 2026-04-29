@@ -42,10 +42,12 @@ type llmConfigFieldsPayload struct {
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
 	APIKey              string `json:"api_key"`
-	BedrockAWSKey       string `json:"bedrock_aws_key"`
-	BedrockAWSSecret    string `json:"bedrock_aws_secret"`
-	BedrockRegion       string `json:"bedrock_region"`
-	BedrockModelARN     string `json:"bedrock_model_arn"`
+	BedrockAWSKey          string `json:"bedrock_aws_key"`
+	BedrockAWSSecret       string `json:"bedrock_aws_secret"`
+	BedrockAWSSessionToken string `json:"bedrock_aws_session_token"`
+	BedrockAWSProfile      string `json:"bedrock_aws_profile"`
+	BedrockRegion          string `json:"bedrock_region"`
+	BedrockModelARN        string `json:"bedrock_model_arn"`
 	CloudflareAPIToken  string `json:"cloudflare_api_token"`
 	CloudflareAccountID string `json:"cloudflare_account_id"`
 	ReasoningEffort     string `json:"reasoning_effort"`
@@ -68,10 +70,12 @@ type llmConfigFieldsUpdatePayload struct {
 	Endpoint            *string `json:"endpoint,omitempty"`
 	Model               *string `json:"model,omitempty"`
 	APIKey              *string `json:"api_key,omitempty"`
-	BedrockAWSKey       *string `json:"bedrock_aws_key,omitempty"`
-	BedrockAWSSecret    *string `json:"bedrock_aws_secret,omitempty"`
-	BedrockRegion       *string `json:"bedrock_region,omitempty"`
-	BedrockModelARN     *string `json:"bedrock_model_arn,omitempty"`
+	BedrockAWSKey          *string `json:"bedrock_aws_key,omitempty"`
+	BedrockAWSSecret       *string `json:"bedrock_aws_secret,omitempty"`
+	BedrockAWSSessionToken *string `json:"bedrock_aws_session_token,omitempty"`
+	BedrockAWSProfile      *string `json:"bedrock_aws_profile,omitempty"`
+	BedrockRegion          *string `json:"bedrock_region,omitempty"`
+	BedrockModelARN        *string `json:"bedrock_model_arn,omitempty"`
 	CloudflareAPIToken  *string `json:"cloudflare_api_token,omitempty"`
 	CloudflareAccountID *string `json:"cloudflare_account_id,omitempty"`
 	ReasoningEffort     *string `json:"reasoning_effort,omitempty"`
@@ -753,6 +757,14 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
+	bedrockAWSSessionToken, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSSessionToken)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	bedrockAWSProfile, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSProfile)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
 	bedrockRegion, err := resolveAgentSettingsTestFieldValue(profile.BedrockRegion)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
@@ -784,10 +796,12 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 			Region          string `mapstructure:"region"`
 			ModelARN        string `mapstructure:"model_arn"`
 		}{
-			AWSKey:    bedrockAWSKey,
-			AWSSecret: bedrockAWSSecret,
-			Region:    bedrockRegion,
-			ModelARN:  bedrockModelARN,
+			AWSKey:          bedrockAWSKey,
+			AWSSecret:       bedrockAWSSecret,
+			AWSSessionToken: bedrockAWSSessionToken,
+			AWSProfile:      bedrockAWSProfile,
+			Region:          bedrockRegion,
+			ModelARN:        bedrockModelARN,
 		},
 		Cloudflare: struct {
 			AccountID string `mapstructure:"account_id"`

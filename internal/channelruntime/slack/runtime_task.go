@@ -51,6 +51,7 @@ func runSlackTask(
 	fileCacheDir string,
 	runtimeOpts runtimeTaskOptions,
 	planStepUpdate func(*agent.Context, agent.PlanStepUpdate),
+	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
 	if rt == nil {
 		return nil, nil, nil, nil, fmt.Errorf("slack task runtime is nil")

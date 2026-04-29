@@ -10,7 +10,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/llm"
-	bedrockProvider "github.com/quailyquaily/mistermorph/providers/bedrock"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	uniaiapi "github.com/quailyquaily/uniai"
 	"github.com/spf13/viper"
