@@ -143,3 +143,22 @@ func TestHelpHandler(t *testing.T) {
 		t.Fatalf("expected command list in reply: %q", reply)
 	}
 }
+
+func TestModelCommandHandlerRebuildsCommandText(t *testing.T) {
+	var gotText string
+	h := ModelCommandHandler(func(text string) (string, bool, error) {
+		gotText = text
+		return "ok", true, nil
+	})
+
+	res, err := h(context.Background(), "set cheap")
+	if err != nil {
+		t.Fatalf("ModelCommandHandler() error = %v", err)
+	}
+	if gotText != "/model set cheap" {
+		t.Fatalf("model command text = %q, want %q", gotText, "/model set cheap")
+	}
+	if res == nil || res.Reply != "ok" {
+		t.Fatalf("unexpected reply: %#v", res)
+	}
+}

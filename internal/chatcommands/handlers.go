@@ -2,6 +2,7 @@ package chatcommands
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -31,6 +32,35 @@ func HelpHandler(r *Registry, header string) Handler {
 		}
 		return &Result{Reply: b.String()}, nil
 	}
+}
+
+// ModelCommandFunc executes a /model command string and reports whether it was handled.
+type ModelCommandFunc = func(text string) (output string, handled bool, err error)
+
+// ModelCommandHandler adapts a /model command executor to the Registry Handler
+// signature, whose input is only the argument tail after "/model".
+func ModelCommandHandler(fn ModelCommandFunc) Handler {
+	return func(ctx context.Context, args string) (*Result, error) {
+		if fn == nil {
+			return nil, fmt.Errorf("missing llm profile command handler")
+		}
+		output, handled, err := fn(modelCommandText(args))
+		if !handled {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &Result{Reply: output}, nil
+	}
+}
+
+func modelCommandText(args string) string {
+	text := "/model"
+	if args = strings.TrimSpace(args); args != "" {
+		text += " " + args
+	}
+	return text
 }
 
 // ModelHandler wraps the llmselect package so that /model commands can be
@@ -65,7 +95,7 @@ func (m *ModelHandler) Handle(ctx context.Context, text string) (*Result, error)
 // AsHandler returns the model handler as a standard Handler closure so it can
 // be registered in a Registry.
 func (m *ModelHandler) AsHandler() Handler {
-	return func(ctx context.Context, text string) (*Result, error) {
-		return m.Handle(ctx, text)
+	return func(ctx context.Context, args string) (*Result, error) {
+		return m.Handle(ctx, modelCommandText(args))
 	}
 }

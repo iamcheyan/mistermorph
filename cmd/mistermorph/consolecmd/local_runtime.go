@@ -975,6 +975,13 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
+	if output, handled := r.handleConsoleHelpCommand(task); handled {
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
 	if resp, handled, err := r.handleConsoleWorkspaceCommand(generation, req, timeout, trigger); handled {
 		if err == nil {
 			releaseGeneration = false
@@ -1003,6 +1010,22 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		releaseGeneration = false
 	}
 	return resp, err
+}
+
+func (r *consoleLocalRuntime) handleConsoleHelpCommand(task string) (string, bool) {
+	cmdWord, _ := chatcommands.ParseCommand(task)
+	if chatcommands.NormalizeCommand(cmdWord) != "/help" {
+		return "", false
+	}
+	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{})
+	result, err := chatcommands.HelpHandler(reg, "Available commands:")(context.Background(), "")
+	if err != nil {
+		return "error: " + strings.TrimSpace(err.Error()), true
+	}
+	if result == nil {
+		return "", true
+	}
+	return result.Reply, true
 }
 
 func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {

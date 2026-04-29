@@ -868,31 +868,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
-			handledCommand, cmdErr := maybeHandleSlackWorkspaceCommand(context.Background(), inprocBus, workspaceStore, conversationKey, event, botUserID)
+			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID)
 			if cmdErr != nil {
-				logger.Warn("slack_workspace_command_error",
-					"conversation_key", conversationKey,
-					"team_id", event.TeamID,
-					"channel_id", event.ChannelID,
-					"message_ts", event.MessageTS,
-					"error", cmdErr.Error(),
-				)
-				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-					Stage:           ErrorStagePublishOutbound,
-					ConversationKey: conversationKey,
-					TeamID:          event.TeamID,
-					ChannelID:       event.ChannelID,
-					MessageTS:       event.MessageTS,
-					Err:             cmdErr,
-				})
-				return nil
-			}
-			if handledCommand {
-				return nil
-			}
-			handledCommand, cmdErr = maybeHandleSlackProfileCommand(context.Background(), d, inprocBus, event, botUserID)
-			if cmdErr != nil {
-				logger.Warn("slack_profile_command_error",
+				logger.Warn("slack_command_error",
 					"conversation_key", conversationKey,
 					"team_id", event.TeamID,
 					"channel_id", event.ChannelID,
