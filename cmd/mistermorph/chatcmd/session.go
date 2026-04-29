@@ -6,11 +6,13 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -65,6 +67,7 @@ type chatSession struct {
 	uiMu            sync.Mutex
 	stopAnim        func()
 	setAnimMessage  func(string)
+	fileSnapshots   map[string]string // path -> content before write_file
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -432,6 +435,61 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}))
 
+	// Capture old file content before write_file or bash executes so we can render diffs.
+	opts = append(opts, agent.WithOnToolCallStart(func(runCtx *agent.Context, tc agent.ToolCall) {
+		if sess == nil {
+			return
+		}
+		if tc.Name == "write_file" {
+			path, _ := tc.Params["path"].(string)
+			path = sess.resolveWritePath(path)
+			if path == "" {
+				return
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return // File doesn't exist yet (new file) – nothing to diff.
+			}
+			sess.fileSnapshots[path] = string(data)
+		} else if tc.Name == "bash" {
+			sess.snapshotProjectFiles()
+		}
+	}))
+
+	// Render diff after write_file or bash completes successfully.
+	opts = append(opts, agent.WithOnToolCallDone(func(runCtx *agent.Context, tc agent.ToolCall, observation string, err error) {
+		if sess == nil || err != nil {
+			return
+		}
+		if tc.Name == "write_file" {
+			path, _ := tc.Params["path"].(string)
+			resolvedPath := sess.resolveWritePath(path)
+			if resolvedPath == "" {
+				return
+			}
+			oldContent, hadOld := sess.fileSnapshots[resolvedPath]
+			delete(sess.fileSnapshots, resolvedPath)
+			if !hadOld {
+				return // New file – no diff to show.
+			}
+			newData, readErr := os.ReadFile(resolvedPath)
+			if readErr != nil {
+				return
+			}
+			newContent := string(newData)
+			if oldContent == newContent {
+				return // No change.
+			}
+			writer := sess.currentWriter()
+			diff := clifmt.RenderDiff(resolvedPath, oldContent, newContent)
+			if diff != "" {
+				_, _ = fmt.Fprintln(writer, diff)
+			}
+		} else if tc.Name == "bash" {
+			sess.renderBashDiffs()
+		}
+	}))
+
 	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) *agent.Engine {
 		currentPromptSpec := promptSpec
 		if sess != nil {
@@ -492,6 +550,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		basePromptSpec: promptSpec,
 		promptSpec:     promptSpec,
 		timeout:        timeout,
+		fileSnapshots:  make(map[string]string),
 	}
 	sess.rebuildPromptSpec()
 	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)
@@ -499,8 +558,141 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	return sess, nil
 }
 
+// resolveWritePath tries to resolve a write_file path to an absolute path
+// using the session's workspace, file cache, and launch directories.
+// It also handles workspace_dir/ and file_state_dir/ aliases like the
+// write_file tool does.
+func (s *chatSession) resolveWritePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+
+	// Handle aliases like "workspace_dir/hello.go" or "file_state_dir/config.yaml".
+	if parts := strings.SplitN(path, "/", 2); len(parts) == 2 {
+		switch parts[0] {
+		case "workspace_dir":
+			if s.workspaceDir != "" {
+				return filepath.Join(s.workspaceDir, parts[1])
+			}
+		case "file_cache_dir":
+			if s.fileCacheDir != "" {
+				return filepath.Join(s.fileCacheDir, parts[1])
+			}
+		case "file_state_dir":
+			if s.launchDir != "" {
+				return filepath.Join(s.launchDir, parts[1])
+			}
+		}
+	}
+
+	candidates := []string{}
+	if s.workspaceDir != "" {
+		candidates = append(candidates, filepath.Join(s.workspaceDir, path))
+	}
+	if s.fileCacheDir != "" {
+		candidates = append(candidates, filepath.Join(s.fileCacheDir, path))
+	}
+	if s.launchDir != "" {
+		candidates = append(candidates, filepath.Join(s.launchDir, path))
+	}
+	for _, cand := range candidates {
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+	}
+	// Fallback to first candidate even if file doesn't exist yet.
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
 func (s *chatSession) cleanup() {
 	if s.memCleanup != nil {
 		s.memCleanup()
+	}
+}
+
+// snapshotProjectFiles scans the project directory and stores the current
+// content of all existing text files into fileSnapshots.
+func (s *chatSession) snapshotProjectFiles() {
+	if s == nil {
+		return
+	}
+	dir := s.projectDir()
+	if dir == "" {
+		return
+	}
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") && path != dir {
+				return filepath.SkipDir
+			}
+			if name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.Size() > 1024*1024 {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if isBinaryData(data) {
+			return nil
+		}
+		s.fileSnapshots[path] = string(data)
+		return nil
+	})
+}
+
+func isBinaryData(data []byte) bool {
+	limit := 8192
+	if len(data) < limit {
+		limit = len(data)
+	}
+	for i := 0; i < limit; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// renderBashDiffs compares fileSnapshots against current disk content and
+// renders diffs for any files that changed during a bash tool call.
+func (s *chatSession) renderBashDiffs() {
+	if s == nil {
+		return
+	}
+	writer := s.currentWriter()
+	for path, oldContent := range s.fileSnapshots {
+		newData, err := os.ReadFile(path)
+		delete(s.fileSnapshots, path)
+		if err != nil {
+			continue
+		}
+		newContent := string(newData)
+		if oldContent == newContent {
+			continue
+		}
+		diff := clifmt.RenderDiff(path, oldContent, newContent)
+		if diff != "" {
+			_, _ = fmt.Fprintln(writer, diff)
+		}
 	}
 }

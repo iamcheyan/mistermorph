@@ -133,8 +133,10 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 	return stop, setMessage
 }
 
-func printChatSessionHeader(writer io.Writer, model string, workspaceDir string, fileCacheDir string) {
-	_, _ = fmt.Fprint(writer, chatBanner)
+func printChatSessionHeader(writer io.Writer, compact bool, model string, workspaceDir string, fileCacheDir string) {
+	if !compact {
+		_, _ = fmt.Fprint(writer, chatBanner)
+	}
 	if model != "" {
 		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
 	}
@@ -144,5 +146,7 @@ func printChatSessionHeader(writer io.Writer, model string, workspaceDir string,
 	if fileCacheDir != "" {
 		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)
 	}
-	_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	if !compact {
+		_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	}
 }
