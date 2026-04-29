@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 )
 
 func formatChatOutput(final *agent.Final) string {
@@ -14,7 +15,7 @@ func formatChatOutput(final *agent.Final) string {
 	}
 	switch output := final.Output.(type) {
 	case string:
-		return strings.TrimSpace(output)
+		return clifmt.RenderMarkdown(strings.TrimSpace(output))
 	case nil:
 		payload, _ := json.MarshalIndent(final, "", "  ")
 		return strings.TrimSpace(string(payload))
