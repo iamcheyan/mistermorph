@@ -521,7 +521,7 @@ Telegram 已经有 slash command 解析。
 
 做法：
 
-- 复用当前 `/start /help /reset /echo` 那一层命令分支
+- 复用当前 Telegram runtime 的命令分支
 - 新增 `/model` 分支
 - `/model` 不进入 agent run
 - `/model` 不写入聊天 history

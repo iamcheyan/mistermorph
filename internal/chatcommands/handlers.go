@@ -33,16 +33,6 @@ func HelpHandler(r *Registry, header string) Handler {
 	}
 }
 
-// EchoHandler returns a Handler that echoes back its arguments.
-func EchoHandler() Handler {
-	return func(ctx context.Context, args string) (*Result, error) {
-		if args == "" {
-			return &Result{Reply: "usage: /echo <msg>"}, nil
-		}
-		return &Result{Reply: args}, nil
-	}
-}
-
 // ModelHandler wraps the llmselect package so that /model commands can be
 // handled uniformly across chat front-ends.
 //
