@@ -18,8 +18,8 @@ func TestResolveBedrockCredentialsNilConfig(t *testing.T) {
 
 func TestResolveBedrockCredentialsPartialStaticKeyOnly(t *testing.T) {
 	cfg := Config{
-		Provider: "bedrock",
-		AwsKey:   "AKIA...",
+		Provider:  "bedrock",
+		AwsKey:    "AKIA...",
 		AwsRegion: "us-east-1",
 	}
 	err := ResolveBedrockCredentials(context.Background(), &cfg)
