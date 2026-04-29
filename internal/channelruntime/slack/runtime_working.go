@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/slackclient"
 )
 
 const (
@@ -23,9 +25,13 @@ type slackWorkingMessage struct {
 	threadTS  string
 	messageTS string
 
-	stopOnce sync.Once
-	stop     chan struct{}
-	result   chan slackWorkingMessagePostResult
+	stopOnce   sync.Once
+	resultOnce sync.Once
+	updateMu   sync.Mutex
+	stop       chan struct{}
+	forcePost  chan struct{}
+	result     chan slackWorkingMessagePostResult
+	postResult slackWorkingMessagePostResult
 }
 
 type slackWorkingMessagePostResult struct {
@@ -52,6 +58,7 @@ func startSlackWorkingMessageWithDelay(ctx context.Context, logger *slog.Logger,
 		threadTS:  strings.TrimSpace(job.ThreadTS),
 		messageTS: strings.TrimSpace(job.MessageTS),
 		stop:      make(chan struct{}),
+		forcePost: make(chan struct{}, 1),
 		result:    make(chan slackWorkingMessagePostResult, 1),
 	}
 	go w.run(ctx, delay)
@@ -64,6 +71,8 @@ func (w *slackWorkingMessage) run(ctx context.Context, delay time.Duration) {
 		timer := time.NewTimer(delay)
 		select {
 		case <-timer.C:
+		case <-w.forcePost:
+			timer.Stop()
 		case <-w.stop:
 			timer.Stop()
 			return
@@ -93,14 +102,35 @@ func (w *slackWorkingMessage) Update(ctx context.Context, text string) (bool, er
 	w.stopOnce.Do(func() {
 		close(w.stop)
 	})
+	return w.updatePostedMessage(ctx, text, nil)
+}
+
+func (w *slackWorkingMessage) UpdateBlocks(ctx context.Context, text string, blocks []slackclient.Block) (bool, error) {
+	if w == nil {
+		return false, nil
+	}
+	w.requestPost()
+	return w.updatePostedMessage(ctx, text, blocks)
+}
+
+func (w *slackWorkingMessage) requestPost() {
+	select {
+	case w.forcePost <- struct{}{}:
+	default:
+	}
+}
+
+func (w *slackWorkingMessage) updatePostedMessage(ctx context.Context, text string, blocks []slackclient.Block) (bool, error) {
+	w.updateMu.Lock()
+	defer w.updateMu.Unlock()
 
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = slackDoneMessageText
 	}
 
-	result, ok := <-w.result
-	if !ok || result.err != nil || strings.TrimSpace(result.ref.MessageTS) == "" {
+	result := w.awaitPostResult()
+	if result.err != nil || strings.TrimSpace(result.ref.MessageTS) == "" {
 		return false, nil
 	}
 	ref := result.ref
@@ -112,7 +142,19 @@ func (w *slackWorkingMessage) Update(ctx context.Context, text string) (bool, er
 	}
 	updateCtx, cancel := context.WithTimeout(ctx, slackWorkingMessageUpdateTimeout)
 	defer cancel()
+	if len(blocks) > 0 {
+		return true, w.api.updateMessageWithBlocks(updateCtx, ref.ChannelID, ref.MessageTS, text, blocks)
+	}
 	return true, w.api.updateMessage(updateCtx, ref.ChannelID, ref.MessageTS, text)
+}
+
+func (w *slackWorkingMessage) awaitPostResult() slackWorkingMessagePostResult {
+	w.resultOnce.Do(func() {
+		if result, ok := <-w.result; ok {
+			w.postResult = result
+		}
+	})
+	return w.postResult
 }
 
 func callSlackDirectOutboundHook(ctx context.Context, logger *slog.Logger, hooks Hooks, job slackJob, text, correlationID string) {

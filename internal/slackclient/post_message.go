@@ -25,6 +25,8 @@ type MessageRef struct {
 	MessageTS string
 }
 
+type Block map[string]any
+
 func New(httpClient *http.Client, baseURL, botToken string) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -115,6 +117,14 @@ func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS stri
 }
 
 func (c *Client) UpdateMessage(ctx context.Context, channelID, messageTS, text string) error {
+	return c.updateMessage(ctx, channelID, messageTS, text, nil)
+}
+
+func (c *Client) UpdateMessageWithBlocks(ctx context.Context, channelID, messageTS, text string, blocks []Block) error {
+	return c.updateMessage(ctx, channelID, messageTS, text, blocks)
+}
+
+func (c *Client) updateMessage(ctx context.Context, channelID, messageTS, text string, blocks []Block) error {
 	if c == nil || c.http == nil {
 		return fmt.Errorf("slack client is not initialized")
 	}
@@ -135,9 +145,10 @@ func (c *Client) UpdateMessage(ctx context.Context, channelID, messageTS, text s
 	}
 
 	type requestBody struct {
-		Channel string `json:"channel"`
-		TS      string `json:"ts"`
-		Text    string `json:"text"`
+		Channel string  `json:"channel"`
+		TS      string  `json:"ts"`
+		Text    string  `json:"text"`
+		Blocks  []Block `json:"blocks,omitempty"`
 	}
 	type responseBody struct {
 		OK    bool   `json:"ok"`
@@ -148,6 +159,7 @@ func (c *Client) UpdateMessage(ctx context.Context, channelID, messageTS, text s
 		Channel: channelID,
 		TS:      messageTS,
 		Text:    text,
+		Blocks:  blocks,
 	}
 	var out responseBody
 	body, status, err := c.postJSONWithRetry(ctx, "/chat.update", payload)

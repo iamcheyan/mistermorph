@@ -341,15 +341,22 @@ func TestSlackAPIUploadFile(t *testing.T) {
 				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
 					t.Fatalf("authorization = %q", got)
 				}
-				var payload map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-					t.Fatalf("decode payload: %v", err)
+				if got := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.Contains(got, "application/x-www-form-urlencoded") {
+					t.Fatalf("content-type = %q", got)
 				}
-				if got := strings.TrimSpace(payload["filename"].(string)); got != "result.txt" {
+				rawBody, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read payload: %v", err)
+				}
+				payload, err := url.ParseQuery(string(rawBody))
+				if err != nil {
+					t.Fatalf("parse payload: %v", err)
+				}
+				if got := strings.TrimSpace(payload.Get("filename")); got != "result.txt" {
 					t.Fatalf("filename = %q, want %q", got, "result.txt")
 				}
-				if got := int64(payload["length"].(float64)); got != int64(len("hello slack")) {
-					t.Fatalf("length = %d, want %d", got, len("hello slack"))
+				if got := strings.TrimSpace(payload.Get("length")); got != "11" {
+					t.Fatalf("length = %q, want %q", got, "11")
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":         true,
@@ -455,6 +462,28 @@ func TestSlackAPIUploadFile(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "missing_scope") {
 			t.Fatalf("error = %v, want missing_scope", err)
+		}
+	})
+
+	t.Run("empty file rejected before slack call", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatalf("unexpected slack request: %s", r.URL.Path)
+		}))
+		defer server.Close()
+
+		tmp := t.TempDir()
+		localFile := filepath.Join(tmp, "empty.txt")
+		if err := os.WriteFile(localFile, nil, 0o600); err != nil {
+			t.Fatalf("write temp file: %v", err)
+		}
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		err := api.uploadFile(context.Background(), "C123", "", localFile, "", "", "")
+		if err == nil {
+			t.Fatalf("expected error")
+		}
+		if !strings.Contains(err.Error(), "file length is invalid") {
+			t.Fatalf("error = %v, want file length is invalid", err)
 		}
 	})
 }
