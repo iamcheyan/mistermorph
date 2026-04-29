@@ -292,7 +292,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 		case '-':
 			if color {
 				bg := "\x1b[48;5;52m"
-				fg := "\x1b[38;5;210m"
+				fg := "\x1b[38;5;131m"
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s - ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
@@ -304,7 +304,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 		case '+':
 			if color {
 				bg := "\x1b[48;5;22m"
-				fg := "\x1b[38;5;150m"
+				fg := "\x1b[38;5;65m"
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s + ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)

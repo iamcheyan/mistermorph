@@ -406,7 +406,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			return
 		}
 		writer := sess.currentWriter()
-		msg := fmt.Sprintf("\x1b[90m  used \x1b[36m%s\x1b[0m", toolName)
+		msg := fmt.Sprintf("\x1b[33m  used \x1b[32m%s\x1b[0m", toolName)
 		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
 	}))
 	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
@@ -424,7 +424,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			if runCtx != nil && runCtx.Plan != nil {
 				total = len(runCtx.Plan.Steps)
 			}
-			_, _ = fmt.Fprintf(writer, "\033[90mplan: ✓ %s", update.CompletedStep)
+			_, _ = fmt.Fprintf(writer, "\033[32mplan: ✓ %s", update.CompletedStep)
 			if total > 0 {
 				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.CompletedIndex+1, total)
 			}
