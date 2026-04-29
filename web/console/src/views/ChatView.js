@@ -16,6 +16,7 @@ import {
   currentLocale,
   endpointState,
   formatBytes,
+  formatTime,
   runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
@@ -26,6 +27,7 @@ import {
 const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
+const DEFAULT_TOPIC_ID = "default";
 const HEARTBEAT_TOPIC_ID = "_heartbeat";
 const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
 const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
@@ -139,6 +141,7 @@ function buildTreeRows(itemsByPath, expandedByPath, parentPath = "", depth = 0) 
 }
 
 const WORKSPACE_TAB_ID = "workspace";
+const TOPIC_TAB_ID = "topic";
 
 function normalizeRecentWorkspaceDirs(raw) {
   if (!Array.isArray(raw)) {
@@ -828,6 +831,10 @@ const ChatView = {
     const selectedTopicID = ref("");
     const creatingTopic = ref(false);
     const showSystemTopics = ref(false);
+    const topicDeleteDialogOpen = ref(false);
+    const topicDeleteTarget = ref(null);
+    const topicDeleting = ref(false);
+    const topicDeleteError = ref("");
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
@@ -1122,6 +1129,65 @@ const ChatView = {
       }
       return topicID;
     });
+    const selectedTopicIsReserved = computed(() => {
+      const topicID = normalizeTopicID(selectedTopicID.value);
+      return topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID;
+    });
+    const topicDeleteAvailable = computed(
+      () => Boolean(workspaceTopicID.value) && !selectedTopicIsReserved.value
+    );
+    const topicDeleteDisabled = computed(() => !topicDeleteAvailable.value || topicDeleting.value);
+    const topicPropertiesTitle = computed(() => {
+      if (!selectedTopic.value) {
+        return t("chat_topic_untitled");
+      }
+      return topicTitle(selectedTopic.value);
+    });
+    const topicPropertyRows = computed(() => {
+      const topic = selectedTopic.value;
+      if (!topic) {
+        return [];
+      }
+      return [
+        {
+          key: "id",
+          label: t("chat_topic_id_label"),
+          value: normalizeTopicID(topic.id) || "-",
+          code: true,
+        },
+        {
+          key: "created",
+          label: t("chat_topic_created_label"),
+          value: formatTime(topic.created_at),
+          code: false,
+        },
+        {
+          key: "updated",
+          label: t("chat_topic_updated_label"),
+          value: formatTime(topic.updated_at),
+          code: false,
+        },
+      ];
+    });
+    const topicDeleteDialogText = computed(() =>
+      t("chat_topic_delete_confirm", {
+        title: topicTitle(topicDeleteTarget.value || selectedTopic.value || {}),
+      })
+    );
+    const topicDeleteDialogActions = computed(() => [
+      {
+        name: "cancel",
+        label: t("action_cancel"),
+        class: "outlined",
+        action: closeTopicDeleteDialog,
+      },
+      {
+        name: "delete",
+        label: t("action_delete"),
+        class: "danger",
+        action: deleteSelectedTopic,
+      },
+    ]);
     const workspaceSidebarAvailable = computed(() => Boolean(workspaceTopicID.value));
     const workspaceReady = computed(() => Boolean(submitEndpointRef.value && workspaceTopicID.value));
     const workspaceBusy = computed(() => workspaceLoading.value || workspaceSaving.value);
@@ -1145,8 +1211,13 @@ const ChatView = {
     const workspacePanelTabs = computed(() => [
       {
         id: WORKSPACE_TAB_ID,
-        title: "",
+        title: t("chat_workspace_label"),
         icon: "QIconEcosystem",
+      },
+      {
+        id: TOPIC_TAB_ID,
+        title: t("chat_topic_kicker"),
+        icon: "QIconMessageChatSquare",
       },
     ]);
     const selectedWorkspacePanelTab = computed(
@@ -2112,7 +2183,7 @@ const ChatView = {
         return title;
       }
       const topicID = normalizeTopicID(topic?.id);
-      if (topicID === "default") {
+      if (topicID === DEFAULT_TOPIC_ID) {
         return t("chat_topic_default");
       }
       if (topicID === HEARTBEAT_TOPIC_ID) {
@@ -2260,6 +2331,10 @@ const ChatView = {
       selectedTopicID.value = "";
       creatingTopic.value = false;
       showSystemTopics.value = false;
+      topicDeleteDialogOpen.value = false;
+      topicDeleteTarget.value = null;
+      topicDeleting.value = false;
+      topicDeleteError.value = "";
       resetWorkspaceState();
       syncMobileTopicView({ preferTopics: true });
     }
@@ -2509,11 +2584,67 @@ const ChatView = {
       queueHeartbeatRevealReset();
     }
 
+    function closeTopicDeleteDialog() {
+      topicDeleteDialogOpen.value = false;
+      topicDeleteTarget.value = null;
+    }
+
+    function confirmDeleteTopic() {
+      if (!topicDeleteAvailable.value || !selectedTopic.value) {
+        return;
+      }
+      topicDeleteTarget.value = {
+        id: normalizeTopicID(selectedTopic.value.id),
+        title: topicTitle(selectedTopic.value),
+        created_at: selectedTopic.value.created_at,
+        updated_at: selectedTopic.value.updated_at,
+      };
+      topicDeleteDialogOpen.value = true;
+    }
+
+    async function deleteSelectedTopic() {
+      if (topicDeleting.value) {
+        return;
+      }
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = normalizeTopicID(topicDeleteTarget.value?.id || selectedTopicID.value);
+      if (!endpointRef || !topicID || topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID) {
+        closeTopicDeleteDialog();
+        return;
+      }
+
+      topicDeleting.value = true;
+      topicDeleteDialogOpen.value = false;
+      topicDeleteError.value = "";
+      err.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(endpointRef, `/topics/${encodeURIComponent(topicID)}`, {
+          method: "DELETE",
+        });
+        clearChatDraft(endpointRef, topicID);
+        if (normalizeTopicID(selectedTopicID.value) === topicID) {
+          selectedTopicID.value = "";
+          creatingTopic.value = false;
+          resetWorkspaceState();
+          await syncChatRoute("", { replace: true });
+        }
+        await loadTopics();
+        await loadHistory();
+      } catch (e) {
+        topicDeleteError.value = e?.message || t("msg_delete_failed");
+      } finally {
+        topicDeleting.value = false;
+        topicDeleteTarget.value = null;
+      }
+    }
+
     function selectTopic(topicID) {
       const normalized = normalizeTopicID(topicID);
       if (!normalized) {
         return;
       }
+      topicDeleteError.value = "";
+      closeTopicDeleteDialog();
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
       rememberTopicSelection(submitEndpointRef.value, normalized);
@@ -2528,6 +2659,8 @@ const ChatView = {
       creatingTopic.value = true;
       selectedTopicID.value = "";
       err.value = "";
+      topicDeleteError.value = "";
+      closeTopicDeleteDialog();
       resetHeartbeatReveal();
       syncMobileTopicView({ preferChat: true });
       void loadHistory();
@@ -2739,6 +2872,15 @@ const ChatView = {
       workspaceSidebarTabID,
       workspacePanelTabs,
       selectedWorkspacePanelTab,
+      topicPropertiesTitle,
+      topicPropertyRows,
+      topicDeleteAvailable,
+      topicDeleteDisabled,
+      topicDeleting,
+      topicDeleteError,
+      topicDeleteDialogOpen,
+      topicDeleteDialogText,
+      topicDeleteDialogActions,
       workspaceError,
       workspaceReady,
       workspaceHintText,
@@ -2810,6 +2952,7 @@ const ChatView = {
       detachWorkspace,
       selectTopic,
       startNewTopic,
+      confirmDeleteTopic,
       showTopicsView,
       topicTitle,
       topicTime,
@@ -2866,6 +3009,15 @@ const ChatView = {
             <QIconArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <QButton
+            v-if="mobileTopicSplitEnabled && showChatPane && workspaceSidebarAvailable"
+            :class="workspaceSidebarOpen ? 'plain sm icon chat-workspace-toggle is-active' : 'plain sm icon chat-workspace-toggle'"
+            :title="workspaceSidebarToggleLabel"
+            :aria-label="workspaceSidebarToggleLabel"
+            @click="toggleWorkspaceSidebar"
+          >
+            <QIconLayoutRight class="icon" />
+          </QButton>
         </div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
@@ -3147,6 +3299,7 @@ const ChatView = {
               />
 
               <div class="chat-workspace-pane ui-track-panel">
+                <template v-if="workspaceSidebarTabID === 'workspace'">
                 <template v-if="workspaceReady">
                   <template v-if="workspaceDir">
                     <header class="chat-workspace-toolbar">
@@ -3322,12 +3475,52 @@ const ChatView = {
                   </template>
                 </template>
 
-                <div v-else class="chat-workspace-empty-state is-disabled">
-                  <div class="chat-workspace-empty-lead">
-                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  <div v-else class="chat-workspace-empty-state is-disabled">
+                    <div class="chat-workspace-empty-lead">
+                      <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                      <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                    </div>
                   </div>
-                </div>
+                </template>
+
+                <template v-else-if="workspaceSidebarTabID === 'topic'">
+                  <section class="chat-topic-panel">
+                    <header class="chat-topic-panel-head">
+                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
+                      <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
+                    </header>
+
+                    <QFence
+                      v-if="topicDeleteError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="topicDeleteError"
+                    />
+
+                    <dl class="chat-topic-property-list">
+                      <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">
+                        <dt class="chat-topic-property-label">{{ row.label }}</dt>
+                        <dd :class="row.code ? 'chat-topic-property-value is-code' : 'chat-topic-property-value'">
+                          <code v-if="row.code" :title="row.value">{{ row.value }}</code>
+                          <span v-else>{{ row.value }}</span>
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
+                      <QButton
+                        class="danger sm chat-topic-danger-action"
+                        :loading="topicDeleting"
+                        :disabled="topicDeleteDisabled"
+                        @click="confirmDeleteTopic"
+                      >
+                        <QIconTrash class="icon" />
+                        <span>{{ t("chat_topic_delete_action") }}</span>
+                      </QButton>
+                    </footer>
+                  </section>
+                </template>
               </div>
             </div>
           </aside>
@@ -3353,6 +3546,7 @@ const ChatView = {
             />
 
             <div class="chat-workspace-pane ui-track-panel">
+              <template v-if="workspaceSidebarTabID === 'workspace'">
               <template v-if="workspaceReady">
                 <template v-if="workspaceDir">
                   <header class="chat-workspace-toolbar">
@@ -3528,12 +3722,52 @@ const ChatView = {
                 </template>
               </template>
 
-              <div v-else class="chat-workspace-empty-state is-disabled">
-                <div class="chat-workspace-empty-lead">
-                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                  <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                <div v-else class="chat-workspace-empty-state is-disabled">
+                  <div class="chat-workspace-empty-lead">
+                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  </div>
                 </div>
-              </div>
+              </template>
+
+              <template v-else-if="workspaceSidebarTabID === 'topic'">
+                <section class="chat-topic-panel">
+                  <header class="chat-topic-panel-head">
+                    <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
+                    <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
+                  </header>
+
+                  <QFence
+                    v-if="topicDeleteError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="topicDeleteError"
+                  />
+
+                  <dl class="chat-topic-property-list">
+                    <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">
+                      <dt class="chat-topic-property-label">{{ row.label }}</dt>
+                      <dd :class="row.code ? 'chat-topic-property-value is-code' : 'chat-topic-property-value'">
+                        <code v-if="row.code" :title="row.value">{{ row.value }}</code>
+                        <span v-else>{{ row.value }}</span>
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
+                    <QButton
+                      class="danger sm chat-topic-danger-action"
+                      :loading="topicDeleting"
+                      :disabled="topicDeleteDisabled"
+                      @click="confirmDeleteTopic"
+                    >
+                      <QIconTrash class="icon" />
+                      <span>{{ t("chat_topic_delete_action") }}</span>
+                    </QButton>
+                  </footer>
+                </section>
+              </template>
             </div>
           </div>
         </QDrawer>
@@ -3653,6 +3887,14 @@ const ChatView = {
           :open="rawDialogOpen"
           :json="rawDialogJSON"
           @close="closeRawDialog"
+        />
+        <QMessageDialog
+          v-model="topicDeleteDialogOpen"
+          icon="QIconTrash"
+          iconColor="red"
+          :title="t('chat_topic_delete_action')"
+          :text="topicDeleteDialogText"
+          :actions="topicDeleteDialogActions"
         />
       </template>
     </AppPage>
