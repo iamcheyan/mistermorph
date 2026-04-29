@@ -33,6 +33,7 @@ import {
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
   resolveSetupAPIKeyHelp,
+  SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPTIONS,
@@ -128,6 +129,10 @@ function buildDefaultPayload() {
       endpoint: "",
       model: "",
       api_key: "",
+      bedrock_aws_key: "",
+      bedrock_aws_secret: "",
+      bedrock_region: "",
+      bedrock_model_arn: "",
       cloudflare_api_token: "",
       cloudflare_account_id: "",
       reasoning_effort: "",
@@ -326,6 +331,10 @@ const SetupView = {
       endpoint: "",
       model: "",
       api_key: "",
+      bedrock_aws_key: "",
+      bedrock_aws_secret: "",
+      bedrock_region: "",
+      bedrock_model_arn: "",
       cloudflare_api_token: "",
       cloudflare_account_id: "",
     });
@@ -376,6 +385,10 @@ const SetupView = {
     const showCloudflareAccountField = computed(
       () => normalizeSetupProviderChoice(llmFieldValue("provider")) === SETUP_PROVIDER_CLOUDFLARE
     );
+    const showBedrockFields = computed(
+      () => normalizeSetupProviderChoice(llmFieldValue("provider")) === SETUP_PROVIDER_BEDROCK
+    );
+    const showEndpointField = computed(() => !showCloudflareAccountField.value && !showBedrockFields.value);
     const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label"
@@ -407,7 +420,7 @@ const SetupView = {
     );
     const credentialHelp = computed(() => {
       const provider = llmFieldValue("provider");
-      if (provider === "" || isLLMFieldEnvManaged(credentialFieldName.value)) {
+      if (provider === "" || showBedrockFields.value || isLLMFieldEnvManaged(credentialFieldName.value)) {
         return null;
       }
       return resolveSetupAPIKeyHelp(provider, llmFieldValue("endpoint"));
@@ -447,7 +460,10 @@ const SetupView = {
         saving.value ||
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
-        !hasLLMFieldValue(credentialFieldName.value) ||
+        (!showBedrockFields.value && !hasLLMFieldValue(credentialFieldName.value)) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_aws_key")) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_aws_secret")) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_region")) ||
         (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
     );
     const testConnectionDisabled = computed(
@@ -458,6 +474,9 @@ const SetupView = {
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
         (setupProviderRequiresAPIKey(llmFieldValue("provider")) && !hasLLMFieldValue(credentialFieldName.value)) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_aws_key")) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_aws_secret")) ||
+        (showBedrockFields.value && !hasLLMFieldValue("bedrock_region")) ||
         (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_api_token")) ||
         (showCloudflareAccountField.value && !hasLLMFieldValue("cloudflare_account_id"))
     );
@@ -604,6 +623,10 @@ const SetupView = {
         llmForm.endpoint = "";
         llmForm.model = "";
         llmForm.api_key = "";
+        llmForm.bedrock_aws_key = "";
+        llmForm.bedrock_aws_secret = "";
+        llmForm.bedrock_region = "";
+        llmForm.bedrock_model_arn = "";
         llmForm.cloudflare_api_token = "";
         llmForm.cloudflare_account_id = "";
         return;
@@ -612,6 +635,10 @@ const SetupView = {
       llmForm.endpoint = String(normalized.llm.endpoint || "").trim();
       llmForm.model = String(normalized.llm.model || "").trim();
       llmForm.api_key = String(normalized.llm.api_key || "").trim();
+      llmForm.bedrock_aws_key = String(normalized.llm.bedrock_aws_key || "").trim();
+      llmForm.bedrock_aws_secret = String(normalized.llm.bedrock_aws_secret || "").trim();
+      llmForm.bedrock_region = String(normalized.llm.bedrock_region || "").trim();
+      llmForm.bedrock_model_arn = String(normalized.llm.bedrock_model_arn || "").trim();
       llmForm.cloudflare_api_token = String(normalized.llm.cloudflare_api_token || "").trim();
       llmForm.cloudflare_account_id = String(normalized.llm.cloudflare_account_id || "").trim();
     }
@@ -805,12 +832,25 @@ const SetupView = {
         payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
-        payload.endpoint = String(llmForm.endpoint || "").trim();
+        payload.endpoint = provider === SETUP_PROVIDER_BEDROCK ? "" : String(llmForm.endpoint || "").trim();
       }
       if (!isLLMFieldEnvManaged("model")) {
         payload.model = String(llmForm.model || "").trim();
       }
-      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+      if (provider === SETUP_PROVIDER_BEDROCK) {
+        if (!isLLMFieldEnvManaged("bedrock_aws_key")) {
+          payload.bedrock_aws_key = String(llmForm.bedrock_aws_key || "").trim();
+        }
+        if (!isLLMFieldEnvManaged("bedrock_aws_secret")) {
+          payload.bedrock_aws_secret = String(llmForm.bedrock_aws_secret || "").trim();
+        }
+        if (!isLLMFieldEnvManaged("bedrock_region")) {
+          payload.bedrock_region = String(llmForm.bedrock_region || "").trim();
+        }
+        if (!isLLMFieldEnvManaged("bedrock_model_arn")) {
+          payload.bedrock_model_arn = String(llmForm.bedrock_model_arn || "").trim();
+        }
+      } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
           payload.cloudflare_api_token = useCloudflareCredentials ? String(llmForm.cloudflare_api_token || "").trim() : "";
         }
@@ -831,7 +871,7 @@ const SetupView = {
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
         const endpoint = String(llmForm.endpoint || "").trim();
-        if (endpoint !== "") {
+        if (endpoint !== "" && provider !== SETUP_PROVIDER_BEDROCK) {
           payload.endpoint = endpoint;
         }
       }
@@ -841,7 +881,32 @@ const SetupView = {
           payload.model = model;
         }
       }
-      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+      if (provider === SETUP_PROVIDER_BEDROCK) {
+        if (!isLLMFieldEnvManaged("bedrock_aws_key")) {
+          const value = String(llmForm.bedrock_aws_key || "").trim();
+          if (value !== "") {
+            payload.bedrock_aws_key = value;
+          }
+        }
+        if (!isLLMFieldEnvManaged("bedrock_aws_secret")) {
+          const value = String(llmForm.bedrock_aws_secret || "").trim();
+          if (value !== "") {
+            payload.bedrock_aws_secret = value;
+          }
+        }
+        if (!isLLMFieldEnvManaged("bedrock_region")) {
+          const value = String(llmForm.bedrock_region || "").trim();
+          if (value !== "") {
+            payload.bedrock_region = value;
+          }
+        }
+        if (!isLLMFieldEnvManaged("bedrock_model_arn")) {
+          const value = String(llmForm.bedrock_model_arn || "").trim();
+          if (value !== "") {
+            payload.bedrock_model_arn = value;
+          }
+        }
+      } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
           const token = String(llmForm.cloudflare_api_token || "").trim();
           if (token !== "") {
@@ -929,7 +994,12 @@ const SetupView = {
 
     function onProviderChange(item) {
       const nextProvider = String(item?.value || "").trim() || providerItems.value[0].value;
+      const previousDefaultEndpoint = defaultEndpointForSetupProvider(llmForm.provider);
+      const currentEndpoint = String(llmForm.endpoint || "").trim();
       llmForm.provider = nextProvider;
+      if (currentEndpoint === "" || currentEndpoint === previousDefaultEndpoint) {
+        llmForm.endpoint = defaultEndpointForSetupProvider(nextProvider);
+      }
     }
 
     function openExternal(url) {
@@ -1169,6 +1239,8 @@ const SetupView = {
       providerItem,
       llmEnvManaged,
       showCloudflareAccountField,
+      showBedrockFields,
+      showEndpointField,
       showOpenAICompatibleHelpers,
       modelLookupDisabled,
       apiBasePickerItems,
@@ -1260,7 +1332,7 @@ const SetupView = {
             />
           </label>
 
-          <label v-if="!showCloudflareAccountField" class="setup-field is-wide">
+          <label v-if="showEndpointField" class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_endpoint_label") }}</span>
             <div v-if="isLLMFieldEnvManaged('endpoint')" class="setup-env-managed">
               <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("endpoint") }}</code>
@@ -1299,7 +1371,65 @@ const SetupView = {
             />
           </label>
 
-          <label class="setup-field is-wide">
+          <label v-if="showBedrockFields" class="setup-field is-wide">
+            <span class="setup-field-label">{{ t("settings_agent_bedrock_aws_key_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('bedrock_aws_key')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("bedrock_aws_key") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <QInput
+              v-else
+              v-model="llmForm.bedrock_aws_key"
+              inputType="password"
+              :placeholder="t('settings_agent_bedrock_aws_key_placeholder')"
+              :disabled="loading || saving"
+            />
+          </label>
+
+          <label v-if="showBedrockFields" class="setup-field is-wide">
+            <span class="setup-field-label">{{ t("settings_agent_bedrock_aws_secret_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('bedrock_aws_secret')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("bedrock_aws_secret") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <QInput
+              v-else
+              v-model="llmForm.bedrock_aws_secret"
+              inputType="password"
+              :placeholder="t('settings_agent_bedrock_aws_secret_placeholder')"
+              :disabled="loading || saving"
+            />
+          </label>
+
+          <label v-if="showBedrockFields" class="setup-field">
+            <span class="setup-field-label">{{ t("settings_agent_bedrock_region_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('bedrock_region')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("bedrock_region") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <QInput
+              v-else
+              v-model="llmForm.bedrock_region"
+              :placeholder="t('settings_agent_bedrock_region_placeholder')"
+              :disabled="loading || saving"
+            />
+          </label>
+
+          <label v-if="showBedrockFields" class="setup-field">
+            <span class="setup-field-label">{{ t("settings_agent_bedrock_model_arn_label") }}</span>
+            <div v-if="isLLMFieldEnvManaged('bedrock_model_arn')" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("bedrock_model_arn") }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <QInput
+              v-else
+              v-model="llmForm.bedrock_model_arn"
+              :placeholder="t('settings_agent_bedrock_model_arn_placeholder')"
+              :disabled="loading || saving"
+            />
+          </label>
+
+          <label v-if="!showBedrockFields" class="setup-field is-wide">
             <span class="setup-field-label">{{ t(credentialLabelKey) }}</span>
             <div v-if="showCloudflareAccountField ? isLLMFieldEnvManaged('cloudflare_api_token') : isLLMFieldEnvManaged('api_key')" class="setup-env-managed">
               <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(showCloudflareAccountField ? "cloudflare_api_token" : "api_key") }}</code>
