@@ -289,6 +289,10 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 			azureOptions["response_format"] = "json_object"
 		}
 	}
+	if req.Parameters != nil {
+		mergeProviderOptions(req.Parameters["openai"], openAIOptions)
+		mergeProviderOptions(req.Parameters["azure"], azureOptions)
+	}
 	if len(openAIOptions) > 0 {
 		opts = append(opts, uniaiapi.WithOpenAIOptions(openAIOptions))
 	}
@@ -325,6 +329,28 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 	}
 
 	return opts
+}
+
+func mergeProviderOptions(raw any, dst structs.JSONMap) {
+	if dst == nil {
+		return
+	}
+	switch values := raw.(type) {
+	case nil:
+		return
+	case structs.JSONMap:
+		for key, value := range values {
+			if strings.TrimSpace(key) != "" {
+				dst[key] = value
+			}
+		}
+	case map[string]any:
+		for key, value := range values {
+			if strings.TrimSpace(key) != "" {
+				dst[key] = value
+			}
+		}
+	}
 }
 
 func supportsStreaming(provider string) bool {
@@ -1314,6 +1340,10 @@ func normalizeOpenAIBase(endpoint string) string {
 		return ""
 	}
 	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.Contains(endpoint, "/backend-api/codex") {
+		endpoint = strings.TrimSuffix(endpoint, "/v1")
+		return endpoint
+	}
 	if strings.HasSuffix(endpoint, "/v1") || strings.Contains(endpoint, "/v1/") {
 		return endpoint
 	}

@@ -99,6 +99,7 @@ type server struct {
 	streamTickets    *sessionStore
 	artifactPreviews *artifactPreviewStore
 	limiter          *loginLimiter
+	codexLogins      *codexLoginStore
 	endpoints        []runtimeEndpoint
 	endpointByRef    map[string]runtimeEndpoint
 	localRuntime     *consoleLocalRuntime
@@ -372,6 +373,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		streamTickets:    newSessionStore(""),
 		artifactPreviews: newArtifactPreviewStore(),
 		limiter:          newLoginLimiter(),
+		codexLogins:      newCodexLoginStore(),
 		endpoints:        endpoints,
 		endpointByRef:    endpointByRef,
 		localRuntime:     localRuntime,
@@ -399,6 +401,10 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
+	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(s.handleCodexAuthStatus))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
 	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
 	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))

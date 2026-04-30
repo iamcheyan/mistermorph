@@ -4,6 +4,7 @@ import "./SettingsView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import CodexAuthDialog from "../components/CodexAuthDialog";
 import LLMConfigForm from "../components/LLMConfigForm";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
@@ -12,6 +13,7 @@ import {
   applyLanguageChange,
   clearAuth,
   endpointState,
+  formatTime,
   loadEndpoints,
   localeState,
   runtimeEndpointByRef,
@@ -30,6 +32,7 @@ import {
   normalizeSetupProviderForSave,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
@@ -302,6 +305,7 @@ const SettingsView = {
   components: {
     AppKicker,
     AppPage,
+    CodexAuthDialog,
     LLMConfigForm,
     SetupConnectionTestDialog,
     SetupPickerDialog,
@@ -356,6 +360,25 @@ const SettingsView = {
       model: "",
     });
     const testConnectionTargetProfileKey = ref("");
+    const codexAuthLoading = ref(false);
+    const codexAuthBusy = ref(false);
+    const codexAuthError = ref("");
+    const codexAuthDialogOpen = ref(false);
+    const codexLoginSession = ref("");
+    const codexLoginVerificationURL = ref("");
+    const codexLoginUserCode = ref("");
+    const codexLoginExpiresAt = ref("");
+    let codexLoginPollTimer = 0;
+    const codexAuthStatus = reactive({
+      logged_in: false,
+      access_token_present: false,
+      refresh_token_present: false,
+      access_token_expired: false,
+      expires_at: "",
+      account_id: "",
+      file_mode_ok: true,
+      file_mode_warning: "",
+    });
 
     const state = reactive({
       llm: {
@@ -526,6 +549,48 @@ const SettingsView = {
     const defaultProviderChoice = computed(() =>
       normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
     );
+    const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showCodexAuthCard = computed(() => {
+      if (defaultIsCodexProvider.value) {
+        return true;
+      }
+      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
+    });
+    const codexAuthSummary = computed(() => {
+      if (codexAuthLoading.value) {
+        return t("settings_codex_auth_loading");
+      }
+      if (!codexAuthStatus.logged_in) {
+        return t("settings_codex_auth_signed_out");
+      }
+      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
+        return t("settings_codex_auth_refreshable");
+      }
+      if (codexAuthStatus.access_token_expired) {
+        return t("settings_codex_auth_expired");
+      }
+      return t("settings_codex_auth_signed_in");
+    });
+    const codexAuthButtonState = computed(() => {
+      if (codexAuthLoading.value) {
+        return "loading";
+      }
+      if (!codexAuthStatus.logged_in) {
+        return "signed-out";
+      }
+      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
+        return "refreshable";
+      }
+      if (codexAuthStatus.access_token_expired) {
+        return "expired";
+      }
+      return "signed-in";
+    });
+    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(codexAuthButtonState.value));
+    const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
+    const codexLoginExpiresLabel = computed(() =>
+      codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
+    );
     const defaultShowCloudflareAccountField = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const defaultShowBedrockFields = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_BEDROCK);
     const defaultCredentialFieldName = computed(() =>
@@ -600,6 +665,7 @@ const SettingsView = {
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
+        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -625,6 +691,15 @@ const SettingsView = {
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !llmDirty.value ||
+        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_key")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_secret")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_region")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
@@ -851,7 +926,7 @@ const SettingsView = {
           llmFieldEnvRawValue(envManaged, "provider") ||
           normalizeProviderForSave(profile.provider, profile.endpoint, true),
         endpoint:
-          effectiveProvider === SETUP_PROVIDER_BEDROCK
+          effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX || effectiveProvider === SETUP_PROVIDER_BEDROCK
             ? ""
             : llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
@@ -882,6 +957,14 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
+      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else {
         payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
         payload.bedrock_aws_key = "";
@@ -904,7 +987,9 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
-      if (endpointRaw !== "") {
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK) {
+        payload.endpoint = "";
+      } else if (endpointRaw !== "") {
         payload.endpoint = endpointRaw;
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
         const endpoint = trimText(state.llm.endpoint);
@@ -995,6 +1080,14 @@ const SettingsView = {
             payload.cloudflare_account_id = accountID;
           }
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else {
         const apiKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
         if (apiKeyRaw !== "") {
@@ -1017,10 +1110,161 @@ const SettingsView = {
         const data = await apiFetch("/settings/agent");
         llmConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyPayload(data);
+        if (showCodexAuthCard.value) {
+          await loadCodexAuthStatus();
+        }
       } catch (e) {
         agentErr.value = e.message || t("msg_load_failed");
       } finally {
         agentLoading.value = false;
+      }
+    }
+
+    function applyCodexAuthStatus(payload) {
+      const status = payload && typeof payload.status === "object" ? payload.status : payload;
+      codexAuthStatus.logged_in = status?.logged_in === true;
+      codexAuthStatus.access_token_present = status?.access_token_present === true;
+      codexAuthStatus.refresh_token_present = status?.refresh_token_present === true;
+      codexAuthStatus.access_token_expired = status?.access_token_expired === true;
+      codexAuthStatus.expires_at = typeof status?.expires_at === "string" ? status.expires_at : "";
+      codexAuthStatus.account_id = typeof status?.account_id === "string" ? status.account_id : "";
+      codexAuthStatus.file_mode_ok = status?.file_mode_ok !== false;
+      codexAuthStatus.file_mode_warning = typeof status?.file_mode_warning === "string" ? status.file_mode_warning : "";
+    }
+
+    async function loadCodexAuthStatus() {
+      codexAuthLoading.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/status");
+        applyCodexAuthStatus(payload);
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        codexAuthLoading.value = false;
+      }
+    }
+
+    function openCodexAuthDialog() {
+      const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
+      let authWindow = null;
+      if (shouldStartLogin) {
+        try {
+          // Open synchronously from the click event so popup blockers allow the auth tab.
+          authWindow = window.open("about:blank", "_blank");
+          if (authWindow) {
+            authWindow.opener = null;
+          }
+        } catch {}
+      }
+      codexAuthDialogOpen.value = true;
+      void loadCodexAuthStatus();
+      if (shouldStartLogin) {
+        void startCodexLogin(authWindow);
+      }
+    }
+
+    function clearCodexLoginTimer() {
+      if (codexLoginPollTimer) {
+        clearTimeout(codexLoginPollTimer);
+        codexLoginPollTimer = 0;
+      }
+    }
+
+    function resetCodexLoginSession() {
+      clearCodexLoginTimer();
+      codexLoginSession.value = "";
+      codexLoginVerificationURL.value = "";
+      codexLoginUserCode.value = "";
+      codexLoginExpiresAt.value = "";
+    }
+
+    function scheduleCodexLoginPoll(intervalSeconds = 5) {
+      clearCodexLoginTimer();
+      const delay = Math.max(2, Number(intervalSeconds) || 5) * 1000;
+      codexLoginPollTimer = window.setTimeout(() => {
+        void pollCodexLogin();
+      }, delay);
+    }
+
+    async function startCodexLogin(authWindow = null) {
+      if (codexAuthBusy.value) {
+        if (authWindow && !authWindow.closed) {
+          authWindow.close();
+        }
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      resetCodexLoginSession();
+      let authWindowUsed = false;
+      try {
+        const payload = await apiFetch("/auth/codex/login/start", { method: "POST" });
+        codexLoginSession.value = String(payload?.session_id || "").trim();
+        codexLoginVerificationURL.value = String(payload?.verification_url || "").trim();
+        codexLoginUserCode.value = String(payload?.user_code || "").trim();
+        codexLoginExpiresAt.value = String(payload?.expires_at || "").trim();
+        if (codexLoginVerificationURL.value) {
+          if (authWindow && !authWindow.closed) {
+            authWindow.location.href = codexLoginVerificationURL.value;
+            authWindowUsed = true;
+          } else {
+            window.open(codexLoginVerificationURL.value, "_blank", "noopener,noreferrer");
+          }
+        }
+        scheduleCodexLoginPoll(payload?.interval_seconds);
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        if (!authWindowUsed && authWindow && !authWindow.closed) {
+          authWindow.close();
+        }
+        codexAuthBusy.value = false;
+      }
+    }
+
+    async function pollCodexLogin() {
+      const sessionID = codexLoginSession.value;
+      if (!sessionID || codexAuthBusy.value) {
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/login/poll", {
+          method: "POST",
+          body: { session_id: sessionID, set_default: true },
+        });
+        if (payload?.pending === true) {
+          scheduleCodexLoginPoll(5);
+          return;
+        }
+        applyCodexAuthStatus(payload);
+        resetCodexLoginSession();
+        if (payload?.settings_updated === true) {
+          await loadAgentSettings();
+        }
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        codexAuthBusy.value = false;
+      }
+    }
+
+    async function logoutCodexAuth() {
+      if (codexAuthBusy.value) {
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/logout", { method: "POST" });
+        applyCodexAuthStatus(payload);
+        resetCodexLoginSession();
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_delete_failed");
+      } finally {
+        codexAuthBusy.value = false;
       }
     }
 
@@ -1119,7 +1363,10 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
-        payload.endpoint = provider === SETUP_PROVIDER_BEDROCK ? "" : trimText(state.llm.endpoint);
+        payload.endpoint =
+          provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK
+            ? ""
+            : trimText(state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
@@ -1144,6 +1391,14 @@ const SettingsView = {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
         payload.api_key = trimText(state.llm.api_key);
       }
@@ -1171,6 +1426,10 @@ const SettingsView = {
         allowEmpty: true,
       });
       return explicitProvider || defaultProviderChoice.value;
+    }
+
+    function profileUsesCodexProvider(profile) {
+      return effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
     function effectiveProfileFieldValue(profile, field) {
@@ -1209,6 +1468,9 @@ const SettingsView = {
       }
       if (!hasEffectiveProfileFieldValue(profile, "model")) {
         return true;
+      }
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        return !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
@@ -1655,6 +1917,7 @@ const SettingsView = {
 
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
+      clearCodexLoginTimer();
     });
 
     watch(
@@ -1688,6 +1951,26 @@ const SettingsView = {
         deleteProfileTargetKey.value = "";
       }
     });
+
+    watch(codexAuthDialogOpen, (open) => {
+      if (!open) {
+        resetCodexLoginSession();
+        codexAuthError.value = "";
+      }
+    });
+
+    watch(
+      showCodexAuthCard,
+      (visible) => {
+        if (visible) {
+          void loadCodexAuthStatus();
+        } else {
+          resetCodexLoginSession();
+          codexAuthError.value = "";
+        }
+      },
+      { immediate: false }
+    );
 
     return {
       t,
@@ -1745,12 +2028,30 @@ const SettingsView = {
       guardSaveDisabled,
       testConnectionDisabled,
       testConnectionDisabledForProfile,
+      showCodexAuthCard,
+      codexAuthLoading,
+      codexAuthBusy,
+      codexAuthError,
+      codexAuthDialogOpen,
+      codexAuthStatus,
+      codexAuthSummary,
+      codexAuthButtonState,
+      codexAuthButtonTitle,
+      codexLoginSession,
+      codexLoginVerificationURL,
+      codexLoginUserCode,
+      codexLoginExpiresLabel,
+      pollCodexLogin,
+      logoutCodexAuth,
+      loadCodexAuthStatus,
+      openCodexAuthDialog,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
       updateDefaultLLMField,
       updateProfileField,
       llmProfileEnvManaged,
+      profileUsesCodexProvider,
       addLLMProfile,
       confirmRemoveLLMProfile,
       removeLLMProfile,
@@ -1904,10 +2205,14 @@ const SettingsView = {
                         :enableModelPicker="true"
                         :showTestAction="true"
                         :testActionDisabled="testConnectionDisabled"
+                        :showCodexAuthAction="true"
+                        :codexAuthState="codexAuthButtonState"
+                        :codexAuthTitle="codexAuthButtonTitle"
                         @update-field="updateDefaultLLMField"
                         @open-api-base-picker="openAPIBasePicker"
                         @open-model-picker="openModelPicker"
                         @open-test="openTestConnection"
+                        @open-codex-auth="openCodexAuthDialog"
                       />
                     </section>
 
@@ -1957,8 +2262,12 @@ const SettingsView = {
                             :allowProviderInherit="true"
                             :showTestAction="true"
                             :testActionDisabled="testConnectionDisabledForProfile(profile)"
+                            :showCodexAuthAction="profileUsesCodexProvider(profile)"
+                            :codexAuthState="codexAuthButtonState"
+                            :codexAuthTitle="codexAuthButtonTitle"
                             @update-field="updateProfileField(profile._key, $event)"
                             @open-test="openTestConnection(profile._key)"
+                            @open-codex-auth="openCodexAuthDialog"
                           />
                         </article>
 
@@ -2549,6 +2858,7 @@ const SettingsView = {
         :items="apiBasePickerItems"
         :loading="false"
         :error="''"
+        :title="t('setup_llm_api_base_picker_title')"
         :filterPlaceholder="t('setup_llm_api_base_picker_filter_placeholder')"
         :emptyText="t('setup_llm_api_base_picker_empty')"
         @select="applyAPIBaseOption"
@@ -2559,6 +2869,7 @@ const SettingsView = {
         :items="modelPickerItems"
         :loading="modelPickerLoading"
         :error="modelPickerError"
+        :title="t('setup_llm_model_picker_title')"
         :filterPlaceholder="t('setup_llm_model_picker_filter_placeholder')"
         :emptyText="t('setup_llm_model_picker_empty')"
         :showValue="false"
@@ -2575,6 +2886,19 @@ const SettingsView = {
         :model="testConnectionMeta.model"
         :showIntro="false"
         @retry="runConnectionTest"
+      />
+      <CodexAuthDialog
+        v-model="codexAuthDialogOpen"
+        :loading="codexAuthLoading"
+        :busy="codexAuthBusy"
+        :error="codexAuthError"
+        :status="codexAuthStatus"
+        :summary="codexAuthSummary"
+        :loginSession="codexLoginSession"
+        :verificationURL="codexLoginVerificationURL"
+        :userCode="codexLoginUserCode"
+        :loginExpiresLabel="codexLoginExpiresLabel"
+        @logout="logoutCodexAuth"
       />
       <QMessageDialog
         v-model="deleteProfileDialogOpen"

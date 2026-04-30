@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	uniaiapi "github.com/quailyquaily/uniai"
 	"github.com/spf13/viper"
@@ -35,6 +37,7 @@ type RuntimeValues struct {
 	ReasoningBudgetRaw string `config:"llm.reasoning_budget_tokens"`
 	PricingFile        string `config:"llm.pricing_file"`
 	ConfigPath         string `config:"config"`
+	FileStateDir       string `config:"file_state_dir"`
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
@@ -68,6 +71,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		ReasoningBudgetRaw:     strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
 		PricingFile:            strings.TrimSpace(r.GetString("llm.pricing_file")),
 		ConfigPath:             strings.TrimSpace(r.GetString("config")),
+		FileStateDir:           strings.TrimSpace(r.GetString("file_state_dir")),
 		Profiles:               loadLLMProfilesFromReader(r),
 		Routes:                 loadLLMRoutesFromReader(r),
 		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
@@ -97,6 +101,8 @@ func ModelFromViper() string {
 func EndpointForProviderWithValues(provider string, values RuntimeValues) string {
 	provider = normalizeProvider(provider)
 	switch provider {
+	case "openai_codex":
+		return codexauth.DefaultAPIBase
 	case "cloudflare":
 		generic := strings.TrimSpace(values.Endpoint)
 		if generic != "" && generic != "https://api.openai.com" && generic != "https://api.openai.com/v1" {
@@ -111,6 +117,8 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 	provider = normalizeProvider(provider)
 	switch provider {
+	case "openai_codex":
+		return ""
 	case "cloudflare":
 		return firstNonEmpty(
 			values.CloudflareAPIToken,
@@ -128,6 +136,11 @@ func ModelForProviderWithValues(provider string, values RuntimeValues) string {
 		return firstNonEmpty(
 			values.AzureDeployment,
 			values.Model,
+		)
+	case "openai_codex":
+		return firstNonEmpty(
+			values.Model,
+			codexauth.DefaultModel,
 		)
 	default:
 		return strings.TrimSpace(values.Model)
@@ -168,6 +181,18 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 		uniaiProviderName = "openai"
 	}
 	switch provider {
+	case "openai_codex":
+		return codexProvider.New(codexProvider.Config{
+			Endpoint:           strings.TrimSpace(cfg.Endpoint),
+			Model:              strings.TrimSpace(cfg.Model),
+			Headers:            cloneStringMap(cfg.Headers),
+			Pricing:            pricing,
+			RequestTimeout:     cfg.RequestTimeout,
+			ToolsEmulationMode: toolsEmulationMode,
+			Temperature:        temperature,
+			ReasoningEffort:    reasoningEffort,
+			StateDir:           strings.TrimSpace(values.FileStateDir),
+		}), nil
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,

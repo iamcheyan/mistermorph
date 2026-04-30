@@ -14,6 +14,7 @@ import {
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPENAI_CODEX,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 
@@ -53,8 +54,17 @@ const LLMConfigForm = {
     enableModelPicker: Boolean,
     showTestAction: Boolean,
     testActionDisabled: Boolean,
+    showCodexAuthAction: Boolean,
+    codexAuthState: {
+      type: String,
+      default: "signed-out",
+    },
+    codexAuthTitle: {
+      type: String,
+      default: "",
+    },
   },
-  emits: ["update-field", "open-api-base-picker", "open-model-picker", "open-test"],
+  emits: ["update-field", "open-api-base-picker", "open-model-picker", "open-test", "open-codex-auth"],
   setup(props, { emit }) {
     const t = translate;
 
@@ -90,8 +100,11 @@ const LLMConfigForm = {
       return normalizeSetupProviderChoice(props.defaultProvider, { allowEmpty: true });
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
+    const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
-    const showEndpointField = computed(() => !showCloudflareAccountField.value && !showBedrockFields.value);
+    const showEndpointField = computed(
+      () => !showCloudflareAccountField.value && !showBedrockFields.value && !showCodexOAuthFields.value,
+    );
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
     );
@@ -122,6 +135,19 @@ const LLMConfigForm = {
       () =>
         setupProviderSupportsModelLookup(effectiveProviderChoice.value) &&
         (props.enableAPIBasePicker || props.enableModelPicker),
+    );
+    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.codexAuthState || "").trim()));
+    const codexAuthActionClass = computed(() =>
+      [
+        "outlined",
+        codexAuthNeedsLogin.value ? "" : "icon",
+        "settings-field-action",
+        "settings-codex-auth-button",
+        codexAuthNeedsLogin.value ? "is-login" : "",
+        `is-${String(props.codexAuthState || "signed-out").trim() || "signed-out"}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
     );
     const modelLookupDisabled = computed(
       () =>
@@ -212,6 +238,7 @@ const LLMConfigForm = {
       providerItem,
       effectiveProviderChoice,
       showCloudflareAccountField,
+      showCodexOAuthFields,
       showBedrockFields,
       showEndpointField,
       credentialLabelKey,
@@ -220,6 +247,8 @@ const LLMConfigForm = {
       reasoningEffortItem,
       toolsEmulationItem,
       showOpenAICompatibleHelpers,
+      codexAuthNeedsLogin,
+      codexAuthActionClass,
       modelLookupDisabled,
       credentialHelp,
       credentialHelpParts,
@@ -236,21 +265,37 @@ const LLMConfigForm = {
   },
   template: `
     <div class="settings-form-grid">
-      <label class="settings-field is-wide">
+      <div class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
         <div v-if="isFieldEnvManaged('provider')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("provider") }}</code>
           <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
         </div>
-        <QDropdownMenu
-          v-else
-          :key="String(config.provider || '') || 'provider'"
-          :items="providerItems"
-          :initialItem="providerItem"
-          :placeholder="t(providerPlaceholderKey)"
-          @change="onProviderChange"
-        />
-      </label>
+        <div v-else class="settings-field-control">
+          <QDropdownMenu
+            :key="String(config.provider || '') || 'provider'"
+            :items="providerItems"
+            :initialItem="providerItem"
+            :placeholder="t(providerPlaceholderKey)"
+            @change="onProviderChange"
+          />
+          <QButton
+            v-if="showCodexAuthAction && showCodexOAuthFields"
+            type="button"
+            :class="codexAuthActionClass"
+            :title="codexAuthTitle"
+            :aria-label="codexAuthTitle"
+            :disabled="busy"
+            @click.prevent="$emit('open-codex-auth')"
+          >
+            <QIconRefresh v-if="codexAuthState === 'loading'" class="icon" />
+            <QIconCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
+            <QIconRefresh v-else-if="codexAuthState === 'refreshable'" class="icon" />
+            <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
+            <QIconCloseCircle v-else class="icon" />
+          </QButton>
+        </div>
+      </div>
 
       <label v-if="showEndpointField" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
@@ -356,7 +401,7 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label v-if="!showBedrockFields" class="settings-field is-wide">
+      <label v-if="!showBedrockFields && !showCodexOAuthFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"
