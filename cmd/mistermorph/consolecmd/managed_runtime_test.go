@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestManagedRuntimeSupervisorReloadDisablesChannelMissingToken(t *testing.T) {
+func TestManagedRuntimeSupervisorReloadDisablesTelegramMissingToken(t *testing.T) {
 	local := &consoleLocalRuntime{managedRuntimeRunning: map[string]bool{}}
 	local.SetManagedRuntimeRunning("telegram", true)
 	supervisor := newManagedRuntimeSupervisor(local, false, false)
@@ -26,6 +26,9 @@ func TestManagedRuntimeSupervisorReloadDisablesChannelMissingToken(t *testing.T)
 	if err != nil {
 		t.Fatalf("ReloadConfig() error = %v, want nil", err)
 	}
+	if supervisor.configReader != next {
+		t.Fatal("configReader was not updated")
+	}
 	if got := supervisor.configReader.GetString("telegram.bot_token"); got != "" {
 		t.Fatalf("configReader.telegram.bot_token = %q, want empty", got)
 	}
@@ -37,7 +40,53 @@ func TestManagedRuntimeSupervisorReloadDisablesChannelMissingToken(t *testing.T)
 	}
 }
 
-func TestManagedRuntimeSupervisorSkipsSlackMissingToken(t *testing.T) {
+func TestManagedRuntimeSupervisorReloadDisablesSlackMissingTokens(t *testing.T) {
+	cases := []struct {
+		name    string
+		setNext func(*viper.Viper)
+	}{
+		{name: "missing bot token"},
+		{
+			name: "missing app token",
+			setNext: func(v *viper.Viper) {
+				v.Set("slack.bot_token", "xoxb-test")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			local := &consoleLocalRuntime{managedRuntimeRunning: map[string]bool{}}
+			local.SetManagedRuntimeRunning("slack", true)
+			supervisor := newManagedRuntimeSupervisor(local, false, false)
+			supervisor.parentCtx = context.Background()
+			supervisor.configReader = viper.New()
+			supervisor.kinds = []string{"slack"}
+
+			next := viper.New()
+			next.Set("console.managed_runtimes", []string{"slack"})
+			if tc.setNext != nil {
+				tc.setNext(next)
+			}
+
+			err := supervisor.ReloadConfig(next)
+			if err != nil {
+				t.Fatalf("ReloadConfig() error = %v, want nil", err)
+			}
+			if supervisor.configReader != next {
+				t.Fatal("configReader was not updated")
+			}
+			if len(supervisor.kinds) != 0 {
+				t.Fatalf("kinds = %#v, want empty", supervisor.kinds)
+			}
+			if local.isManagedRuntimeRunning("slack") {
+				t.Fatal("slack running = true, want false")
+			}
+		})
+	}
+}
+
+func TestManagedRuntimeSupervisorPrepareSkipsSlackMissingTokens(t *testing.T) {
 	cases := []struct {
 		name    string
 		setNext func(*viper.Viper)
