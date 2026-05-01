@@ -10,19 +10,19 @@ import (
 //go:embed all:static
 var embeddedConsoleAssets embed.FS
 
-var consoleStaticFS = mustConsoleStaticFS()
+var consoleStaticFS = loadEmbeddedConsoleStaticFS()
 
 func embeddedConsoleAssetsEnabled() bool {
-	return true
+	return consoleStaticFS != nil
 }
 
-func mustConsoleStaticFS() fs.FS {
+func loadEmbeddedConsoleStaticFS() fs.FS {
 	staticFS, err := fs.Sub(embeddedConsoleAssets, "static")
 	if err != nil {
-		panic("console embedded assets unavailable: " + err.Error())
+		return nil
 	}
 	if err := validateConsoleStaticFS(staticFS); err != nil {
-		panic(err.Error())
+		return nil
 	}
 	return staticFS
 }
