@@ -8,7 +8,15 @@ import (
 	"time"
 )
 
-var everyNDaysPattern = regexp.MustCompile(`^every\s+([1-9][0-9]*)\s+days?$`)
+var (
+	everyNDaysPattern  = regexp.MustCompile(`^every\s+([1-9][0-9]*)\s+days?$`)
+	everyNHoursPattern = regexp.MustCompile(`^every\s+([1-9][0-9]*)\s+hours?$`)
+)
+
+type recurringInterval struct {
+	Days  int
+	Hours int
+}
 
 type RecurringMaterializeResult struct {
 	Generated int `json:"generated"`
@@ -189,7 +197,7 @@ func nextRecurringTimeAfter(from time.Time, repeat string, after time.Time) (tim
 
 func nextRecurringTimeAfterInLocation(from time.Time, repeat string, after time.Time, loc *time.Location) (time.Time, error) {
 	repeat = normalizeRecurringRepeat(repeat)
-	days, err := recurringRepeatDays(repeat)
+	interval, err := recurringRepeatInterval(repeat)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -202,38 +210,47 @@ func nextRecurringTimeAfterInLocation(from time.Time, repeat string, after time.
 		return next, nil
 	}
 
-	elapsedDays := int(after.Sub(next).Hours() / 24)
-	steps := elapsedDays/days + 1
-	next = next.AddDate(0, 0, steps*days)
+	if interval.Days > 0 {
+		elapsedDays := int(after.Sub(next).Hours() / 24)
+		steps := elapsedDays/interval.Days + 1
+		next = next.AddDate(0, 0, steps*interval.Days)
+		for !next.After(after) {
+			next = next.AddDate(0, 0, interval.Days)
+		}
+		return next, nil
+	}
+
+	step := time.Duration(interval.Hours) * time.Hour
+	elapsedHours := int(after.Sub(next).Hours())
+	steps := elapsedHours/interval.Hours + 1
+	next = next.Add(time.Duration(steps) * step)
 	for !next.After(after) {
-		next = next.AddDate(0, 0, days)
+		next = next.Add(step)
 	}
 	return next, nil
 }
 
-func recurringRepeatDays(repeat string) (int, error) {
+func recurringRepeatInterval(repeat string) (recurringInterval, error) {
 	repeat = normalizeRecurringRepeat(repeat)
 	switch {
 	case repeat == "daily":
-		return 1, nil
+		return recurringInterval{Days: 1}, nil
 	case repeat == "weekly":
-		return 7, nil
+		return recurringInterval{Days: 7}, nil
 	default:
-		parsed, ok := parseEveryNDays(repeat)
-		if !ok {
-			return 0, fmt.Errorf("invalid Repeat: %s", strings.TrimSpace(repeat))
+		if days, ok := parseEveryNDays(repeat); ok {
+			return recurringInterval{Days: days}, nil
 		}
-		return parsed, nil
+		if hours, ok := parseEveryNHours(repeat); ok {
+			return recurringInterval{Hours: hours}, nil
+		}
+		return recurringInterval{}, fmt.Errorf("invalid Repeat: %s", strings.TrimSpace(repeat))
 	}
 }
 
 func validRecurringRepeat(raw string) bool {
-	raw = normalizeRecurringRepeat(raw)
-	if raw == "daily" || raw == "weekly" {
-		return true
-	}
-	_, ok := parseEveryNDays(raw)
-	return ok
+	_, err := recurringRepeatInterval(raw)
+	return err == nil
 }
 
 func normalizeRecurringRepeat(raw string) string {
@@ -250,6 +267,18 @@ func parseEveryNDays(raw string) (int, bool) {
 		return 0, false
 	}
 	return days, true
+}
+
+func parseEveryNHours(raw string) (int, bool) {
+	matches := everyNHoursPattern.FindStringSubmatch(normalizeRecurringRepeat(raw))
+	if len(matches) != 2 {
+		return 0, false
+	}
+	hours, err := strconv.Atoi(matches[1])
+	if err != nil || hours <= 0 {
+		return 0, false
+	}
+	return hours, true
 }
 
 func recurringLocation(tz string) (*time.Location, error) {

@@ -117,7 +117,7 @@ profile 設定、実行時の流れ、Codex adapter の注意点は [ACP](/ja/gu
   ```text
   - [ ] [Next](2026-05-02 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-100123) | Remind [John](tg:@john) to submit report.
   ```
-  `Repeat` は `daily`、`weekly`、`every N days` に対応しています。`TZ` は任意で、省略時は runtime のローカルタイムゾーンを使います。heartbeat は期限が来た繰り返しレコードを通常の `TODO.md` 項目へ展開し、`Next` を進めたうえで、現在の open な `TODO.md` 項目を heartbeat task に含めます。
+  `Repeat` は `daily`、`weekly`、`every N days`、`every N hours` に対応しています。`TZ` は任意で、省略時は runtime のローカルタイムゾーンを使います。heartbeat は期限が来た繰り返しレコードを通常の `TODO.md` 項目へ展開し、`Next` を進めたうえで、現在の open な `TODO.md` 項目を heartbeat task に含めます。
 
 ## 専用ツール
 

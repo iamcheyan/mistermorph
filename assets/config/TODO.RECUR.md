@@ -12,6 +12,7 @@ recurring_count: 0
 - [ ] [Next](2026-02-12 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-1001981343441) | Remind [John](tg:@johnwick) to submit the report.
 - [ ] [Next](2026-02-16 10:00), [Repeat](weekly) | Review open invoices.
 - [ ] [Next](2026-02-14 18:00), [Repeat](every 3 days) | Back up notes.
+- [ ] [Next](2026-02-14 18:00), [Repeat](every 6 hours) | Check the feeder.
 
 ==Example End==
 -->

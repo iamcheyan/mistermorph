@@ -122,7 +122,7 @@ profile 配置、运行时行为和 Codex 适配层示例，见 [ACP](/zh/guide/
 - [ ] [Next](2026-05-02 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-100123) | Remind [John](tg:@john) to submit report.
 ```
 
-当前支持的 `Repeat` 值是 `daily`、`weekly`、`every N days`。`TZ` 可选；省略时使用运行进程的本地时区。heartbeat 会把到期的循环记录展开成普通 `TODO.md` 待办，推进 `Next`，然后把当前 `TODO.md` 的 open items 一起放进 heartbeat task。
+当前支持的 `Repeat` 值是 `daily`、`weekly`、`every N days`、`every N hours`。`TZ` 可选；省略时使用运行进程的本地时区。heartbeat 会把到期的循环记录展开成普通 `TODO.md` 待办，推进 `Next`，然后把当前 `TODO.md` 的 open items 一起放进 heartbeat task。
 
 ## 专属工具
 

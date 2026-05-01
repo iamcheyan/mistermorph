@@ -93,7 +93,7 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 			},
 			"repeat": map[string]any{
 				"type":        "string",
-				"description": "Repeat rule for add_recurring: daily|weekly|every N days.",
+				"description": "Repeat rule for add_recurring: daily|weekly|every N days|every N hours.",
 			},
 			"tz": map[string]any{
 				"type":        "string",

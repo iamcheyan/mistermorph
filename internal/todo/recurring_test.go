@@ -36,6 +36,34 @@ recurring_count: 1
 	}
 }
 
+func TestParseAndRenderRECURWithHourlyRepeat(t *testing.T) {
+	raw := `---
+created_at: "1970-01-01T00:00:00Z"
+updated_at: "1970-01-01T00:00:00Z"
+recurring_count: 1
+---
+
+# TODO Recurring
+
+- [ ] [Next](2026-05-02 09:00), [Repeat](every 6 hours), [TZ](Asia/Tokyo) | Check the feeder.
+`
+	file, err := ParseRECUR(raw)
+	if err != nil {
+		t.Fatalf("ParseRECUR() error = %v", err)
+	}
+	if len(file.Entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(file.Entries))
+	}
+	entry := file.Entries[0]
+	if entry.Repeat != "every 6 hours" {
+		t.Fatalf("repeat = %q, want every 6 hours", entry.Repeat)
+	}
+	rendered := RenderRECUR(file)
+	if !strings.Contains(rendered, "[Repeat](every 6 hours)") {
+		t.Fatalf("rendered recurring entry missing hourly repeat:\n%s", rendered)
+	}
+}
+
 func TestParseRECURIgnoresHTMLCommentExamples(t *testing.T) {
 	raw := `---
 created_at: "1970-01-01T00:00:00Z"
@@ -133,6 +161,57 @@ func TestMaterializeDueRecurringAdvancesPastNow(t *testing.T) {
 	}
 	if got := next.Format(TimestampLayout); got != "2026-05-10 09:00" {
 		t.Fatalf("next = %q, want 2026-05-10 09:00", got)
+	}
+}
+
+func TestMaterializeDueRecurringAdvancesHourlyPastNow(t *testing.T) {
+	next, err := nextRecurringTimeAfter(
+		time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC),
+		"every 6 hours",
+		time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("nextRecurringTimeAfter() error = %v", err)
+	}
+	if got := next.Format(TimestampLayout); got != "2026-05-01 21:00" {
+		t.Fatalf("next = %q, want 2026-05-01 21:00", got)
+	}
+}
+
+func TestMaterializeDueRecurringWithHourlyTimezone(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"))
+	store.Now = func() time.Time {
+		return time.Date(2026, 5, 7, 8, 30, 0, 0, time.UTC)
+	}
+	if err := store.writeRECUR(RECURFile{
+		CreatedAt: "1970-01-01T00:00:00Z",
+		UpdatedAt: "1970-01-01T00:00:00Z",
+		Entries: []RecurringEntry{
+			{
+				NextAt:  "2026-05-07 15:00",
+				Repeat:  "every 2 hours",
+				TZ:      "Asia/Tokyo",
+				Content: "检查状态。",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("writeRECUR() error = %v", err)
+	}
+
+	result, err := store.MaterializeDueRecurring()
+	if err != nil {
+		t.Fatalf("MaterializeDueRecurring() error = %v", err)
+	}
+	if result.Generated != 1 {
+		t.Fatalf("generated = %d, want 1", result.Generated)
+	}
+	updated, _, err := store.readRECUR(store.nowUTC())
+	if err != nil {
+		t.Fatalf("readRECUR() error = %v", err)
+	}
+	if got := updated.Entries[0].NextAt; got != "2026-05-07 19:00" {
+		t.Fatalf("advanced next = %q, want 2026-05-07 19:00", got)
 	}
 }
 

@@ -117,7 +117,7 @@ Maintains `TODO.md` / `TODO.DONE.md` under `file_state_dir`, including add and c
   ```text
   - [ ] [Next](2026-05-02 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-100123) | Remind [John](tg:@john) to submit report.
   ```
-  Supported repeat values are `daily`, `weekly`, and `every N days`. `TZ` is optional; when omitted, the runtime local timezone is used. Heartbeat expands due recurring records into ordinary `TODO.md` items, advances `Next`, then includes the current open `TODO.md` items in the heartbeat task.
+  Supported repeat values are `daily`, `weekly`, `every N days`, and `every N hours`. `TZ` is optional; when omitted, the runtime local timezone is used. Heartbeat expands due recurring records into ordinary `TODO.md` items, advances `Next`, then includes the current open `TODO.md` items in the heartbeat task.
 
 ## Dedicated Tools
 
