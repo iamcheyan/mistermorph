@@ -13,6 +13,7 @@ const (
 	ScriptsNotesFilename       = "SCRIPTS.md"
 	TODOWIPFilename            = "TODO.md"
 	TODODONEFilename           = "TODO.DONE.md"
+	TODORECURFilename          = "TODO.RECUR.md"
 )
 
 func FileStateDir() string {
@@ -85,6 +86,10 @@ func TODOWIPPath() string {
 
 func TODODONEPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODODONEFilename)
+}
+
+func TODORECURPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODORECURFilename)
 }
 
 func WorkspaceAttachmentsPath() string {

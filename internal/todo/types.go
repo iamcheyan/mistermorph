@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	TimestampLayout     = entryutil.TimestampLayout
-	HeaderWIP           = "# TODO Work In Progress (WIP)"
-	HeaderDONE          = "# TODO Done"
-	DefaultWIPFilename  = "TODO.md"
-	DefaultDONEFilename = "TODO.DONE.md"
+	TimestampLayout      = entryutil.TimestampLayout
+	HeaderWIP            = "# TODO Work In Progress (WIP)"
+	HeaderDONE           = "# TODO Done"
+	HeaderRECUR          = "# TODO Recurring"
+	DefaultWIPFilename   = "TODO.md"
+	DefaultDONEFilename  = "TODO.DONE.md"
+	DefaultRECURFilename = "TODO.RECUR.md"
 )
 
 type Entry struct {
@@ -21,6 +23,14 @@ type Entry struct {
 	DoneAt    string `json:"done_at,omitempty"`
 	ChatID    string `json:"chat_id,omitempty"`
 	Content   string `json:"content"`
+}
+
+type RecurringEntry struct {
+	NextAt  string `json:"next_at"`
+	Repeat  string `json:"repeat"`
+	TZ      string `json:"tz,omitempty"`
+	ChatID  string `json:"chat_id,omitempty"`
+	Content string `json:"content"`
 }
 
 type WIPFile struct {
@@ -37,6 +47,13 @@ type DONEFile struct {
 	Entries   []Entry `json:"entries"`
 }
 
+type RECURFile struct {
+	CreatedAt      string           `json:"created_at"`
+	UpdatedAt      string           `json:"updated_at"`
+	RecurringCount int              `json:"recurring_count"`
+	Entries        []RecurringEntry `json:"entries"`
+}
+
 type Changed struct {
 	WIPAdded   int `json:"wip_added"`
 	WIPRemoved int `json:"wip_removed"`
@@ -50,6 +67,15 @@ type UpdateResult struct {
 	Changed       Changed  `json:"changed"`
 	Entry         *Entry   `json:"entry,omitempty"`
 	Warnings      []string `json:"warnings,omitempty"`
+}
+
+type RecurringUpdateResult struct {
+	OK             bool            `json:"ok"`
+	Action         string          `json:"action"`
+	RecurringCount int             `json:"recurring_count"`
+	Changed        Changed         `json:"changed"`
+	Entry          *RecurringEntry `json:"entry,omitempty"`
+	Warnings       []string        `json:"warnings,omitempty"`
 }
 
 type Counts struct {
@@ -74,8 +100,9 @@ type SemanticResolver interface {
 }
 
 type Store struct {
-	WIPPath   string
-	DONEPath  string
-	Now       func() time.Time
-	Semantics SemanticResolver
+	WIPPath       string
+	DONEPath      string
+	RecurringPath string
+	Now           func() time.Time
+	Semantics     SemanticResolver
 }

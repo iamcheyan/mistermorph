@@ -44,6 +44,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/streaming"
+	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -1316,7 +1317,13 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
 	}
-	promptAugment := func(spec *agent.PromptSpec, _ *tools.Registry) {
+	promptAugment := func(spec *agent.PromptSpec, reg *tools.Registry) {
+		toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
+			Channel:         "console",
+			ChatType:        "topic",
+			SpeakerUsername: consoleParticipantKey,
+			UserInputRaw:    job.Task,
+		})
 		prefixBlocks := make([]agent.PromptBlock, 0, 2)
 		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 			prefixBlocks = append(prefixBlocks, block)

@@ -6,6 +6,7 @@ config.yaml
 .ai
 .cursor/
 .codex
+.bin
 go.work
 go.work.sum
 dump

@@ -3,10 +3,14 @@ package heartbeatutil
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/entryutil"
+	"github.com/quailyquaily/mistermorph/internal/todo"
 )
 
 const (
@@ -16,6 +20,9 @@ const (
 var heartbeatHTMLComment = regexp.MustCompile(`(?s)<!--.*?-->`)
 
 func BuildHeartbeatTask(checklistPath string) (string, bool, error) {
+	if err := materializeDueRecurringTodos(checklistPath); err != nil {
+		return "", true, err
+	}
 	checklist, empty, err := readHeartbeatChecklist(checklistPath)
 	if err != nil {
 		return "", true, err
@@ -23,7 +30,88 @@ func BuildHeartbeatTask(checklistPath string) (string, bool, error) {
 	if empty {
 		return "", true, nil
 	}
+	checklist, err = appendOpenTodos(checklistPath, checklist)
+	if err != nil {
+		return "", true, err
+	}
 	return checklist, false, nil
+}
+
+func appendOpenTodos(checklistPath string, task string) (string, error) {
+	task = strings.TrimSpace(task)
+	todoPath := todoWIPPathForChecklist(checklistPath)
+	if todoPath == "" {
+		return task, nil
+	}
+	raw, err := os.ReadFile(todoPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return task, nil
+		}
+		return "", err
+	}
+	wip, err := todo.ParseWIP(string(raw))
+	if err != nil {
+		return "", err
+	}
+	if len(wip.Entries) == 0 {
+		return task, nil
+	}
+	var b strings.Builder
+	if task != "" {
+		b.WriteString(task)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Current TODO.md Open Items\n\n")
+	for _, item := range wip.Entries {
+		line := heartbeatTODOEntryLine(item)
+		if line == "" {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+func heartbeatTODOEntryLine(item todo.Entry) string {
+	content := strings.TrimSpace(item.Content)
+	createdAt := strings.TrimSpace(item.CreatedAt)
+	if content == "" || !entryutil.IsValidTimestamp(createdAt) {
+		return ""
+	}
+	meta := []string{entryutil.FormatMetadataTuple("Created", createdAt)}
+	if chatID := strings.TrimSpace(item.ChatID); chatID != "" {
+		meta = append(meta, entryutil.FormatMetadataTuple("ChatID", chatID))
+	}
+	return "- [ ] " + strings.Join(meta, ", ") + " | " + content
+}
+
+func materializeDueRecurringTodos(checklistPath string) error {
+	checklistPath = strings.TrimSpace(checklistPath)
+	todoPath := todoWIPPathForChecklist(checklistPath)
+	if todoPath == "" {
+		return nil
+	}
+	store := todo.NewStore(
+		todoPath,
+		filepath.Join(filepath.Dir(todoPath), todo.DefaultDONEFilename),
+	)
+	store.RecurringPath = filepath.Join(filepath.Dir(todoPath), todo.DefaultRECURFilename)
+	_, err := store.MaterializeDueRecurring()
+	return err
+}
+
+func todoWIPPathForChecklist(checklistPath string) string {
+	checklistPath = strings.TrimSpace(checklistPath)
+	if checklistPath == "" {
+		return ""
+	}
+	stateDir := filepath.Dir(checklistPath)
+	if strings.TrimSpace(stateDir) == "" || stateDir == "." {
+		return ""
+	}
+	return filepath.Join(stateDir, todo.DefaultWIPFilename)
 }
 
 func BuildHeartbeatMeta(source string, interval time.Duration, checklistPath string, checklistEmpty bool, state *State, extra map[string]any) map[string]any {

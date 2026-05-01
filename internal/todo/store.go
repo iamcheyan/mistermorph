@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,10 +12,15 @@ import (
 func NewStore(wipPath string, donePath string) *Store {
 	wipPath = pathutil.ExpandHomePath(strings.TrimSpace(wipPath))
 	donePath = pathutil.ExpandHomePath(strings.TrimSpace(donePath))
+	recurringPath := ""
+	if wipPath != "" {
+		recurringPath = filepath.Join(filepath.Dir(wipPath), DefaultRECURFilename)
+	}
 	return &Store{
-		WIPPath:  wipPath,
-		DONEPath: donePath,
-		Now:      time.Now,
+		WIPPath:       wipPath,
+		DONEPath:      donePath,
+		RecurringPath: recurringPath,
+		Now:           time.Now,
 	}
 }
 
@@ -106,6 +112,57 @@ func (s *Store) readDONE(now time.Time) (DONEFile, error) {
 	}
 	done.DoneCount = len(done.Entries)
 	return done, nil
+}
+
+func (s *Store) readRECUR(now time.Time) (RECURFile, bool, error) {
+	nowRFC3339 := now.UTC().Format(time.RFC3339)
+	path := strings.TrimSpace(s.RecurringPath)
+	if path == "" {
+		return RECURFile{
+			CreatedAt:      nowRFC3339,
+			UpdatedAt:      nowRFC3339,
+			RecurringCount: 0,
+			Entries:        nil,
+		}, false, nil
+	}
+	text, exists, err := fsstore.ReadText(path)
+	if err != nil {
+		return RECURFile{}, false, err
+	}
+	if !exists || strings.TrimSpace(text) == "" {
+		return RECURFile{
+			CreatedAt:      nowRFC3339,
+			UpdatedAt:      nowRFC3339,
+			RecurringCount: 0,
+			Entries:        nil,
+		}, exists, nil
+	}
+	recur, err := ParseRECUR(text)
+	if err != nil {
+		return RECURFile{}, exists, err
+	}
+	if strings.TrimSpace(recur.CreatedAt) == "" {
+		recur.CreatedAt = nowRFC3339
+	}
+	if strings.TrimSpace(recur.UpdatedAt) == "" {
+		recur.UpdatedAt = nowRFC3339
+	}
+	recur.RecurringCount = len(recur.Entries)
+	return recur, exists, nil
+}
+
+func (s *Store) writeRECUR(file RECURFile) error {
+	path := strings.TrimSpace(s.RecurringPath)
+	if path == "" {
+		return nil
+	}
+	now := s.nowUTC().Format(time.RFC3339)
+	if strings.TrimSpace(file.CreatedAt) == "" {
+		file.CreatedAt = now
+	}
+	file.UpdatedAt = now
+	file.RecurringCount = len(file.Entries)
+	return fsstore.WriteTextAtomic(path, RenderRECUR(file), fsstore.FileOptions{DirPerm: 0o700, FilePerm: 0o600})
 }
 
 func (s *Store) nowUTC() time.Time {

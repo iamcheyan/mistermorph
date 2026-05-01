@@ -610,6 +610,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			diagnoseFileReadable("contacts_inactive", paths.contactsInactive),
 			diagnoseFileReadable("todo_wip", paths.todoWIP),
 			diagnoseFileReadable("todo_done", paths.todoDone),
+			diagnoseFileReadable("todo_recurring", paths.todoRecurring),
 			diagnoseFileReadable("persona_identity", paths.identityPath),
 			diagnoseFileReadable("persona_soul", paths.soulPath),
 			diagnoseFileReadable("heartbeat_checklist", paths.heartbeatPath),
@@ -1607,6 +1608,7 @@ type runtimeStatePaths struct {
 	scriptsPath      string
 	todoWIP          string
 	todoDone         string
+	todoRecurring    string
 	auditPath        string
 }
 
@@ -1627,6 +1629,7 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		scriptsPath:      statepaths.ScriptsNotesPath(),
 		todoWIP:          statepaths.TODOWIPPath(),
 		todoDone:         statepaths.TODODONEPath(),
+		todoRecurring:    statepaths.TODORECURPath(),
 		auditPath:        resolveGuardAuditPath(stateDir),
 	}
 }
@@ -1684,6 +1687,7 @@ func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 	return []stateFileSpec{
 		{Name: "TODO.md", Group: "todo", Path: paths.todoWIP},
 		{Name: "TODO.DONE.md", Group: "todo", Path: paths.todoDone},
+		{Name: "TODO.RECUR.md", Group: "todo", Path: paths.todoRecurring},
 		{Name: "ACTIVE.md", Group: "contacts", Path: paths.contactsActive},
 		{Name: "INACTIVE.md", Group: "contacts", Path: paths.contactsInactive},
 		{Name: "IDENTITY.md", Group: "persona", Path: paths.identityPath},

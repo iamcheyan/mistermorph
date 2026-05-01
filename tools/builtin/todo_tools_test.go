@@ -157,6 +157,131 @@ func TestTodoUpdateToolAddWithChatIDParam(t *testing.T) {
 	}
 }
 
+func TestTodoUpdateToolAddRecurring(t *testing.T) {
+	root := t.TempDir()
+	wip := filepath.Join(root, "TODO.md")
+	done := filepath.Join(root, "TODO.DONE.md")
+	contactsDir := filepath.Join(root, "contacts")
+	client := &stubTodoToolLLMClient{}
+	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
+	out, err := update.Execute(context.Background(), map[string]any{
+		"action":  "add_recurring",
+		"content": "去打网球。",
+		"next":    "2026-05-07 15:00",
+		"repeat":  "weekly",
+		"tz":      "Asia/Tokyo",
+	})
+	if err != nil {
+		t.Fatalf("todo_update add_recurring error = %v", err)
+	}
+	var parsed struct {
+		OK             bool `json:"ok"`
+		RecurringCount int  `json:"recurring_count"`
+		Entry          struct {
+			NextAt  string `json:"next_at"`
+			Repeat  string `json:"repeat"`
+			TZ      string `json:"tz"`
+			Content string `json:"content"`
+		} `json:"entry"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("todo_update add_recurring json parse error = %v", err)
+	}
+	if !parsed.OK || parsed.RecurringCount != 1 {
+		t.Fatalf("unexpected add_recurring result: %s", out)
+	}
+	if parsed.Entry.NextAt != "2026-05-07 15:00" || parsed.Entry.Repeat != "weekly" || parsed.Entry.TZ != "Asia/Tokyo" || parsed.Entry.Content != "去打网球。" {
+		t.Fatalf("entry mismatch: %#v", parsed.Entry)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("expected no llm calls for recurring task without people, got %d", len(client.calls))
+	}
+
+	if _, err := os.Stat(wip); !os.IsNotExist(err) {
+		t.Fatalf("TODO.md should not be created by add_recurring, stat err=%v", err)
+	}
+	recurRaw, err := os.ReadFile(filepath.Join(root, "TODO.RECUR.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(TODO.RECUR.md) error = %v", err)
+	}
+	recurFile, err := todo.ParseRECUR(string(recurRaw))
+	if err != nil {
+		t.Fatalf("ParseRECUR() error = %v", err)
+	}
+	if len(recurFile.Entries) != 1 {
+		t.Fatalf("recurring entries = %d, want 1", len(recurFile.Entries))
+	}
+}
+
+func TestTodoUpdateToolAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.T) {
+	root := t.TempDir()
+	wip := filepath.Join(root, "TODO.md")
+	done := filepath.Join(root, "TODO.DONE.md")
+	contactsDir := filepath.Join(root, "contacts")
+	seedTodoContacts(t, contactsDir)
+
+	client := &stubTodoToolLLMClient{
+		replies: []string{
+			`{"status":"ok","rewritten_content":"提醒$SPEAKER去打网球。"}`,
+		},
+	}
+	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
+	update.SetAddContext(todo.AddResolveContext{
+		Channel:         "console",
+		ChatType:        "topic",
+		SpeakerUsername: "console:user",
+		UserInputRaw:    "每周四东京时间下午 3 点，提醒我去打网球。",
+	})
+	out, err := update.Execute(context.Background(), map[string]any{
+		"action":  "add_recurring",
+		"content": "提醒我去打网球。",
+		"people":  []any{"$SPEAKER"},
+		"next":    "2026-05-07 15:00",
+		"repeat":  "weekly",
+		"tz":      "Asia/Tokyo",
+	})
+	if err != nil {
+		t.Fatalf("todo_update add_recurring error = %v", err)
+	}
+	var parsed struct {
+		OK    bool `json:"ok"`
+		Entry struct {
+			Content string `json:"content"`
+		} `json:"entry"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("todo_update add_recurring json parse error = %v", err)
+	}
+	if !parsed.OK || parsed.Entry.Content != "提醒[我](console:user)去打网球。" {
+		t.Fatalf("unexpected add_recurring result: %s", out)
+	}
+	recurRaw, err := os.ReadFile(filepath.Join(root, "TODO.RECUR.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(TODO.RECUR.md) error = %v", err)
+	}
+	recurText := string(recurRaw)
+	if strings.Contains(recurText, "$SPEAKER") {
+		t.Fatalf("TODO.RECUR.md should not contain raw $SPEAKER: %s", recurText)
+	}
+	if !strings.Contains(recurText, "[我](console:user)") {
+		t.Fatalf("TODO.RECUR.md missing console speaker ref: %s", recurText)
+	}
+}
+
+func TestTodoUpdateToolAddRecurringRejectsUnresolvedPlaceholder(t *testing.T) {
+	root := t.TempDir()
+	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"), &stubTodoToolLLMClient{}, "gpt-5.2")
+	_, err := update.Execute(context.Background(), map[string]any{
+		"action":  "add_recurring",
+		"content": "提醒$SPEAKER去打网球。",
+		"next":    "2026-05-07 15:00",
+		"repeat":  "weekly",
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "unresolved reference placeholder") {
+		t.Fatalf("expected unresolved placeholder error, got %v", err)
+	}
+}
+
 func TestTodoUpdateToolAddRejectsInvalidChatID(t *testing.T) {
 	root := t.TempDir()
 	wip := filepath.Join(root, "TODO.md")

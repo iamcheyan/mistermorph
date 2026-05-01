@@ -122,6 +122,7 @@ func (r *LLMReferenceResolver) ResolveAddContent(ctx context.Context, content st
 		"If `input_raw` mentions a time (explicit or relative), resolve it with current time context in `runtime` (now_local/now_utc) and rewrite it as exact `YYYY-MM-DD hh:mm`.",
 		"Must consider first-person references with speaker context: ",
 		"- if the speaker mention themselves (like 'I', 'me', '$SPEAKER'), resolve to their own contact if available; similarly, resolve mentions of the speaker's direct interlocutors to those contacts if available;",
+		"- if runtime.speaker_username is already a valid `protocol:id`, use it as the speaker reference id;",
 		"Attach IDs as `[Name](protocol:id)`, where id may be from reachable_ids, example input:",
 		"Notice $SPEAKER to tell Alice invites Bob to the meeting of Lucy.",
 		"and rewritten content (assume the $SPEAKER is 'Lyric'): ",
@@ -205,10 +206,7 @@ func normalizeAddResolveContext(in AddResolveContext) AddResolveContext {
 		UserInputRaw:  strings.TrimSpace(in.UserInputRaw),
 		SpeakerUsername: func() string {
 			v := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(in.SpeakerUsername), "@"))
-			if v == "" {
-				return ""
-			}
-			return strings.ToLower(v)
+			return v
 		}(),
 	}
 	if len(in.MentionUsernames) > 0 {

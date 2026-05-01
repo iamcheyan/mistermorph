@@ -309,6 +309,32 @@ func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
 	}
 }
 
+func TestBuildConsolePromptMessagesOmitsHistoryForHeartbeat(t *testing.T) {
+	rt := &consoleLocalRuntime{}
+	history, current, err := rt.buildConsolePromptMessages(consoleLocalTaskJob{
+		TaskID:    "heartbeat_1",
+		TopicID:   "_heartbeat",
+		Task:      "# Heartbeat Checklist\n\n## Check TODO.md",
+		CreatedAt: time.Date(2026, time.May, 1, 12, 0, 0, 0, time.UTC),
+		Trigger:   daemonruntime.TaskTrigger{Source: "heartbeat"},
+	})
+	if err != nil {
+		t.Fatalf("buildConsolePromptMessages() error = %v", err)
+	}
+	if len(history) != 0 {
+		t.Fatalf("history messages = %d, want 0", len(history))
+	}
+	if current == nil {
+		t.Fatal("current message is nil")
+	}
+	if current.Content != "# Heartbeat Checklist\n\n## Check TODO.md" {
+		t.Fatalf("current content = %q", current.Content)
+	}
+	if strings.Contains(current.Content, "chat_history_messages") {
+		t.Fatalf("heartbeat prompt should not mention chat_history_messages: %q", current.Content)
+	}
+}
+
 func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 	base := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
 	tasks := make([]daemonruntime.TaskInfo, 0, 10)

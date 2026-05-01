@@ -16,6 +16,7 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 	paths := runtimeStatePaths{
 		todoWIP:          "/tmp/TODO.md",
 		todoDone:         "/tmp/TODO.DONE.md",
+		todoRecurring:    "/tmp/TODO.RECUR.md",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
 		identityPath:     "/tmp/IDENTITY.md",
@@ -25,8 +26,8 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 	}
 
 	items := describeStateFiles(paths, "")
-	if len(items) != 8 {
-		t.Fatalf("len(items) = %d, want 8", len(items))
+	if len(items) != 9 {
+		t.Fatalf("len(items) = %d, want 9", len(items))
 	}
 
 	foundHeartbeat := false
@@ -45,6 +46,7 @@ func TestResolveStateFileSpec(t *testing.T) {
 	paths := runtimeStatePaths{
 		todoWIP:          "/tmp/TODO.md",
 		todoDone:         "/tmp/TODO.DONE.md",
+		todoRecurring:    "/tmp/TODO.RECUR.md",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
 		identityPath:     "/tmp/IDENTITY.md",
@@ -99,8 +101,8 @@ func TestStateFilesRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(payload.Items) != 8 {
-		t.Fatalf("len(items) = %d, want 8", len(payload.Items))
+	if len(payload.Items) != 9 {
+		t.Fatalf("len(items) = %d, want 9", len(payload.Items))
 	}
 }
 
