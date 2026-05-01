@@ -73,7 +73,6 @@ type RecurringUpdateResult struct {
 	OK             bool            `json:"ok"`
 	Action         string          `json:"action"`
 	RecurringCount int             `json:"recurring_count"`
-	Changed        Changed         `json:"changed"`
 	Entry          *RecurringEntry `json:"entry,omitempty"`
 	Warnings       []string        `json:"warnings,omitempty"`
 }

@@ -38,12 +38,7 @@ func (s *Store) AddRecurringWithChatID(raw string, nextAt string, repeat string,
 		OK:             true,
 		Action:         "add_recurring",
 		RecurringCount: len(recur.Entries),
-		Changed: Changed{
-			WIPAdded:   0,
-			WIPRemoved: 0,
-			DONEAdded:  0,
-		},
-		Entry: &entry,
+		Entry:          &entry,
 	}, nil
 }
 
@@ -83,7 +78,7 @@ func (s *Store) MaterializeDueRecurring() (RecurringMaterializeResult, error) {
 		return RecurringMaterializeResult{}, nil
 	}
 
-	wip, done, err := s.readFiles()
+	wip, err := s.readWIP(now)
 	if err != nil {
 		return RecurringMaterializeResult{}, err
 	}
@@ -126,7 +121,7 @@ func (s *Store) MaterializeDueRecurring() (RecurringMaterializeResult, error) {
 	if err := validateWIPEntries(wip.Entries); err != nil {
 		return RecurringMaterializeResult{}, err
 	}
-	if err := s.writeFiles(wip, done); err != nil {
+	if err := s.writeWIP(wip); err != nil {
 		return RecurringMaterializeResult{}, err
 	}
 	if err := s.writeRECUR(recur); err != nil {

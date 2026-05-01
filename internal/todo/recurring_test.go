@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -90,6 +91,9 @@ func TestMaterializeDueRecurring(t *testing.T) {
 	}
 	if result.Generated != 1 || result.Advanced != 1 {
 		t.Fatalf("result = %#v, want one generated and advanced", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "TODO.DONE.md")); !os.IsNotExist(err) {
+		t.Fatalf("TODO.DONE.md should not be created by recurring materialize, stat err=%v", err)
 	}
 
 	wip, _, err := store.readFiles()

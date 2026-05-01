@@ -58,6 +58,16 @@ func (s *Store) writeFiles(wip WIPFile, done DONEFile) error {
 	return nil
 }
 
+func (s *Store) writeWIP(wip WIPFile) error {
+	now := s.nowUTC().Format(time.RFC3339)
+	if strings.TrimSpace(wip.CreatedAt) == "" {
+		wip.CreatedAt = now
+	}
+	wip.UpdatedAt = now
+	wip.OpenCount = len(wip.Entries)
+	return fsstore.WriteTextAtomic(s.WIPPath, RenderWIP(wip), fsstore.FileOptions{DirPerm: 0o700, FilePerm: 0o600})
+}
+
 func (s *Store) readWIP(now time.Time) (WIPFile, error) {
 	nowRFC3339 := now.UTC().Format(time.RFC3339)
 	text, exists, err := fsstore.ReadText(s.WIPPath)
