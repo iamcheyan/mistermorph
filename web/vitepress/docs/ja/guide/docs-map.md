@@ -14,6 +14,7 @@ description: より詳細な設計・実装文書への入口。
   - [Runtime モード](/ja/guide/runtime-modes)
   - [Prompt 設計](/ja/guide/prompt-architecture)
   - [Memory](/ja/guide/memory)
+  - [TODO と Heartbeat](/ja/guide/todo-and-heartbeat)
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
   - [Subagents](/ja/guide/subagents)

@@ -23,30 +23,33 @@ func BuildHeartbeatTask(checklistPath string) (string, bool, error) {
 	if err := materializeDueRecurringTodos(checklistPath); err != nil {
 		return "", true, err
 	}
-	checklist, empty, err := readHeartbeatChecklist(checklistPath)
+	todoBlock, err := readOpenTodosBlock(checklistPath)
 	if err != nil {
 		return "", true, err
 	}
-	if empty {
-		return "", true, nil
-	}
-	checklist, err = appendOpenTodos(checklistPath, checklist)
+	checklist, checklistEmpty, err := readHeartbeatChecklist(checklistPath)
 	if err != nil {
 		return "", true, err
 	}
-	return checklist, false, nil
+	var sections []string
+	if todoBlock != "" {
+		sections = append(sections, todoBlock)
+	}
+	if checklist != "" {
+		sections = append(sections, checklist)
+	}
+	return strings.Join(sections, "\n\n"), checklistEmpty, nil
 }
 
-func appendOpenTodos(checklistPath string, task string) (string, error) {
-	task = strings.TrimSpace(task)
+func readOpenTodosBlock(checklistPath string) (string, error) {
 	todoPath := todoWIPPathForChecklist(checklistPath)
 	if todoPath == "" {
-		return task, nil
+		return "", nil
 	}
 	raw, err := os.ReadFile(todoPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return task, nil
+			return "", nil
 		}
 		return "", err
 	}
@@ -55,13 +58,9 @@ func appendOpenTodos(checklistPath string, task string) (string, error) {
 		return "", err
 	}
 	if len(wip.Entries) == 0 {
-		return task, nil
+		return "", nil
 	}
 	var b strings.Builder
-	if task != "" {
-		b.WriteString(task)
-		b.WriteString("\n\n")
-	}
 	b.WriteString("## Current TODO.md Open Items\n\n")
 	for _, item := range wip.Entries {
 		line := heartbeatTODOEntryLine(item)

@@ -72,6 +72,14 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
+        slug: 'todo-and-heartbeat',
+        text: {
+          en: 'TODO and Heartbeat',
+          zh: '待办事项与 Heartbeat',
+          ja: 'TODO と Heartbeat'
+        }
+      },
+      {
         slug: 'skills',
         text: {
           en: 'Skills',

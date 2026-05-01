@@ -14,6 +14,7 @@ description: 仓库中更完整设计文档的入口索引。
   - [Runtime 模式](/zh/guide/runtime-modes)
   - [Prompt 组织](/zh/guide/prompt-architecture)
   - [Memory](/zh/guide/memory)
+  - [待办事项与 Heartbeat](/zh/guide/todo-and-heartbeat)
   - [Skills](/zh/guide/skills)
   - [内置工具](/zh/guide/built-in-tools)
   - [Subagents](/zh/guide/subagents)

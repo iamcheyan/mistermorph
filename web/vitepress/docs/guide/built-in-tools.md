@@ -110,14 +110,12 @@ Generates structured execution-plan JSON, typically for complex task decompositi
 
 ### `todo_update`
 
-Maintains `TODO.md` / `TODO.DONE.md` under `file_state_dir`, including add and complete operations.
+Maintains todo files under `file_state_dir`, including one-off todos in `TODO.md`, completed one-off todos in `TODO.DONE.md`, and recurring todos in `TODO.RECUR.md`.
 
 - Key limits: `add` requires `people`; `complete` uses semantic matching and will error on no-match or ambiguous match.
-- Recurring todos are added with `action=add_recurring` and stored in `TODO.RECUR.md` under `file_state_dir`:
-  ```text
-  - [ ] [Next](2026-05-02 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-100123) | Remind [John](tg:@john) to submit report.
-  ```
-  Supported repeat values are `daily`, `weekly`, `every N days`, and `every N hours`. `TZ` is optional; when omitted, the runtime local timezone is used. Heartbeat expands due recurring records into ordinary `TODO.md` items, advances `Next`, then includes the current open `TODO.md` items in the heartbeat task.
+- Recurring todos are added with `action=add_recurring`.
+
+For the runtime workflow around TODO files and `HEARTBEAT.md`, see [TODO and Heartbeat](/guide/todo-and-heartbeat).
 
 ## Dedicated Tools
 

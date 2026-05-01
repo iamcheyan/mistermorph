@@ -14,6 +14,7 @@ description: Where to find deeper design and runtime documents in the repo.
   - [Runtime Modes](/guide/runtime-modes)
   - [Prompt Architecture](/guide/prompt-architecture)
   - [Memory](/guide/memory)
+  - [TODO and Heartbeat](/guide/todo-and-heartbeat)
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
   - [Subagents](/guide/subagents)
