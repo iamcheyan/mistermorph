@@ -17,6 +17,7 @@ description: Where to find deeper design and runtime documents in the repo.
   - [TODO and Heartbeat](/guide/todo-and-heartbeat)
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
+  - [Commands](/guide/runtime-commands)
   - [Subagents](/guide/subagents)
   - [ACP](/guide/acp)
   - [MCP](/guide/mcp)

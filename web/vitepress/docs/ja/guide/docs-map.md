@@ -17,6 +17,7 @@ description: より詳細な設計・実装文書への入口。
   - [TODO と Heartbeat](/ja/guide/todo-and-heartbeat)
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
+  - [コマンド](/ja/guide/runtime-commands)
   - [Subagents](/ja/guide/subagents)
   - [ACP](/ja/guide/acp)
   - [MCP](/ja/guide/mcp)

@@ -96,6 +96,14 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
+        slug: 'runtime-commands',
+        text: {
+          en: 'Commands',
+          zh: '命令',
+          ja: 'コマンド'
+        }
+      },
+      {
         slug: 'subagents',
         text: {
           en: 'Subagents',
