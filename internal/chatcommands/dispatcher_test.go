@@ -162,3 +162,27 @@ func TestModelCommandHandlerRebuildsCommandText(t *testing.T) {
 		t.Fatalf("unexpected reply: %#v", res)
 	}
 }
+
+func TestRuntimeRegistryHandlesSkillCommand(t *testing.T) {
+	reg := NewRuntimeRegistry(RuntimeRegistryOptions{
+		SkillCommand: func() (string, error) {
+			return "skills ok", nil
+		},
+	})
+
+	help, handled, err := reg.Dispatch(context.Background(), "/help")
+	if err != nil {
+		t.Fatalf("/help error = %v", err)
+	}
+	if !handled || help == nil || !strings.Contains(help.Reply, "/skill") {
+		t.Fatalf("/help missing /skill: %#v handled=%v", help, handled)
+	}
+
+	res, handled, err := reg.Dispatch(context.Background(), "/skill")
+	if err != nil {
+		t.Fatalf("/skill error = %v", err)
+	}
+	if !handled || res == nil || res.Reply != "skills ok" {
+		t.Fatalf("unexpected /skill result: %#v handled=%v", res, handled)
+	}
+}

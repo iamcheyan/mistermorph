@@ -1037,7 +1037,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /model, /workspace, /reset, /id\n\n" +
+					"Commands: /model, /skill, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1053,6 +1053,20 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					continue
 				}
 				_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString("missing llm profile command handler"), true)
+				continue
+			case "/skill":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					continue
+				}
+				mu.Lock()
+				currentSkills := append([]string(nil), stickySkillsByChat[chatID]...)
+				mu.Unlock()
+				if executeTelegramSkillCommand(d, api, chatID, currentSkills) {
+					continue
+				}
+				_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString("missing skill command handler"), true)
 				continue
 			case "/id":
 				_ = api.sendMessageHTML(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)

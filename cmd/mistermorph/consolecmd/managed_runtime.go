@@ -284,6 +284,9 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 			HandleModelCommand: func(text string) (string, bool, error) {
 				return llmselect.ExecuteCommandText(runtimeValues, llmselect.ProcessStore(), text)
 			},
+			HandleSkillCommand: func(currentLoaded []string) (string, error) {
+				return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), currentLoaded)
+			},
 		}
 		return func(ctx context.Context) error {
 			return telegramruntime.Run(ctx, runtimeDeps, runOpts)
@@ -312,6 +315,9 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 			CommonDependencies: deps,
 			HandleModelCommand: func(text string) (string, bool, error) {
 				return llmselect.ExecuteCommandText(runtimeValues, llmselect.ProcessStore(), text)
+			},
+			HandleSkillCommand: func(currentLoaded []string) (string, error) {
+				return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), currentLoaded)
 			},
 		}
 		return func(ctx context.Context) error {

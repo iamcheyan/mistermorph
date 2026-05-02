@@ -24,6 +24,18 @@ func executeTelegramProfileCommand(d Dependencies, api *telegramAPI, chatID int6
 	return true
 }
 
+func executeTelegramSkillCommand(d Dependencies, api *telegramAPI, chatID int64, currentSkills []string) bool {
+	if d.HandleSkillCommand == nil {
+		return false
+	}
+	output, err := d.HandleSkillCommand(append([]string(nil), currentSkills...))
+	if err != nil {
+		output = "error: " + strings.TrimSpace(err.Error())
+	}
+	_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(output), true)
+	return true
+}
+
 func resolveTelegramMainForUse(rt *taskruntime.Runtime) (llm.Client, string, func(), error) {
 	route, err := rt.ResolveMainRouteForRun()
 	if err != nil {

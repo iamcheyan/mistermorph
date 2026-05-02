@@ -9,10 +9,12 @@ import (
 )
 
 type HandleModelCommandFunc func(text string) (string, bool, error)
+type HandleSkillCommandFunc func(currentLoaded []string) (string, error)
 
 type Dependencies struct {
 	depsutil.CommonDependencies
 	HandleModelCommand HandleModelCommandFunc
+	HandleSkillCommand HandleSkillCommandFunc
 }
 
 // Hooks is intentionally minimal in the bootstrap phase.

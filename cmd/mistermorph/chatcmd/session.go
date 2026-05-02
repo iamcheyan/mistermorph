@@ -64,6 +64,7 @@ type chatSession struct {
 	makeEngine      func(*tools.Registry, llm.Client, string) *agent.Engine
 	basePromptSpec  agent.PromptSpec
 	promptSpec      agent.PromptSpec
+	loadedSkills    []string
 	timeout         time.Duration
 	writer          io.Writer
 	uiMu            sync.Mutex
@@ -358,7 +359,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	promptCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	promptSpec, _, err := skillsutil.PromptSpecWithSkills(promptCtx, logger, logOpts, "Interactive chat session", client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
+	promptSpec, loadedSkills, err := skillsutil.PromptSpecWithSkills(promptCtx, logger, logOpts, "Interactive chat session", client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
 	if err != nil {
 		return nil, err
 	}
@@ -561,6 +562,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		workspaceDir:   workspaceDir,
 		basePromptSpec: promptSpec,
 		promptSpec:     promptSpec,
+		loadedSkills:   loadedSkills,
 		timeout:        timeout,
 		fileSnapshots:  make(map[string]string),
 	}

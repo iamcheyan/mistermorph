@@ -90,5 +90,6 @@ func buildLarkRuntimeDeps(
 			PromptAugment:      d.PromptAugment,
 		},
 		HandleModelCommand: d.HandleModelCommand,
+		HandleSkillCommand: d.HandleSkillCommand,
 	}
 }

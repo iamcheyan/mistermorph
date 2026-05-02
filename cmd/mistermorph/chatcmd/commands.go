@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -35,6 +36,14 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	reg.Register("/memory", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		handleMemory(writer, sess.memOrchestrator, sess.subjectID)
 		return &chatcommands.Result{}, nil
+	})
+
+	reg.Register("/skill", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		output, err := skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromRunCmd(sess.cmd), sess.loadedSkills)
+		if err != nil {
+			return nil, err
+		}
+		return &chatcommands.Result{Reply: output}, nil
 	})
 
 	reg.Register("/help", chatcommands.HelpHandler(reg, "Available commands:"))
@@ -140,7 +149,7 @@ func handleExit(writer io.Writer) {
 
 // handleHelp prints the help text.
 func handleHelp(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /memory, /remember <content>, /model, /workspace, /init, /update, /help")
+	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /memory, /remember <content>, /skill, /model, /workspace, /init, /update, /help")
 }
 
 func chatBuiltinCommandsBlock() string {
@@ -150,6 +159,7 @@ func chatBuiltinCommandsBlock() string {
 		"- `/reset` — reset the current conversation (clear history, keep memory)\n" +
 		"- `/memory` — display the current project memory\n" +
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +
+		"- `/skill` — show loaded and not loaded skills\n" +
 		"- `/model` — inspect or change the current model selection for this session\n" +
 		"- `/workspace` — show the current workspace attachment\n" +
 		"- `/workspace attach <dir>` — attach or replace the current workspace directory\n" +

@@ -10,13 +10,14 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
-func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, event slackInboundEvent, botUserID string) (bool, error) {
+func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, event slackInboundEvent, botUserID string, currentSkills []string) (bool, error) {
 	if isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
 		return false, nil
 	}
 	text := normalizeSlackCommandText(event.Text, botUserID)
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand:   d.HandleModelCommand,
+		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})
@@ -47,6 +48,16 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 		correlationID,
 	)
 	return true, publishErr
+}
+
+func skillCommandForRuntime(fn HandleSkillCommandFunc, currentSkills []string) chatcommands.SkillCommandFunc {
+	if fn == nil {
+		return nil
+	}
+	snapshot := append([]string(nil), currentSkills...)
+	return func() (string, error) {
+		return fn(snapshot)
+	}
 }
 
 func normalizeSlackCommandText(text string, botUserID string) string {

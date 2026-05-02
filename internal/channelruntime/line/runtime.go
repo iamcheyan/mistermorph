@@ -369,7 +369,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("line inbound text is required")
 		}
-		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound); handledCommand {
+		mu.Lock()
+		currentSkills := append([]string(nil), stickySkillsByConv[msg.ConversationKey]...)
+		mu.Unlock()
+		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
 			return cmdErr
 		}
 		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {

@@ -723,7 +723,55 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	for _, want := range []string{"/help", "/model", "/workspace"} {
+	for _, want := range []string{"/help", "/model", "/skill", "/workspace"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("final.output missing %q: %q", want, output)
+		}
+	}
+}
+
+func TestConsoleLocalRuntimeSubmitTaskHandlesSkillCommand(t *testing.T) {
+	prevStateDir := viper.GetString("file_state_dir")
+	prevSkillsDirName := viper.GetString("skills.dir_name")
+	defer func() {
+		viper.Set("file_state_dir", prevStateDir)
+		viper.Set("skills.dir_name", prevSkillsDirName)
+	}()
+	viper.Set("file_state_dir", t.TempDir())
+	viper.Set("skills.dir_name", "skills")
+
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	reader := viper.New()
+	reader.Set("skills.enabled", true)
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	rt := &consoleLocalRuntime{
+		store:      store,
+		generation: generation,
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task: "/skill",
+	})
+	if err != nil {
+		t.Fatalf("submitTask() error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	result, _ := task.Result.(map[string]any)
+	final, _ := result["final"].(map[string]any)
+	output := strings.TrimSpace(fmt.Sprint(final["output"]))
+	for _, want := range []string{"Skills: enabled", "Loaded: none", "No skills discovered."} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("final.output missing %q: %q", want, output)
 		}

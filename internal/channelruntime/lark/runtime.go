@@ -325,7 +325,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("lark inbound text is required")
 		}
-		if handledCommand, cmdErr := maybeHandleLarkCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound); handledCommand {
+		mu.Lock()
+		currentSkills := append([]string(nil), stickySkillsByConv[msg.ConversationKey]...)
+		mu.Unlock()
+		if handledCommand, cmdErr := maybeHandleLarkCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
 			return cmdErr
 		}
 		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {

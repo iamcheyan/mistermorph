@@ -8,6 +8,7 @@ import (
 
 type RuntimeRegistryOptions struct {
 	ModelCommand   ModelCommandFunc
+	SkillCommand   SkillCommandFunc
 	WorkspaceStore *workspace.Store
 	WorkspaceKey   string
 	HelpHeader     string
@@ -21,6 +22,9 @@ func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
 	}
 	reg.Register("/help", HelpHandler(reg, header))
 	reg.Register("/model", ModelCommandHandler(opts.ModelCommand))
+	if opts.SkillCommand != nil {
+		reg.Register("/skill", SkillCommandHandler(opts.SkillCommand))
+	}
 	reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey))
 	return reg
 }

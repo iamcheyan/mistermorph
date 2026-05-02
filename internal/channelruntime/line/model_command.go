@@ -11,9 +11,10 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
-func maybeHandleLineCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, inbound linebus.InboundMessage) (bool, error) {
+func maybeHandleLineCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, inbound linebus.InboundMessage, currentSkills []string) (bool, error) {
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand:   d.HandleModelCommand,
+		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})
@@ -36,4 +37,14 @@ func maybeHandleLineCommand(ctx context.Context, d Dependencies, inprocBus *busr
 	correlationID := fmt.Sprintf("line:command:%s:%s", inbound.ChatID, inbound.MessageID)
 	_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, output, inbound.ReplyToken, correlationID)
 	return true, publishErr
+}
+
+func skillCommandForRuntime(fn HandleSkillCommandFunc, currentSkills []string) chatcommands.SkillCommandFunc {
+	if fn == nil {
+		return nil
+	}
+	snapshot := append([]string(nil), currentSkills...)
+	return func() (string, error) {
+		return fn(snapshot)
+	}
 }

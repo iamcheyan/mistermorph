@@ -876,7 +876,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			event.Username = username
 			event.DisplayName = displayName
 			event.Text = slackImageFallbackText(event.Text, taskRuntimeOpts.ImageRecognitionEnabled, len(event.ImageFiles))
-			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID)
+			mu.Lock()
+			currentSkills := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
+			mu.Unlock()
+			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID, currentSkills)
 			if cmdErr != nil {
 				logger.Warn("slack_command_error",
 					"conversation_key", conversationKey,

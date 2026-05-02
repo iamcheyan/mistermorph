@@ -120,6 +120,7 @@ func newRootCmd() *cobra.Command {
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(telegramLLM.Values(), llmselect.ProcessStore(), text)
 		},
+		HandleSkillCommand: telegramSkills.Status,
 	}))
 
 	slackLLM := newLLMRuntimeResolver()
@@ -152,6 +153,7 @@ func newRootCmd() *cobra.Command {
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(slackLLM.Values(), llmselect.ProcessStore(), text)
 		},
+		HandleSkillCommand: slackSkills.Status,
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
 		Dependencies: heartbeatruntime.Dependencies{
@@ -176,6 +178,7 @@ func newRootCmd() *cobra.Command {
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(lineLLM.Values(), llmselect.ProcessStore(), text)
 		},
+		HandleSkillCommand: lineSkills.Status,
 	}))
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
 		Dependencies: heartbeatruntime.Dependencies{
@@ -200,6 +203,7 @@ func newRootCmd() *cobra.Command {
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(larkLLM.Values(), llmselect.ProcessStore(), text)
 		},
+		HandleSkillCommand: larkSkills.Status,
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(newAuthCmd())
@@ -326,6 +330,10 @@ func (r *skillsRuntimeResolver) Config() skillsutil.SkillsConfig {
 	cfg.Roots = append([]string(nil), cfg.Roots...)
 	cfg.Requested = append([]string(nil), cfg.Requested...)
 	return cfg
+}
+
+func (r *skillsRuntimeResolver) Status(currentLoaded []string) (string, error) {
+	return skillsutil.RenderSkillStatus(r.Config(), currentLoaded)
 }
 
 type registryRuntimeResolver struct {

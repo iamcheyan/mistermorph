@@ -29,6 +29,7 @@ func runREPL(sess *chatSession) error {
 		readline.PcItem("/reset"),
 		readline.PcItem("/memory"),
 		readline.PcItem("/remember "),
+		readline.PcItem("/skill"),
 		readline.PcItem("/init"),
 		readline.PcItem("/update"),
 		readline.PcItem("/model"),

@@ -63,6 +63,22 @@ func modelCommandText(args string) string {
 	return text
 }
 
+// SkillCommandFunc returns a snapshot of the current skill loading state.
+type SkillCommandFunc = func() (output string, err error)
+
+func SkillCommandHandler(fn SkillCommandFunc) Handler {
+	return func(ctx context.Context, args string) (*Result, error) {
+		if fn == nil {
+			return nil, fmt.Errorf("missing skill command handler")
+		}
+		output, err := fn()
+		if err != nil {
+			return nil, err
+		}
+		return &Result{Reply: output}, nil
+	}
+}
+
 // ModelHandler wraps the llmselect package so that /model commands can be
 // handled uniformly across chat front-ends.
 //

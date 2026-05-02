@@ -986,7 +986,14 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
-	if output, handled := r.handleConsoleHelpCommand(task); handled {
+	if output, handled := r.handleConsoleHelpCommand(generation.reader, task); handled {
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
+	if output, handled := r.handleConsoleSkillCommand(generation.reader, task); handled {
 		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
 		if err == nil {
 			releaseGeneration = false
@@ -1023,12 +1030,16 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	return resp, err
 }
 
-func (r *consoleLocalRuntime) handleConsoleHelpCommand(task string) (string, bool) {
+func (r *consoleLocalRuntime) handleConsoleHelpCommand(reader *viper.Viper, task string) (string, bool) {
 	cmdWord, _ := chatcommands.ParseCommand(task)
 	if chatcommands.NormalizeCommand(cmdWord) != "/help" {
 		return "", false
 	}
-	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{})
+	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
+		SkillCommand: func() (string, error) {
+			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), nil)
+		},
+	})
 	result, err := chatcommands.HelpHandler(reg, "Available commands:")(context.Background(), "")
 	if err != nil {
 		return "error: " + strings.TrimSpace(err.Error()), true
@@ -1037,6 +1048,18 @@ func (r *consoleLocalRuntime) handleConsoleHelpCommand(task string) (string, boo
 		return "", true
 	}
 	return result.Reply, true
+}
+
+func (r *consoleLocalRuntime) handleConsoleSkillCommand(reader *viper.Viper, task string) (string, bool) {
+	cmdWord, _ := chatcommands.ParseCommand(task)
+	if chatcommands.NormalizeCommand(cmdWord) != "/skill" {
+		return "", false
+	}
+	output, err := skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), nil)
+	if err != nil {
+		return "error: " + strings.TrimSpace(err.Error()), true
+	}
+	return output, true
 }
 
 func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {

@@ -139,6 +139,7 @@ func buildTelegramRuntimeDeps(
 			PromptSpec:         d.PromptSpec,
 		},
 		HandleModelCommand: d.HandleModelCommand,
+		HandleSkillCommand: d.HandleSkillCommand,
 	}
 }
 

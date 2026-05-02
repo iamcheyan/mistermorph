@@ -9,4 +9,5 @@ import (
 type Dependencies struct {
 	heartbeatruntime.Dependencies
 	HandleModelCommand slackruntime.HandleModelCommandFunc
+	HandleSkillCommand slackruntime.HandleSkillCommandFunc
 }
