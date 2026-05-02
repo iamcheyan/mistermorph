@@ -502,27 +502,7 @@ textarea {
 
 
 .VPLocalNav {
-  border-bottom: 1px solid color-mix(in srgb, var(--morph-line) 60%, transparent);
-  background: color-mix(in srgb, var(--morph-paper-strong) 84%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.VPLocalNav .container {
-  width: min(var(--site-max-width), calc(100vw - (var(--site-gutter) * 2)));
-  margin: 0 auto;
-}
-
-.VPLocalNav .menu,
-.VPLocalNav .VPOutlineDropdown {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-@media (min-width: 960px) {
-  .VPLocalNav {
-    display: none;
-  }
+  display: none !important;
 }
 
 .VPLocalNav .menu-text,

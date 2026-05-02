@@ -72,17 +72,17 @@
   --install-cta-font-size: 0.72rem;
   --install-cta-font-weight: 600;
   --install-cta-letter-spacing: 0.08em;
+  --site-header-height: 68px;
   --morph-nav-brand-size: 1.92rem;
-  --morph-nav-shell-pad-top: 0.48rem;
-  --morph-nav-shell-pad-bottom: 0.48rem;
+  --morph-nav-shell-pad-top: 0;
+  --morph-nav-shell-pad-bottom: 0;
+  --morph-nav-action-font-size: 0.85rem;
 
   --vp-font-family-base: var(--morph-font-ui);
   --vp-font-family-mono: var(--morph-font-mono);
   --vp-layout-max-width: var(--site-max-width);
   --vp-sidebar-width: var(--rail-section-sidebar);
-  --vp-nav-height: calc(
-    var(--morph-nav-brand-size) + var(--morph-nav-shell-pad-top) + var(--morph-nav-shell-pad-bottom)
-  );
+  --vp-nav-height: var(--site-header-height);
 
   --vp-c-brand-1: var(--morph-accent-strong);
   --vp-c-brand-2: var(--morph-accent);

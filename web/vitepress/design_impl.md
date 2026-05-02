@@ -92,6 +92,11 @@ header 的 VitePress-specific 规则：
 - search trigger 是图标按钮，不是文字按钮
 - language switch 继续作为 utility menu
 - 不引入默认 mobile menu 体系
+- `theme.nav` 不再作为 header 中央一级导航直接暴露，而是进入右侧 `MENU` 的全高面板
+- `MENU` 面板沿用 canonical website header 规则：从 68px header 下沿开始，高度为 `calc(100svh - 68px)`
+- VitePress 侧保留 search、LANG、MENU 三个右侧 utility action；search 是 docs runtime 独有入口
+- 移动端隐藏 VitePress 默认 `VPLocalNav`；sidebar 分组进入自定义 `MENU` 面板
+- `MENU` 面板只保留三组：`Navigation`、当前语言下的 `References`、`Resources`
 
 ### 3.2 Local Search
 
