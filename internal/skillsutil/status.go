@@ -1,8 +1,8 @@
 package skillsutil
 
 import (
-	"fmt"
 	"strings"
+	"text/template"
 
 	"github.com/quailyquaily/mistermorph/skills"
 )
@@ -10,56 +10,96 @@ import (
 type SkillStatus struct {
 	Enabled   bool
 	Loaded    []SkillStatusItem
-	NotLoaded []SkillStatusItem
-	Missing   []string
+	Available []SkillStatusItem
 }
 
 type SkillStatusItem struct {
-	ID   string
-	Name string
+	ID          string
+	Name        string
+	Description string
 }
+
+type skillStatusTemplateData struct {
+	Sections []skillStatusTemplateSection
+}
+
+type skillStatusTemplateSection struct {
+	Title string
+	Count int
+	Items []skillStatusTemplateItem
+}
+
+type skillStatusTemplateItem struct {
+	Name        string
+	Description string
+}
+
+const skillStatusEnabledTemplateText = `{{range .Sections}}**{{.Title}} ({{.Count}})**
+
+{{range .Items}}- ` + "`{{.Name}}`\n" + `: {{.Description}}
+{{end}}
+{{end}}`
+
+const skillStatusDisabledTemplateText = `> Skill is disabled`
+
+var (
+	skillStatusEnabledTemplate  = template.Must(template.New("skill-status-enabled").Parse(skillStatusEnabledTemplateText))
+	skillStatusDisabledTemplate = template.Must(template.New("skill-status-disabled").Parse(skillStatusDisabledTemplateText))
+)
 
 func BuildSkillStatus(cfg SkillsConfig, currentLoaded []string) (SkillStatus, error) {
 	status := SkillStatus{Enabled: cfg.Enabled}
+	if !cfg.Enabled {
+		return status, nil
+	}
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil {
 		return status, err
 	}
+	for i, sk := range discovered {
+		sk, err := skills.LoadFrontmatter(sk, 64*1024)
+		if err != nil {
+			return status, err
+		}
+		discovered[i] = sk
+	}
 
 	loadedIDs := map[string]bool{}
-	if cfg.Enabled {
-		requested := append([]string{}, cfg.Requested...)
-		requested = append(requested, currentLoaded...)
-		finalReq, loadAll := normalizeSkillStatusRequests(requested)
-		if len(finalReq) == 0 {
-			loadAll = true
+	requested := append([]string{}, cfg.Requested...)
+	requested = append(requested, currentLoaded...)
+	finalReq, loadAll := normalizeSkillStatusRequests(requested)
+	if len(finalReq) == 0 {
+		loadAll = true
+	}
+	if loadAll {
+		for _, sk := range discovered {
+			loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
 		}
-		if loadAll {
-			for _, sk := range discovered {
-				loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
+	} else {
+		for _, query := range finalReq {
+			sk, err := skills.Resolve(discovered, query)
+			if err != nil {
+				continue
 			}
-		} else {
-			for _, query := range finalReq {
-				sk, err := skills.Resolve(discovered, query)
-				if err != nil {
-					status.Missing = append(status.Missing, query)
-					continue
-				}
-				loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
-			}
+			loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
 		}
 	}
 
 	for _, sk := range discovered {
+		name := strings.TrimSpace(sk.Name)
+		if name == "" {
+			name = strings.TrimSpace(sk.ID)
+		}
 		item := SkillStatusItem{
-			ID:   strings.TrimSpace(sk.ID),
-			Name: strings.TrimSpace(sk.Name),
+			ID:          strings.TrimSpace(sk.ID),
+			Name:        name,
+			Description: strings.TrimSpace(sk.Description),
 		}
 		key := strings.ToLower(item.ID)
 		if loadedIDs[key] {
 			status.Loaded = append(status.Loaded, item)
 		} else {
-			status.NotLoaded = append(status.NotLoaded, item)
+			status.Available = append(status.Available, item)
 		}
 	}
 	return status, nil
@@ -70,25 +110,18 @@ func RenderSkillStatus(cfg SkillsConfig, currentLoaded []string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	var b strings.Builder
+	data := skillStatusTemplateData{
+		Sections: skillStatusSections(status),
+	}
+	tmpl := skillStatusDisabledTemplate
 	if status.Enabled {
-		b.WriteString("Skills: enabled")
-	} else {
-		b.WriteString("Skills: disabled")
+		tmpl = skillStatusEnabledTemplate
 	}
-	writeSkillStatusItems(&b, "Loaded", status.Loaded)
-	writeSkillStatusItems(&b, "Not loaded", status.NotLoaded)
-	if len(status.Missing) > 0 {
-		b.WriteString("\nMissing requested:")
-		for _, name := range status.Missing {
-			b.WriteString("\n- ")
-			b.WriteString(name)
-		}
+	var b strings.Builder
+	if err := tmpl.Execute(&b, data); err != nil {
+		return "", err
 	}
-	if len(status.Loaded) == 0 && len(status.NotLoaded) == 0 {
-		b.WriteString("\nNo skills discovered.")
-	}
-	return b.String(), nil
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 func normalizeSkillStatusRequests(requested []string) ([]string, bool) {
@@ -113,24 +146,35 @@ func normalizeSkillStatusRequests(requested []string) ([]string, bool) {
 	return out, loadAll
 }
 
-func writeSkillStatusItems(b *strings.Builder, title string, items []SkillStatusItem) {
-	if b == nil {
-		return
+func skillStatusSections(status SkillStatus) []skillStatusTemplateSection {
+	var sections []skillStatusTemplateSection
+	if section, ok := skillStatusSection("Loaded Skills", status.Loaded); ok {
+		sections = append(sections, section)
 	}
-	if len(items) == 0 {
-		fmt.Fprintf(b, "\n%s: none", title)
-		return
+	if section, ok := skillStatusSection("Available Skills", status.Available); ok {
+		sections = append(sections, section)
 	}
-	fmt.Fprintf(b, "\n%s (%d):", title, len(items))
+	return sections
+}
+
+func skillStatusSection(title string, items []SkillStatusItem) (skillStatusTemplateSection, bool) {
+	out := make([]skillStatusTemplateItem, 0, len(items))
 	for _, item := range items {
-		label := strings.TrimSpace(item.ID)
-		if label == "" {
-			label = strings.TrimSpace(item.Name)
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = strings.TrimSpace(item.ID)
 		}
-		if label == "" {
+		if name == "" {
 			continue
 		}
-		b.WriteString("\n- ")
-		b.WriteString(label)
+		desc := strings.TrimSpace(item.Description)
+		if desc != "" {
+			desc = "\n  " + strings.ReplaceAll(desc, "\n", "\n  ")
+		}
+		out = append(out, skillStatusTemplateItem{Name: name, Description: desc})
 	}
+	if len(out) == 0 {
+		return skillStatusTemplateSection{}, false
+	}
+	return skillStatusTemplateSection{Title: title, Count: len(out), Items: out}, true
 }
