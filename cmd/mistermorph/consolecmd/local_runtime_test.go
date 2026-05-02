@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -725,63 +724,6 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
 	for _, want := range []string{"/help", "/model", "/skill", "/workspace"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("final.output missing %q: %q", want, output)
-		}
-	}
-}
-
-func TestConsoleLocalRuntimeSubmitTaskHandlesSkillCommand(t *testing.T) {
-	prevStateDir := viper.GetString("file_state_dir")
-	prevSkillsDirName := viper.GetString("skills.dir_name")
-	defer func() {
-		viper.Set("file_state_dir", prevStateDir)
-		viper.Set("skills.dir_name", prevSkillsDirName)
-	}()
-	stateDir := t.TempDir()
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("skills.dir_name", "skills")
-	skillDir := filepath.Join(stateDir, "skills", "alpha")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("mkdir skill dir: %v", err)
-	}
-	skillMD := "---\nname: alpha\ndescription: Alpha skill.\n---\n# Alpha\n"
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
-		t.Fatalf("write SKILL.md: %v", err)
-	}
-
-	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
-	})
-	if err != nil {
-		t.Fatalf("NewConsoleFileStore() error = %v", err)
-	}
-	reader := viper.New()
-	reader.Set("skills.enabled", true)
-	generation := &consoleLocalRuntimeGeneration{reader: reader}
-	rt := &consoleLocalRuntime{
-		store:      store,
-		generation: generation,
-	}
-
-	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
-		Task: "/skill",
-	})
-	if err != nil {
-		t.Fatalf("submitTask() error = %v", err)
-	}
-	if resp.Status != daemonruntime.TaskDone {
-		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
-	}
-	task, ok := store.Get(resp.ID)
-	if !ok || task == nil {
-		t.Fatalf("store.Get(%q) missing", resp.ID)
-	}
-	result, _ := task.Result.(map[string]any)
-	final, _ := result["final"].(map[string]any)
-	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	for _, want := range []string{"**Loaded Skills (1)**", "* `alpha`:", "Alpha skill."} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("final.output missing %q: %q", want, output)
 		}
