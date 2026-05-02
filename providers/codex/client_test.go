@@ -113,6 +113,35 @@ func TestPrepareCodexRequestDoesNotDuplicateJSONReminder(t *testing.T) {
 	}
 }
 
+func TestPrepareCodexRequestIgnoresToolOutputForJSONReminder(t *testing.T) {
+	got, err := prepareCodexRequest(llm.Request{
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "list contacts"},
+			{
+				Role: "assistant",
+				ToolCalls: []llm.ToolCall{{
+					ID:           "call_1",
+					Type:         "function",
+					Name:         "bash",
+					RawArguments: `{"cmd":"find contacts"}`,
+				}},
+			},
+			{Role: "tool", ToolCallID: "call_1", Content: "contacts/bus_outbox.json"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareCodexRequest() error = %v", err)
+	}
+	if len(got.Messages) != 4 {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if !strings.Contains(strings.ToLower(got.Messages[0].Content), "json") {
+		t.Fatalf("first input message should mention JSON: %+v", got.Messages[0])
+	}
+}
+
 func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
 	stateDir := t.TempDir()
 	if err := codexauth.WriteToken(stateDir, codexauth.Token{

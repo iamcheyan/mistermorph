@@ -171,6 +171,11 @@ func ensureInputMentionsJSON(messages []llm.Message) []llm.Message {
 
 func inputMentionsJSON(messages []llm.Message) bool {
 	for _, msg := range messages {
+		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
+		case "system", "user", "assistant":
+		default:
+			continue
+		}
 		if strings.Contains(strings.ToLower(messageText(msg)), "json") {
 			return true
 		}
