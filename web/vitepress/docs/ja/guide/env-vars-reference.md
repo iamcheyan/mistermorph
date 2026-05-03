@@ -74,9 +74,6 @@ mcp:
 
 ## 互換 / 特殊環境変数
 
-- `TELEGRAM_BOT_TOKEN`
-  - `mistermorph telegram send` のみの互換フォールバック
-  - 推奨は `MISTER_MORPH_TELEGRAM_BOT_TOKEN`
 - `NO_COLOR`、`TERM=dumb`
   - CLI の色表示挙動のみ変更
 

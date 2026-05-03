@@ -74,9 +74,6 @@ mcp:
 
 ## 兼容/特殊环境变量
 
-- `TELEGRAM_BOT_TOKEN`
-  - 仅用于 `mistermorph telegram send` 的兼容回退
-  - 优先仍是 `MISTER_MORPH_TELEGRAM_BOT_TOKEN`
 - `NO_COLOR`、`TERM=dumb`
   - 仅影响 CLI 颜色输出
 

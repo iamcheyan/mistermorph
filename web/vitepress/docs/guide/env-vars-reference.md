@@ -74,9 +74,6 @@ Notes:
 
 ## Compatibility / Special Env Vars
 
-- `TELEGRAM_BOT_TOKEN`
-  - fallback for `mistermorph telegram send`
-  - preferred var is still `MISTER_MORPH_TELEGRAM_BOT_TOKEN`
 - `NO_COLOR` and `TERM=dumb`
   - affect CLI color output behavior only
 
